@@ -1,7 +1,8 @@
 {
   "name": "@bou-co/parsing",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
+  "license": "MIT",
   "scripts": {
     "test": "jest",
     "build": "npm run test & vite build",
@@ -9,6 +10,13 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bou-co/parsing.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bou-co/parsing/issues"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",

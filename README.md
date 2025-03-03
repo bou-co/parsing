@@ -87,15 +87,21 @@ Possible values that are automatically turned to types are `string, number, bool
 
 #### Using custom types
 
-It's also possible to use custom types for value with `typed`
+It's also possible to use custom types for value with `typed` function. With `typed` you can pass any custom TypeScript values to be used as values generated with the typing.
 
 ```ts
 import { typed } from '@bou-co/parsing';
 import { createParser } from '../path-to/parser-config';
 
+interface Author {
+  name?: string;
+  title?: string;
+}
+
 const anotherParser = createParser({
   title: 'string',
   category: typed<'blog' | 'news' | 'releases'>,
+  author: typed<Author>,
 });
 
 export type AnotherParserData = ParserReturnValue<typeof anotherParser>;
