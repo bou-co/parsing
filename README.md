@@ -113,6 +113,7 @@ In this case type `AnotherParserData` equals to:
 interface AnotherParserData {
   title?: string;
   category?: 'blog' | 'news' | 'releases';
+  author?: Author;
 }
 ```
 
