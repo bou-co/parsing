@@ -1,6 +1,8 @@
 # Bou Parsing
 
-Package to help you with simple data manipulation & validation, type generation and splitting queries into smaller pieces.
+Bou Parsing is your ultimate sidekick for taming unruly data! Whether you're wrangling data from APIs, generating TypeScript types on the fly, or splitting complex queries into bite-sized pieces, Bou Parsing has got you covered. With its powerful yet easy-to-use functions, you can effortlessly manipulate, validate, and transform your data into exactly what you need. Say goodbye to tedious data handling and hello to a smoother, more efficient workflow with Bou Parsing!
+
+[NPM](https://www.npmjs.com/package/@bou-co/parsing) | [GitHub](https://github.com/bou-co/parsing)
 
 ## Get started
 
@@ -365,3 +367,11 @@ Result in case above is:
 ```json
 { "title": "Message for the whole world", "description": "Hello world!" }
 ```
+
+---
+
+<footer>
+
+Developed by [Bou](https://bou.co/)
+
+</footer>
