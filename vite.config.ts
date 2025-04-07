@@ -19,7 +19,7 @@ export default defineConfig({
     lib: {
       name: 'bou-co-parser',
       entry: {
-        index: 'src/parser.ts',
+        index: 'src/index.ts',
         react: 'src/react/index.ts',
       },
       fileName: (format, entryName) => {
