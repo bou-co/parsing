@@ -3,12 +3,16 @@ import { AppObject, ParserCondition, ParserFunction, ParserProjection } from './
 
 export const asyncMapObject = async <T>(object: T, callback: (value: any) => any): Promise<T> => {
   if (!object || typeof object !== 'object') return object;
-  return Object.entries(object).reduce(async (acc, [key, value]) => {
-    const awaited = await acc;
-    const result = await callback(value);
-    awaited[key] = result;
-    return awaited;
-  }, Promise.resolve(object) as Promise<AppObject>);
+  return Object.entries(object).reduce(
+    async (acc, [key, value]) => {
+      const awaited = await acc;
+      const copy: Record<any, any> = Array.isArray(awaited) ? [...awaited] : { ...awaited };
+      const result = await callback(value);
+      copy[key] = result;
+      return copy;
+    },
+    Promise.resolve(object) as Promise<Record<any, any>>,
+  );
 };
 
 export const asDate = (value: string | number): undefined | Date => {
