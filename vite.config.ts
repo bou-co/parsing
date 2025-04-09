@@ -20,7 +20,7 @@ export default defineConfig({
       name: 'bou-co-parser',
       entry: {
         index: 'src/index.ts',
-        react: 'src/react/index.ts',
+        'react/index': 'src/react/index.ts',
       },
       fileName: (format, entryName) => {
         const ext = format === 'es' ? 'js' : format;
