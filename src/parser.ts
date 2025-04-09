@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { get } from 'lodash';
 import { ParserFunction, ParserContext, valueKeys, ParserConditionalItems, ParserProjection, ParserGlobalContextFn, AppObject } from './parser-types';
 import { asDate, asyncMapObject, filterNill, optional, typed } from './parser-util';
 
@@ -150,14 +149,27 @@ class Parser {
             .split('||')
             .map((item) => item.trim());
 
+          const get = async (from: object, name: string) => {
+            type VariablesObj = Record<any, any> | undefined;
+            if (!from) return undefined;
+            const keys = name.split('.');
+            return keys.reduce((acc, key): VariablesObj => {
+              if (!acc) return undefined;
+              if (typeof acc !== 'object') return undefined;
+              if (key in acc) return acc[key];
+              return undefined;
+            }, from as VariablesObj);
+          };
+
           const value = await get(variables, variableName);
+
           if (typeof value === 'function') {
             const res = await value();
             if (!res && fallback) return fallback.slice(1, -1) as unknown as T;
             return res;
           }
           if (!value && fallback) return fallback.slice(1, -1) as unknown as T;
-          return value;
+          return value as T;
         };
 
         const findVariables = async <T>(current: T): Promise<T> => {
@@ -176,11 +188,14 @@ class Parser {
             const isVariable = current.match(/^\{\{[^}]+\}\}$/);
             if (isVariable) return getVariableValue(current);
 
-            return variables.reduce(async (acc, variableName) => {
-              const awaited = await acc;
-              const value = await getVariableValue<string>(variableName);
-              return awaited.replace(variableName, value);
-            }, Promise.resolve(current) as Promise<string>) as T;
+            return variables.reduce(
+              async (acc, variableName) => {
+                const awaited = await acc;
+                const value = await getVariableValue<string>(variableName);
+                return awaited.replace(variableName, value);
+              },
+              Promise.resolve(current) as Promise<string>,
+            ) as T;
           }
           return current;
         };
