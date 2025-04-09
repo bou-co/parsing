@@ -1,11 +1,12 @@
 {
   "name": "@bou-co/parsing",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "type": "module",
   "license": "MIT",
   "scripts": {
     "test": "jest",
     "build": "npm run test && vite build",
+    "publish:dev": "npm run build && npm publish --tag dev",
     "publish:latest": "npm run build && npm publish"
   },
   "publishConfig": {
@@ -48,12 +49,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
     },
     "./react": {
       "types": "./dist/react/index.d.ts",
       "import": "./dist/react/index.js",
-      "require": "./dist/react/index.cjs"
+      "require": "./dist/react/index.cjs",
+      "default": "./dist/react/index.js"
     }
   },
   "files": [
