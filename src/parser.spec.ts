@@ -371,8 +371,6 @@ describe('parsing', () => {
     expect(rootData.level1Parser?.level2Parser1?.level3).toBeTruthy();
     expect(rootData.level1Parser?.level2Parser1?.level3Additional1).toEqual('level3Additional1Works');
     expect(rootData.level1Parser?.level2Parser1?.level3Additional2).toEqual('level3Additional2Works');
-
-    console.log(rootData);
   });
 
   it('should append values when "@combine" is used', async () => {
