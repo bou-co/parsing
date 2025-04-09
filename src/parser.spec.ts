@@ -443,7 +443,7 @@ describe('parsing', () => {
       {
         title: 'string',
       },
-      projectionContext
+      projectionContext,
     );
 
     const data = await parser({ title: `This is: {{description}}` });
@@ -478,7 +478,7 @@ describe('parsing', () => {
       {
         nothing: true,
       },
-      instanceContext
+      instanceContext,
     );
 
     expect(data).toBeTruthy();
@@ -516,7 +516,7 @@ describe('parsing', () => {
         asyncValue: '{{nested.async}}',
         deepValue: '{{deep.1.2.3.value}}',
       },
-      nestedInstanceContext
+      nestedInstanceContext,
     );
 
     expect(data).toBeTruthy();
@@ -547,6 +547,26 @@ describe('parsing', () => {
     expect(data).toBeTruthy();
     expect(data.contextual).toEqual(custom);
     expect(data.another).toEqual(custom.deep);
+  });
+
+  it('should be able to handle frozen objects', async () => {
+    const parser = createParser({ nested: 'any', deep: 'object' });
+    const deep = Object.freeze({ value: hello });
+    const rawData = { nested: lorem, deep };
+    const data = await parser(rawData);
+
+    expect(data).toBeTruthy();
+    expect(data.deep).toEqual(rawData.deep);
+  });
+
+  it('should be able to handle frozen arrays', async () => {
+    const parser = createParser({ nested: 'any', deep: 'object' });
+    const deep = Object.freeze([hello, lorem]);
+    const rawData = { nested: lorem, deep };
+    const data = await parser(rawData);
+
+    expect(data).toBeTruthy();
+    expect(data.deep).toEqual(rawData.deep);
   });
 
   // Extra type testing
