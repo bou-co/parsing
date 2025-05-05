@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { getFromObject } from './internal';
 import { ParserFunction, ParserContext, valueKeys, ParserConditionalItems, ParserProjection, ParserGlobalContextFn, AppObject } from './parser-types';
 import { asDate, asyncMapObject, filterNill, optional, typed } from './parser-util';
 
@@ -149,19 +150,7 @@ class Parser {
             .split('||')
             .map((item) => item.trim());
 
-          const get = async (from: object, name: string) => {
-            type VariablesObj = Record<any, any> | undefined;
-            if (!from) return undefined;
-            const keys = name.split('.');
-            return keys.reduce((acc, key): VariablesObj => {
-              if (!acc) return undefined;
-              if (typeof acc !== 'object') return undefined;
-              if (key in acc) return acc[key];
-              return undefined;
-            }, from as VariablesObj);
-          };
-
-          const value = await get(variables, variableName);
+          const value = await getFromObject(variables, variableName);
 
           if (typeof value === 'function') {
             const res = await value();

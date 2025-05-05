@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { AppObject, ParserCondition, ParserFunction, ParserProjection } from './parser-types';
+import { getFromObject } from './internal';
+import { AppObject, ParserCondition, ParserContext, ParserFunction, ParserProjection } from './parser-types';
 
 export const asyncMapObject = async <T>(object: T, callback: (value: any) => any): Promise<T> => {
   if (!object || typeof object !== 'object') return object;
@@ -28,3 +29,7 @@ export const typed = <T>(value: unknown = '_inherit'): T => value as T;
 export const optional = <T>(value: unknown = '_inherit'): T | undefined => value as T;
 export const filterNill = <T>(obj: T[]) => obj.filter((entry) => entry ?? false) as Exclude<T, undefined | null>[];
 export const condition = <T extends ParserProjection | ParserFunction<any>>(when: ParserCondition, then: T) => ({ when, then });
+
+export const get = <T>(path: string) => {
+  return ({ data }: ParserContext) => getFromObject(data, path) as T;
+};
