@@ -30,6 +30,7 @@ export const optional = <T>(value: unknown = '_inherit'): T | undefined => value
 export const filterNill = <T>(obj: T[]) => obj.filter((entry) => entry ?? false) as Exclude<T, undefined | null>[];
 export const condition = <T extends ParserProjection | ParserFunction<any>>(when: ParserCondition, then: T) => ({ when, then });
 
-export const get = <T>(path: string) => {
+export const get = <T>(path: string, from?: AppObject) => {
+  if (from) return getFromObject(from, path) as T;
   return ({ data }: ParserContext) => getFromObject(data, path) as T;
 };
