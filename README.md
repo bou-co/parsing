@@ -368,6 +368,45 @@ Result in case above is:
 { "title": "Message for the whole world", "description": "Hello world!" }
 ```
 
+#### Variable fallbacks
+
+For any variable provided in the data, there can be a fallback value in a form of another variable, string, number or boolean. Fallback values can be added with adding `||` after the initial variable and a value after that.
+
+```ts
+import { createParser } from '../path-to/parser-config';
+
+const rawDataFromApi = {
+  title: 'Message for the whole {{notFound || "city"}}',
+  description: 'Hello {{firstName || lastName || "Doe"}}!',
+  score: '{{score || 0}}',
+  active: '{{isActive || false}}',
+};
+
+const myParser = createParser({
+  title: 'string',
+  description: 'string',
+  score: 'number',
+  active: 'boolean',
+});
+
+const instanceData = {
+  lastName: 'Johnson',
+};
+
+const result = await myParser(rawDataFromApi, instanceData);
+```
+
+Result in case above is:
+
+```json
+{
+  "title": "Message for the whole city",
+  "description": "Hello Johnson!",
+  "score": 0,
+  "active": false
+}
+```
+
 ---
 
 <footer>
