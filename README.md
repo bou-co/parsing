@@ -431,7 +431,7 @@ const instanceData = {
   title: 'the space',
   publishedAt: '2025-05-22T12:00:00',
   score: 0.42,
-  // Pipe functions (could most likely be added with initializeParser and per instance)
+  // Pipe functions (could most likely be added with initializeParser and not per instance)
   uppercase: ({ data }) => data.toUpperCase(),
   toDateString: ({ data }) => new Date(data).toLocaleString(),
   multiply: ({ data, params: [by] = [2] }) => data * by;
