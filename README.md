@@ -370,7 +370,7 @@ Result in case above is:
 
 #### Variable fallbacks
 
-For any variable provided in the data, there can be a fallback value in a form of another variable, string, number or boolean. Fallback values can be added with adding `||` after the initial variable and a value after that.
+For any variable provided in the data, there can be a fallback value in a form of another variable, string, number or boolean. Fallback values can be added with adding `||` after the initial variable and after that a secondary variable or just a value.
 
 ```ts
 import { createParser } from '../path-to/parser-config';
@@ -404,6 +404,49 @@ Result in case above is:
   "description": "Hello Johnson!",
   "score": 0,
   "active": false
+}
+```
+
+#### Variable pipes
+
+If you need to transform the value of a variable, you can do that with pipes. Pipes are useful for example when you want to transform an ISO date to something meant for humans. Pipes are defined in code as variables that are funtions and get the current variable value in the context as data. Pipes can also take in params that are then an array in the context.
+
+```ts
+import { createParser } from '../path-to/parser-config';
+
+const rawDataFromApi = {
+  title: 'Hello from {{title | uppercase}}',
+  publishedAt: 'This is published at {{date | toDateString}}',
+  score: '{{score | multiply:100 }}', // Add param for how much should the value be multiplied
+};
+
+const myParser = createParser({
+  title: 'string',
+  publishedAt: 'string',
+  score: 'number',
+});
+
+const instanceData = {
+  // Variable values
+  title: 'the space',
+  publishedAt: '2025-05-22T12:00:00',
+  score: 0.42,
+  // Pipe functions (could most likely be added with initializeParser and per instance)
+  uppercase: ({ data }) => data.toUpperCase(),
+  toDateString: ({ data }) => new Date(data).toLocaleString(),
+  multiply: ({ data, params: [by] = [2] }) => data * by;
+};
+
+const result = await myParser(rawDataFromApi, instanceData);
+```
+
+Result in case above is:
+
+```json
+{
+  "title": "Message for THE SPACE",
+  "publishedAt": "5/22/2025, 12:00:00 PM",
+  "score": 42
 }
 ```
 
