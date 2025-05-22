@@ -145,20 +145,20 @@ class Parser {
         const getVariableValue = async <T = unknown>(match: string): Promise<T> => {
           if (match === '{{...}}') return instanceContext as T;
 
-          const [variableName, fallback] = match
+          const options = match
             .slice(2, -2)
             .split('||')
             .map((item) => item.trim());
 
-          const value = await getFromObject(variables, variableName);
-
-          if (typeof value === 'function') {
-            const res = await value(context);
-            if (!res && fallback) return fallback.slice(1, -1) as unknown as T;
-            return res;
+          for (const variableName of options) {
+            if (/".+"/.test(variableName)) return variableName.slice(1, -1) as T;
+            const value = await getFromObject(variables, variableName);
+            if (typeof value === 'function') {
+              const res = await value(context);
+              if (res) return res;
+            } else if (value !== undefined) return value as T;
           }
-          if (!value && fallback) return fallback.slice(1, -1) as unknown as T;
-          return value as T;
+          return undefined as T;
         };
 
         const findVariables = async <T>(current: T): Promise<T> => {

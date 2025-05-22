@@ -125,4 +125,61 @@ describe('parsing', () => {
     expect(data).toBeTruthy();
     expect(data.title).toEqual(`This is: ${variableTitle} ${random}`);
   });
+
+  it('should be able handle string "or" fallbacks for variable values', async () => {
+    const parser = createParser({
+      title: 'string',
+    });
+    const data = await parser({ title: `This is: {{notFound || "fallback"}}` });
+    expect(data).toBeTruthy();
+    expect(data.title).toEqual(`This is: fallback`);
+  });
+
+  it('should be able handle dynamic "or" fallbacks for variable values', async () => {
+    const parser = createParser({
+      title: 'string',
+    });
+    const data = await parser({ title: `This is: {{notFound || variableTitle}}` });
+    expect(data).toBeTruthy();
+    expect(data.title).toEqual(`This is: ${variableTitle}`);
+  });
+
+  it('should be able handle multiple possible dynamic "or" fallbacks but then result to a string', async () => {
+    const parser = createParser({
+      title: 'string',
+    });
+    const data = await parser({ title: `This is: {{notFound || secondNotFound || "fallback"}}` });
+    expect(data).toBeTruthy();
+    expect(data.title).toEqual(`This is: fallback`);
+  });
+
+  it('should be able handle multiple possible dynamic "or" fallbacks but then result to a found variable', async () => {
+    const parser = createParser({
+      title: 'string',
+    });
+    const data = await parser({ title: `This is: {{notFound || secondNotFound || variableTitle}}` });
+    expect(data).toBeTruthy();
+    expect(data.title).toEqual(`This is: ${variableTitle}`);
+  });
+
+  it('should be able handle multiple possible dynamic "or" fallbacks but then result to a undefined', async () => {
+    const parser = createParser({
+      title: 'string',
+    });
+    const data = await parser({ title: `This is: {{notFound || secondNotFound}}` });
+    expect(data).toBeTruthy();
+    expect(data.title).toEqual(`This is: undefined`);
+  });
+
+  it('should be able handle multiple possible dynamic "or" fallbacks that are deeply nested until finds a match', async () => {
+    const parser = createParser({ deepCheck: 'object', deeperCheck: 'string' });
+    const custom = { deep: { value: hello } };
+    const data = await parser(
+      { deepCheck: '{{custom.deep.not.found || custom.deep.stillNo || custom.deep}}', deeperCheck: '{{custom.deep.notFound || custom.deep.value}}' },
+      { custom },
+    );
+    expect(data).toBeTruthy();
+    expect(data.deepCheck).toEqual(custom.deep);
+    expect(data.deeperCheck).toEqual(custom.deep.value);
+  });
 });
