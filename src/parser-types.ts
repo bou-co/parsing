@@ -11,15 +11,22 @@ export type AppObject = Record<PropertyKey, any>;
 
 // Parser types
 
-export type ParserGlobalContextFn = () => AppObject | Promise<AppObject>;
+export type ContextParserValueFunction<DATA = unknown, PARAMS = unknown[]> = ParserValueFunction<unknown, DATA, PARAMS>;
 
-export interface ParserContext {
+export interface ParserContextVariables {
+  [key: PropertyKey]: ContextParserValueFunction | OrString | OrNumber | OrBoolean | AppObject | unknown[];
+}
+
+export type ParserGlobalContextFn = () => ParserContextVariables | Promise<ParserContextVariables>;
+
+export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> {
   parentContext?: ParserContext | undefined;
   parserContext?: AppObject | undefined;
   instanceContext?: AppObject;
-  data: AppObject;
+  data: DATA;
   key: PropertyKey;
   projection: ParserProjection;
+  params?: PARAMS;
 }
 
 export const valueKeys = ['string', 'object', 'number', 'boolean', 'array', 'undefined', 'any', 'unknown', 'date'] as const;
@@ -56,34 +63,34 @@ type RealValue<T> = //
   T extends 'any'
     ? any
     : T extends 'unknown'
-    ? unknown
-    : T extends 'undefined'
-    ? undefined
-    : T extends 'object'
-    ? AppObject
-    : T extends 'string'
-    ? string
-    : T extends 'number'
-    ? number
-    : T extends 'boolean'
-    ? boolean
-    : T extends 'date'
-    ? Date
-    : T extends Date
-    ? Date
-    : T extends 'array'
-    ? any[]
-    : T extends `array<${infer ArrayType}>`
-    ? RealValue<ArrayType>[]
-    : T extends Promise<infer R>
-    ? RealValue<R>
-    : T extends (...args: any) => infer R
-    ? RealValue<R>
-    : T extends any[]
-    ? RealValue<T[number]>[]
-    : T extends object
-    ? _HandleProjectionObject<T>
-    : T;
+      ? unknown
+      : T extends 'undefined'
+        ? undefined
+        : T extends 'object'
+          ? AppObject
+          : T extends 'string'
+            ? string
+            : T extends 'number'
+              ? number
+              : T extends 'boolean'
+                ? boolean
+                : T extends 'date'
+                  ? Date
+                  : T extends Date
+                    ? Date
+                    : T extends 'array'
+                      ? any[]
+                      : T extends `array<${infer ArrayType}>`
+                        ? RealValue<ArrayType>[]
+                        : T extends Promise<infer R>
+                          ? RealValue<R>
+                          : T extends (...args: any) => infer R
+                            ? RealValue<R>
+                            : T extends any[]
+                              ? RealValue<T[number]>[]
+                              : T extends object
+                                ? _HandleProjectionObject<T>
+                                : T;
 
 export type _HandleProjectionObject<T extends object> = Prettify<_HandleArray<T>>;
 
@@ -126,7 +133,7 @@ export type ParserFunction<T extends object> = {
   projection: T;
 };
 
-type ParserValueFunction<R = unknown> = (context: ParserContext) => R | Promise<R>;
+type ParserValueFunction<R = unknown, DATA = AppObject, PARAMS = unknown[]> = (context: ParserContext<DATA, PARAMS>) => R | Promise<R>;
 
 export type ParserReturnValue<T extends (...args: any) => any> = Awaited<ReturnType<T>>;
 

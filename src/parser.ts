@@ -145,18 +145,42 @@ class Parser {
         const getVariableValue = async <T = unknown>(match: string): Promise<T> => {
           if (match === '{{...}}') return instanceContext as T;
 
-          const options = match
+          const parts = match
             .slice(2, -2)
             .split('||')
             .map((item) => item.trim());
 
-          for (const variableName of options) {
-            if (/".+"/.test(variableName)) return variableName.slice(1, -1) as T;
-            const value = await getFromObject(variables, variableName);
+          for (const part of parts) {
+            const [variable, pipeConfig] = part.split('|').map((item) => item.trim());
+            const handlePipe = async <T>(value: T) => {
+              if (!pipeConfig) return value;
+              const [pipeName, ...pipeParams] = pipeConfig.split(':').map((item) => item.trim());
+              const pipe = await getFromObject(variables, pipeName);
+              if (!pipe) throw new Error(`Pipe "${pipeName}" not found`);
+              if (typeof pipe !== 'function') throw new Error(`Pipe "${pipeName}" is not a function`);
+              const params = await Promise.all(
+                pipeParams.map(async (param) => {
+                  if (/^".+"$/.test(param)) return param.slice(1, -1) as T;
+                  if (/^\d+$/.test(param)) return parseInt(param, 10) as T;
+                  if (/^false$|^true$/.test(param)) return param === 'true' ? (true as T) : (false as T);
+                  const paramValue = await getFromObject(variables, param);
+                  if (typeof paramValue === 'function') return await paramValue(context);
+                  return paramValue;
+                }),
+              );
+              return await pipe({ ...context, data: value, params: params.length ? params : undefined });
+            };
+
+            if (/^".+"$/.test(variable)) return variable.slice(1, -1) as T;
+            if (/^\d+$/.test(variable)) return parseInt(variable, 10) as T;
+            if (/^false$|^true$/.test(variable)) return variable === 'true' ? (true as T) : (false as T);
+            const value = await getFromObject(variables, variable);
             if (typeof value === 'function') {
               const res = await value(context);
-              if (res) return res;
-            } else if (value !== undefined) return value as T;
+              if (res) return handlePipe(res);
+            } else if (value !== undefined) {
+              return handlePipe(value) as T;
+            }
           }
           return undefined as T;
         };

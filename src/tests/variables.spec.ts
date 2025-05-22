@@ -1,19 +1,25 @@
-import { initializeParser, ParserContext, ParserReturnValue } from '../parser';
-import { condition, optional } from '../parser-util';
+import { AppObject, ContextParserValueFunction, initializeParser } from '../parser';
 
 const variableTitle = 'variable title';
 const variableFunction = () => variableTitle + ' function';
 const asyncVariable = Promise.resolve(variableTitle + ' async');
 const asyncVariableFunction = async () => variableTitle + ' async function';
+const uppercase: ContextParserValueFunction<string> = ({ data }) => data.toUpperCase();
+const multiply: ContextParserValueFunction<number, [number]> = ({ data, params: [by] = [2] }) => {
+  return data * by;
+};
+const join: ContextParserValueFunction<number, string[]> = ({ data, params: strings = [] }) => {
+  return data + ' ' + strings.join(' ');
+};
 
-const variableFunctionWithContext = (context: ParserContext) => {
+const variableFunctionWithContext: ContextParserValueFunction<AppObject> = (context) => {
   if (!context) throw new Error('context is undefined');
   const { random } = context.data;
   return `${variableTitle} ${random}`;
 };
 
 const { createParser } = initializeParser(async () => {
-  return { variableTitle, variableFunction, asyncVariable, asyncVariableFunction, variableFunctionWithContext };
+  return { variableTitle, variableFunction, asyncVariable, asyncVariableFunction, variableFunctionWithContext, uppercase, multiply, join };
 });
 
 const hello = 'hello world';
@@ -181,5 +187,76 @@ describe('parsing', () => {
     expect(data).toBeTruthy();
     expect(data.deepCheck).toEqual(custom.deep);
     expect(data.deeperCheck).toEqual(custom.deep.value);
+  });
+
+  it('should be able handle number "or" fallbacks for variable values', async () => {
+    const parser = createParser({
+      title: 'string',
+      amount: 'number',
+    });
+    const data = await parser({ title: `This is: {{notFound || 42}}`, amount: `{{notFound || 42}}` });
+    expect(data).toBeTruthy();
+    expect(data.title).toEqual(`This is: 42`);
+    expect(data.amount).toEqual(42);
+  });
+
+  it('should be able handle boolean "or" fallbacks for variable values', async () => {
+    const parser = createParser({
+      title: 'string',
+      truthy: 'boolean',
+      falsy: 'boolean',
+    });
+    const data = await parser({ title: `This is: {{notFound || true}}`, truthy: `{{notFound || true}}`, falsy: `{{notFound || false}}` });
+    expect(data).toBeTruthy();
+    expect(data.title).toEqual(`This is: true`);
+    expect(data.truthy).toEqual(true);
+    expect(data.falsy).toEqual(false);
+  });
+
+  it('should be able handle pipes in variable values', async () => {
+    const parser = createParser({
+      title: 'string',
+    });
+    const data = await parser({ title: `This is: {{variableTitle | uppercase}}` });
+    expect(data).toBeTruthy();
+    expect(data.title).toEqual(`This is: ${variableTitle.toUpperCase()}`);
+  });
+
+  it('should be able handle pipes with params in variable values', async () => {
+    const parser = createParser({
+      amount: 'number',
+      another: 'number',
+      withDefault: 'number',
+    });
+    const data = await parser(
+      {
+        amount: `{{base | multiply:3}}`,
+        another: `{{base | multiply:6}}`,
+        withDefault: `{{base | multiply}}`,
+      },
+      { base: 10 },
+    );
+    expect(data).toBeTruthy();
+    expect(data.amount).toEqual(30);
+    expect(data.another).toEqual(60);
+    expect(data.withDefault).toEqual(20);
+  });
+
+  it('should be able handle pipes with multiple params in variable values', async () => {
+    const parser = createParser({
+      title: 'string',
+    });
+    const data = await parser({ title: `This is: {{variableTitle | join:"and":"lorem":"ipsum"}}` });
+    expect(data).toBeTruthy();
+    expect(data.title).toEqual(`This is: ${variableTitle} and lorem ipsum`);
+  });
+
+  it('should be able handle pipes with multiple params that are also variables in variable values', async () => {
+    const parser = createParser({
+      title: 'string',
+    });
+    const data = await parser({ title: `This is: {{variableTitle | join:"from":firstName:lastName}}` }, { firstName: 'John', lastName: 'Doe' });
+    expect(data).toBeTruthy();
+    expect(data.title).toEqual(`This is: ${variableTitle} from John Doe`);
   });
 });
