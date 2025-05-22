@@ -434,7 +434,7 @@ const instanceData = {
   // Pipe functions (could most likely be added with initializeParser and not per instance)
   uppercase: ({ data }) => data.toUpperCase(),
   toDateString: ({ data }) => new Date(data).toLocaleString(),
-  multiply: ({ data, params: [by] = [2] }) => data * by;
+  multiply: ({ data, params: [by] = [2] }) => data * by,
 };
 
 const result = await myParser(rawDataFromApi, instanceData);
