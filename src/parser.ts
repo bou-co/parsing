@@ -153,7 +153,7 @@ class Parser {
           const value = await getFromObject(variables, variableName);
 
           if (typeof value === 'function') {
-            const res = await value();
+            const res = await value(context);
             if (!res && fallback) return fallback.slice(1, -1) as unknown as T;
             return res;
           }

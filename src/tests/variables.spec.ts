@@ -1,4 +1,4 @@
-import { initializeParser, ParserReturnValue } from '../parser';
+import { initializeParser, ParserContext, ParserReturnValue } from '../parser';
 import { condition, optional } from '../parser-util';
 
 const variableTitle = 'variable title';
@@ -6,8 +6,14 @@ const variableFunction = () => variableTitle + ' function';
 const asyncVariable = Promise.resolve(variableTitle + ' async');
 const asyncVariableFunction = async () => variableTitle + ' async function';
 
+const variableFunctionWithContext = (context: ParserContext) => {
+  if (!context) throw new Error('context is undefined');
+  const { random } = context.data;
+  return `${variableTitle} ${random}`;
+};
+
 const { createParser } = initializeParser(async () => {
-  return { variableTitle, variableFunction, asyncVariable, asyncVariableFunction };
+  return { variableTitle, variableFunction, asyncVariable, asyncVariableFunction, variableFunctionWithContext };
 });
 
 const hello = 'hello world';
@@ -110,5 +116,13 @@ describe('parsing', () => {
     expect(data).toBeTruthy();
     expect(data.contextual).toEqual(custom);
     expect(data.another).toEqual(custom.deep);
+  });
+
+  it('should be able use global variable function with context in string values', async () => {
+    const parser = createParser({ title: 'string' });
+    const random = Math.floor(Math.random() * 100);
+    const data = await parser({ random, title: `This is: {{variableFunctionWithContext}}` });
+    expect(data).toBeTruthy();
+    expect(data.title).toEqual(`This is: ${variableTitle} ${random}`);
   });
 });
