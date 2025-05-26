@@ -70,7 +70,7 @@ describe('parsing', () => {
     const startTime = Date.now();
     asyncCount = 0; // Reset async count
     console.time('Parse full data');
-    await rootParser(fullData);
+    const fullResult = await rootParser(fullData);
     console.timeEnd('Parse full data');
     expect(asyncCount).toBe(levels); // Ensure async function to be called for each level
     const endTime = Date.now();
@@ -78,5 +78,11 @@ describe('parsing', () => {
     const duration = endTime - startTime;
     console.log(`Total parsing time for ${levels} levels: ${duration} ms`);
     expect(duration).toBeLessThan(levels / 4); // Ensure parsing completes in a reasonable time
+
+    const asString = JSON.stringify(fullResult);
+
+    expect(asString).toBeDefined();
+    expect(asString).toContain(variableTitle);
+    expect(asString).toContain('default value');
   });
 });
