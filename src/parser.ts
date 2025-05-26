@@ -120,7 +120,7 @@ class Parser {
             if (value === typed) return [key, data[key]];
             if (value === optional) return [key, data[key]];
             if ('_parser' in value) return [key, await value(data?.[key], context)];
-            // return [key, await value(context)];
+
             const result = await value(context);
             if (result === '_inherit') return [key, data[key]];
             if (result instanceof Function && '_parser' in result) {
@@ -217,13 +217,27 @@ class Parser {
         if (projectedValue === undefined) return undefined;
         const [_key, _value] = projectedValue;
         if (_value === null) return [_key, undefined];
+        if (typeof _value === 'object') {
+          type AlreadyParsedObject = { _parsed?: boolean };
+          const alreadyParsed = (_value as AlreadyParsedObject)._parsed;
+          if (alreadyParsed) return [_key, _value];
+        }
+
         const processedValue = await findVariables(_value);
         return [_key, processedValue];
       });
 
       const resolved = await Promise.all(promises).then(filterNill);
       if (Array.isArray(projection)) return resolved.map(([, value]) => value);
-      return Object.fromEntries([...resolved, ...conditionalEnties]);
+      const combined = Object.fromEntries([...resolved, ...conditionalEnties]);
+
+      return new Proxy(combined, {
+        get: (target, prop) => {
+          // Add "_parsed" property to indicate that the object has been parsed and does not need to be checked for variables again
+          if (prop === '_parsed') return true;
+          return target[prop as keyof typeof combined];
+        },
+      });
     };
 
     Object.defineProperty(parse, 'as', { value: parse });
