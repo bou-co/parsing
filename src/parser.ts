@@ -13,12 +13,18 @@ import {
 import { asDate, asyncMapObject, filterNill, optional, typed } from './parser-util';
 
 class Parser {
+  static initializingGlobalContext = false;
   static parserGlobalContext: ParserContextVariables | ParserGlobalContextFn;
 
   private static async getGlobalContext() {
+    while (this.initializingGlobalContext) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
     if (typeof this.parserGlobalContext === 'function') {
+      this.initializingGlobalContext = true;
       this.parserGlobalContext = await this.parserGlobalContext();
     }
+    this.initializingGlobalContext = false;
     return this.parserGlobalContext;
   }
 
