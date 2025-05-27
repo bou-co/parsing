@@ -1,10 +1,27 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getFromObject } from './internal';
-import { ParserFunction, ParserContext, valueKeys, ParserConditionalItems, ParserProjection, ParserGlobalContextFn, AppObject } from './parser-types';
+import {
+  ParserFunction,
+  ParserContext,
+  valueKeys,
+  ParserConditionalItems,
+  ParserProjection,
+  ParserGlobalContextFn,
+  AppObject,
+  ParserContextVariables,
+} from './parser-types';
 import { asDate, asyncMapObject, filterNill, optional, typed } from './parser-util';
 
 class Parser {
-  static parserGlobalContext: ParserGlobalContextFn;
+  static parserGlobalContext: ParserContextVariables | ParserGlobalContextFn;
+
+  private static async getGlobalContext() {
+    if (typeof this.parserGlobalContext === 'function') {
+      this.parserGlobalContext = await this.parserGlobalContext();
+    }
+    return this.parserGlobalContext;
+  }
+
   public objectify = (value: string) => {
     try {
       return JSON.parse(value);
@@ -58,7 +75,7 @@ class Parser {
 
       const variables = { current: data };
 
-      const parserGlobalContext = await Parser.parserGlobalContext();
+      const parserGlobalContext = await Parser.getGlobalContext();
       if (parserGlobalContext) Object.assign(variables, parserGlobalContext);
       if (parserContext) Object.assign(variables, parserContext);
       if (instanceContext) Object.assign(variables, instanceContext);
@@ -254,7 +271,7 @@ class Parser {
   };
 }
 
-export const initializeParser = (addGlobalContext: ParserGlobalContextFn = () => ({})) => {
+export const initializeParser = (addGlobalContext: ParserContextVariables | ParserGlobalContextFn = () => ({})) => {
   Parser.parserGlobalContext = addGlobalContext;
   const createParser = Parser.create;
   return { createParser };

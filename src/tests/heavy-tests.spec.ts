@@ -1,7 +1,11 @@
 import { AppObject, initializeParser, ParserFunction } from '../parser';
 const variableTitle = 'variable title';
 
+let initializeCount = 0;
+
 const { createParser } = initializeParser(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  initializeCount++;
   return { variableTitle };
 });
 
@@ -49,6 +53,22 @@ describe('parsing', () => {
     const rootParser = parsers[parsers.length - 1];
     console.log(`Running parsing test with ${levels} levels...`);
 
+    const initialStartTime = Date.now();
+    console.time('Run first async initialization (>=10ms)');
+    await basicParser({ title: 'hello' });
+    console.timeEnd('Run first async initialization (>=10ms)');
+    const initialEndTime = Date.now();
+    expect(initialEndTime - initialStartTime).toBeGreaterThanOrEqual(10);
+    expect(initialEndTime - initialStartTime).toBeLessThan(20);
+
+    const basicStartTime = Date.now();
+    console.time('Parse basic data (<10ms)');
+    await basicParser({ title: 'hello' });
+    console.timeEnd('Parse basic data (<10ms)');
+    const basicEndTime = Date.now();
+    expect(basicEndTime - basicStartTime).toBeGreaterThanOrEqual(0);
+    expect(basicEndTime - basicStartTime).toBeLessThan(5);
+
     expect(asyncCount).toBe(0); // Ensure async function hasn't been called yet
     console.time('Parse no data');
     await rootParser({});
@@ -67,15 +87,15 @@ describe('parsing', () => {
     console.timeEnd('Parse half data');
     expect(asyncCount).toBe(levels / 2 + 1); // Ensure async function to be called for each level up to half
 
-    const startTime = Date.now();
+    const fullStartTime = Date.now();
     asyncCount = 0; // Reset async count
     console.time('Parse full data');
     const fullResult = await rootParser(fullData);
     console.timeEnd('Parse full data');
     expect(asyncCount).toBe(levels); // Ensure async function to be called for each level
-    const endTime = Date.now();
+    const fullEndTime = Date.now();
 
-    const duration = endTime - startTime;
+    const duration = fullEndTime - fullStartTime;
     console.log(`Total parsing time for ${levels} levels: ${duration} ms`);
     expect(duration).toBeLessThan(levels / 4); // Ensure parsing completes in a reasonable time
 
@@ -84,5 +104,8 @@ describe('parsing', () => {
     expect(asString).toBeDefined();
     expect(asString).toContain(variableTitle);
     expect(asString).toContain('default value');
+
+    console.log('Intialization count:', initializeCount);
+    expect(initializeCount).toBe(1); // Ensure parser is initialized only once
   });
 });
