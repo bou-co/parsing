@@ -108,4 +108,38 @@ describe('parsing', () => {
     console.log('Intialization count:', initializeCount);
     expect(initializeCount).toBe(1); // Ensure parser is initialized only once
   });
+
+  it('should be able to parse async values in parallel', async () => {
+    const createAsyncValue =
+      (timeout = 10) =>
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, timeout)); // Simulate async operation
+        return true;
+      };
+
+    const basicParser = createParser({
+      1: createAsyncValue(1),
+      2: createAsyncValue(2),
+      3: createAsyncValue(3),
+      4: createAsyncValue(4),
+      5: createAsyncValue(5),
+      6: createAsyncValue(6),
+      7: createAsyncValue(7),
+      8: createAsyncValue(8),
+      9: createAsyncValue(9),
+      10: createAsyncValue(10),
+      11: createAsyncValue(11),
+      12: createAsyncValue(12),
+      13: createAsyncValue(13),
+      14: createAsyncValue(14),
+      15: createAsyncValue(15),
+    });
+
+    const fullStartTime = Date.now();
+    await basicParser({});
+    const fullEndTime = Date.now();
+    const duration = fullEndTime - fullStartTime;
+    console.log(`Total parsing time for 15 async parsers: ${duration} ms`);
+    expect(duration).toBeLessThan(20); // Ensure parsing completes in a reasonable time
+  });
 });
