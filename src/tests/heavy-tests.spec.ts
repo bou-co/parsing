@@ -136,10 +136,68 @@ describe('parsing', () => {
     });
 
     const fullStartTime = Date.now();
-    await basicParser({});
+    const result = await basicParser({});
     const fullEndTime = Date.now();
     const duration = fullEndTime - fullStartTime;
     console.log(`Total parsing time for 15 async parsers: ${duration} ms`);
     expect(duration).toBeLessThan(20); // Ensure parsing completes in a reasonable time
+
+    expect(result[1]).toBeDefined();
+    expect(result[5]).toBeDefined();
+    expect(result[10]).toBeDefined();
+    expect(result[15]).toBeDefined();
+
+    expect(initializeCount).toBe(1); // Ensure parser is initialized only once
+  });
+
+  it('should be able to parse nested async values in parallel', async () => {
+    const createAsyncValue =
+      (timeout = 10) =>
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, timeout)); // Simulate async operation
+        return true;
+      };
+
+    const basicParser = createParser({
+      1: createAsyncValue(10),
+      2: () => createAsyncValue(10)(),
+      3: {
+        31: createAsyncValue(10),
+        32: createAsyncValue(10),
+        33: createAsyncValue(10),
+      },
+      4: () =>
+        createParser({
+          41: createAsyncValue(10),
+          42: createAsyncValue(10),
+          43: createAsyncValue(10),
+        })({}),
+      5: {
+        51: {
+          511: createAsyncValue(10),
+        },
+        52: {
+          521: createAsyncValue(10),
+        },
+        53: {
+          531: createAsyncValue(10),
+        },
+      },
+    });
+
+    const fullStartTime = Date.now();
+    const result = await basicParser({ 1: 1, 2: 2, 3: 3, 4: 4, 5: 5 });
+    const fullEndTime = Date.now();
+    const duration = fullEndTime - fullStartTime;
+    console.log(`Total parsing time for nested async parsers: ${duration} ms`);
+    expect(duration).toBeLessThan(15); // Ensure parsing completes in a reasonable time
+
+    expect(result[1]).toBeDefined();
+    expect(result[2]).toBeDefined();
+    expect(result[3]).toBeDefined();
+    expect(result[4]).toBeDefined();
+    expect(result[5]).toBeDefined();
+
+    expect(initializeCount).toBe(1); // Ensure parser is initialized only once
   });
 });
