@@ -28,6 +28,8 @@ export const asDate = (value: string | number): undefined | Date => {
 export const typed = <T>(value: unknown = '_inherit'): T => value as T;
 export const optional = <T>(value: unknown = '_inherit'): T | undefined => value as T;
 export const filterNill = <T>(obj: T[]) => obj.filter((entry) => entry ?? false) as Exclude<T, undefined | null>[];
+export const filterUndefinedEntries = <T extends [string, any][]>(obj: T) =>
+  obj.filter((entry) => entry[1] !== undefined) as Exclude<T[number], [string, undefined]>[];
 export const condition = <T extends ParserProjection | ParserFunction<any>>(when: ParserCondition, then: T) => ({ when, then });
 
 export function get<T = unknown>(path: string, from: AppObject): Promise<T>;

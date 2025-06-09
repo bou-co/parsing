@@ -10,7 +10,7 @@ import {
   AppObject,
   ParserContextVariables,
 } from './parser-types';
-import { asDate, asyncMapObject, filterNill, optional, typed } from './parser-util';
+import { asDate, asyncMapObject, filterNill, filterUndefinedEntries, optional, typed } from './parser-util';
 
 class Parser {
   static initializingGlobalContext = false;
@@ -250,7 +250,7 @@ class Parser {
         return [_key, processedValue];
       });
 
-      const resolved = await Promise.all(promises).then(filterNill);
+      const resolved = await Promise.all(promises).then(filterNill).then(filterUndefinedEntries);
       if (Array.isArray(projection)) return resolved.map(([, value]) => value);
       const combined = Object.fromEntries([...resolved, ...conditionalEnties]);
 

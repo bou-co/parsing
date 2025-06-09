@@ -503,4 +503,18 @@ describe('parsing', () => {
     const data2 = await parser2({ items: [{ title: 'Hello' }, { title: 'World' }] });
     expect(data2?.items).toEqual([{ title: 'Hello' }, { title: 'World' }]);
   });
+
+  it('should discard undefined values correctly', async () => {
+    const parser = createParser({ title: 'string', description: 'string', year: 'number' });
+    const data = await parser({ title: 'Hello' });
+    expect(data.title).toEqual('Hello');
+    expect(data.description).toBeUndefined();
+    expect(data.year).toBeUndefined();
+
+    const keys = Object.keys(data);
+    expect(keys).toHaveLength(1);
+    expect(keys).toContain('title');
+    expect(keys).not.toContain('description');
+    expect(keys).not.toContain('year');
+  });
 });
