@@ -1,6 +1,6 @@
 {
   "name": "@bou-co/parsing",
-  "version": "1.0.20",
+  "version": "1.0.21-dev.0",
   "type": "module",
   "license": "MIT",
   "scripts": {
