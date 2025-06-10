@@ -1,5 +1,4 @@
-import { InstanceContext } from '../expandable-types';
-import { AppObject, CreateParserContext, initializeParser, ParserGlobalContext, ParserInstanceContext } from '../parser';
+import { CreateParserContext, initializeParser, ParserGlobalContext, ParserInstanceContext } from '../parser';
 
 declare module '../expandable-types' {
   export interface GlobalContext {

@@ -11,6 +11,8 @@ export type OrBoolean = Or<boolean>;
 
 export type AppObject = Record<PropertyKey, any>;
 
+export type OnlyOptionalValues<T> = { [K in keyof T]: undefined extends T[K] ? true : false }[keyof T] extends true | undefined ? true : false;
+
 // Parser types
 
 export type ContextParserValueFunction<DATA = unknown, PARAMS = unknown[]> = ParserValueFunction<unknown, DATA, PARAMS>;
@@ -136,7 +138,11 @@ type _HandleChildren<T extends object> = { -readonly [K in keyof T]?: RealValue<
 type _HandleOptional<T extends object> = OptionalUndefined<T>;
 
 export type ParserFunction<T extends object> = {
-  (data: AppObject, instanceContext?: ParserInstanceContext, parentContext?: ParserContext): Promise<_HandleProjectionObject<T>>;
+  (
+    data: AppObject,
+    instanceContext: OnlyOptionalValues<ParserInstanceContext> extends true ? ParserInstanceContext | void : ParserInstanceContext,
+    parentContext?: ParserContext,
+  ): Promise<_HandleProjectionObject<T>>;
   // Additional functions
   as: <TYPE extends object>(data: AppObject, instanceContext?: AppObject, parentContext?: ParserContext) => Promise<TYPE>;
   asArray: <V = AppObject[]>(data: V, instanceContext?: AppObject, parentContext?: ParserContext) => Promise<_HandleProjectionObject<T>[]>;
@@ -145,7 +151,7 @@ export type ParserFunction<T extends object> = {
   projection: T;
 };
 
-type ParserValueFunction<R = unknown, DATA = AppObject, PARAMS = unknown[]> = (context: ParserContext<DATA, PARAMS>) => R | Promise<R>;
+type ParserValueFunction<R = unknown, DATA = AppObject, PARAMS = unknown[]> = (context: ParserContext<DATA, PARAMS>, __parserFnContext?: any) => R | Promise<R>;
 
 export type ParserReturnValue<T extends (...args: any) => any> = Awaited<ReturnType<T>>;
 
