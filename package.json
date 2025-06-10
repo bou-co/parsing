@@ -1,6 +1,6 @@
 {
   "name": "@bou-co/parsing",
-  "version": "1.0.21",
+  "version": "2.0.0-dev.4",
   "type": "module",
   "license": "MIT",
   "scripts": {
@@ -57,6 +57,12 @@
       "import": "./dist/react/index.js",
       "require": "./dist/react/index.cjs",
       "default": "./dist/react/index.js"
+    },
+    "./templates/*": {
+      "types": "./dist/templates/*.d.ts",
+      "import": "./dist/templates/*.js",
+      "require": "./dist/templates/*.cjs",
+      "default": "./dist/templates/*.js"
     }
   },
   "files": [

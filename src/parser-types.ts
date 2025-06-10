@@ -1,3 +1,5 @@
+import { CreateContext, GlobalContext, InstanceContext } from './expandable-types';
+
 // Util types
 
 type OrFix = Record<never, never>;
@@ -9,6 +11,8 @@ export type OrBoolean = Or<boolean>;
 
 export type AppObject = Record<PropertyKey, any>;
 
+export type OnlyOptionalValues<T> = { [K in keyof T]: undefined extends T[K] ? true : false }[keyof T] extends true | undefined ? true : false;
+
 // Parser types
 
 export type ContextParserValueFunction<DATA = unknown, PARAMS = unknown[]> = ParserValueFunction<unknown, DATA, PARAMS>;
@@ -17,16 +21,36 @@ export interface ParserContextVariables {
   [key: PropertyKey]: ContextParserValueFunction | OrString | OrNumber | OrBoolean | AppObject | unknown[];
 }
 
-export type ParserGlobalContextFn = () => ParserContextVariables | Promise<ParserContextVariables>;
+export interface ParserContextTransformer {
+  when: ParserCondition<unknown>;
+  then: ParserValueFunction<unknown, unknown>;
+}
 
-export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> {
-  parentContext?: ParserContext | undefined;
-  parserContext?: AppObject | undefined;
-  instanceContext?: AppObject;
+export interface ParserContextTransformers {
+  [key: string]: ParserContextTransformer;
+}
+
+export interface ParserGlobalContext extends GlobalContext {
+  variables?: ParserContextVariables;
+  transformers?: ParserContextTransformers;
+}
+
+export type ParserGlobalContextFn = () => ParserGlobalContext | Promise<ParserGlobalContext>;
+
+export interface CreateParserContext extends CreateContext {
+  variables?: ParserContextVariables;
+}
+
+export interface ParserInstanceContext extends InstanceContext {
+  variables?: ParserContextVariables;
+}
+
+export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> extends InstanceContext, GlobalContext, CreateParserContext {
   data: DATA;
-  key: PropertyKey;
+  key?: PropertyKey;
   projection: ParserProjection;
   params?: PARAMS;
+  variables: AppObject;
 }
 
 export const valueKeys = ['string', 'object', 'number', 'boolean', 'array', 'undefined', 'any', 'unknown', 'date'] as const;
@@ -124,7 +148,11 @@ type _HandleChildren<T extends object> = { -readonly [K in keyof T]?: RealValue<
 type _HandleOptional<T extends object> = OptionalUndefined<T>;
 
 export type ParserFunction<T extends object> = {
-  (data: AppObject, instanceContext?: AppObject, parentContext?: ParserContext): Promise<_HandleProjectionObject<T>>;
+  (
+    data: AppObject,
+    instanceContext: OnlyOptionalValues<ParserInstanceContext> extends true ? ParserInstanceContext | void : ParserInstanceContext,
+    parentContext?: ParserContext,
+  ): Promise<_HandleProjectionObject<T>>;
   // Additional functions
   as: <TYPE extends object>(data: AppObject, instanceContext?: AppObject, parentContext?: ParserContext) => Promise<TYPE>;
   asArray: <V = AppObject[]>(data: V, instanceContext?: AppObject, parentContext?: ParserContext) => Promise<_HandleProjectionObject<T>[]>;
@@ -133,15 +161,19 @@ export type ParserFunction<T extends object> = {
   projection: T;
 };
 
-type ParserValueFunction<R = unknown, DATA = AppObject, PARAMS = unknown[]> = (context: ParserContext<DATA, PARAMS>) => R | Promise<R>;
+type ParserValueFunction<R = unknown, DATA = AppObject, PARAMS = unknown[]> = (
+  context: ParserContext<DATA, PARAMS>,
+  __parserFnContext?: any,
+  __parserFnParent?: any,
+) => R | Promise<R>;
 
 export type ParserReturnValue<T extends (...args: any) => any> = Awaited<ReturnType<T>>;
 
-export type ParserCondition = (context: ParserContext) => boolean | Promise<boolean>;
+export type ParserCondition<DATA = AppObject, PARAMS = unknown[]> = (context: ParserContext<DATA, PARAMS>) => boolean | Promise<boolean>;
 
-type ParserConditionalItemWhen = ParserProjection | ParserFunction<any> | ParserValueFunction<object>;
+type ParserConditionalItemThen = ParserProjection | ParserValueFunction<AppObject>;
 
-export type ParserConditionalItem = { when: ParserCondition; then: ParserConditionalItemWhen };
+export type ParserConditionalItem = { when: ParserCondition; then: ParserConditionalItemThen };
 
 export type ParserConditionalItems = ParserConditionalItem[];
 
