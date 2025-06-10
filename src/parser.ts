@@ -8,13 +8,15 @@ import {
   ParserProjection,
   ParserGlobalContextFn,
   AppObject,
-  ParserContextVariables,
+  CreateParserContext,
+  ParserInstanceContext,
+  ParserGlobalContext,
 } from './parser-types';
 import { asDate, asyncMapObject, filterNill, filterUndefinedEntries, optional, typed } from './parser-util';
 
 class Parser {
   static initializingGlobalContext = false;
-  static parserGlobalContext: ParserContextVariables | ParserGlobalContextFn;
+  static parserGlobalContext: ParserGlobalContext | ParserGlobalContextFn;
 
   private static async getGlobalContext() {
     while (this.initializingGlobalContext) {
@@ -36,26 +38,38 @@ class Parser {
     }
   };
 
-  public project = <const T extends object>(projection: T, parserContext?: AppObject): ParserFunction<T> => {
-    const parse = async (value: AppObject | string, instanceContext?: AppObject, parentContext?: ParserContext) => {
+  public project = <const T extends object>(projection: T, parserContext?: CreateParserContext): ParserFunction<T> => {
+    const parse = async (value: AppObject | string, instanceContext: ParserInstanceContext = {}, parentContext: Partial<ParserContext> = {}) => {
       if (!value) return undefined;
       const data: AppObject = typeof value === 'string' ? this.objectify(value) : value;
-      const projectionIsArray = Array.isArray(projection);
-      const dataIsArray = Array.isArray(data) && data.every((item) => item instanceof Object);
 
+      const variables = { current: data };
+
+      const parserGlobalContext = await Parser.getGlobalContext();
+      if (parserGlobalContext) Object.assign(variables, parserGlobalContext.variables);
+      if (parentContext) Object.assign(variables, parentContext.variables);
+      if (parserContext) Object.assign(variables, parserContext.variables);
+      if (instanceContext) Object.assign(variables, instanceContext.variables);
+
+      const contextBase = {
+        ...parserGlobalContext,
+        ...parentContext,
+        ...parserContext,
+        ...instanceContext,
+        variables,
+        data,
+        projection,
+      };
+
+      const dataIsArray = Array.isArray(data) && data.every((item) => item instanceof Object);
       if (dataIsArray) {
+        const projectionIsArray = Array.isArray(projection);
         if (projectionIsArray) {
           const sameLength = data.length === projection.length;
           if (!sameLength) console.warn('Data and projection length do not match');
           const promises = data.map(async (item, index) => {
             const itemProjection = projection[index];
-            const context: ParserContext = {
-              parentContext,
-              instanceContext,
-              data,
-              key: index,
-              projection,
-            };
+            const context: ParserContext = { ...contextBase, key: index };
             if (!itemProjection) return undefined;
             const parserFn = this.project(itemProjection);
             return await parserFn(item, instanceContext, context);
@@ -64,13 +78,7 @@ class Parser {
         }
         const parserFn = this.project(projection) as ParserFunction<AppObject>;
         const promises = data.map(async (item, index) => {
-          const context: ParserContext = {
-            parentContext,
-            instanceContext,
-            data,
-            key: index,
-            projection,
-          };
+          const context: ParserContext = { ...contextBase, key: index };
           return await parserFn(item, instanceContext, context);
         });
         return Promise.all(promises).then(filterNill);
@@ -79,23 +87,8 @@ class Parser {
       const entries = Object.entries(projection);
       const conditionalEnties = [] as [string, unknown][];
 
-      const variables = { current: data };
-
-      const parserGlobalContext = await Parser.getGlobalContext();
-      if (parserGlobalContext) Object.assign(variables, parserGlobalContext);
-      if (parserContext) Object.assign(variables, parserContext);
-      if (instanceContext) Object.assign(variables, instanceContext);
-      if (parentContext) Object.assign(variables, parentContext);
-
       const promises = entries.map(async ([key, value]): Promise<undefined | [string, unknown]> => {
-        const context: ParserContext = {
-          parserContext,
-          instanceContext,
-          parentContext,
-          data,
-          key,
-          projection,
-        };
+        const context: ParserContext = { ...contextBase, key };
 
         const getValue = async (): Promise<undefined | [string, unknown]> => {
           if (key.startsWith('@')) {
@@ -166,7 +159,7 @@ class Parser {
         };
 
         const getVariableValue = async <T = unknown>(match: string): Promise<T> => {
-          if (match === '{{...}}') return instanceContext as T;
+          if (match === '{{...}}') return instanceContext?.variables as T;
 
           const parts = match
             .slice(2, -2)
@@ -271,14 +264,14 @@ class Parser {
     return parse as unknown as ParserFunction<T>;
   };
 
-  public static create = <const T extends ParserProjection>(projection: T, parserContext?: AppObject): ParserFunction<T> => {
+  public static create = <const T extends ParserProjection>(projection: T, parserContext?: CreateParserContext): ParserFunction<T> => {
     const parser = new Parser();
     return parser.project(projection, parserContext);
   };
 }
 
-export const initializeParser = (addGlobalContext: ParserContextVariables | ParserGlobalContextFn = () => ({})) => {
-  Parser.parserGlobalContext = addGlobalContext;
+export const initializeParser = (addGlobalContext?: ParserGlobalContext | ParserGlobalContextFn) => {
+  Parser.parserGlobalContext = addGlobalContext || ({} as ParserGlobalContext);
   const createParser = Parser.create;
   return { createParser };
 };

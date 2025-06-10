@@ -19,7 +19,7 @@ const variableFunctionWithContext: ContextParserValueFunction<AppObject> = (cont
 };
 
 const { createParser } = initializeParser(async () => {
-  return { variableTitle, variableFunction, asyncVariable, asyncVariableFunction, variableFunctionWithContext, uppercase, multiply, join };
+  return { variables: { variableTitle, variableFunction, asyncVariable, asyncVariableFunction, variableFunctionWithContext, uppercase, multiply, join } };
 });
 
 const hello = 'hello world';
@@ -72,7 +72,7 @@ describe('parsing', () => {
   });
 
   it('should be able to use projection variable values in string values', async () => {
-    const projectionContext = { description: lorem };
+    const projectionContext = { variables: { description: lorem } };
     const parser = createParser(
       {
         title: 'string',
@@ -88,7 +88,7 @@ describe('parsing', () => {
     const parser = createParser({
       title: 'string',
     });
-    const instanceContext = { added: hello };
+    const instanceContext = { variables: { added: hello } };
     const data = await parser({ title: `This is: {{added}}` }, instanceContext);
     expect(data).toBeTruthy();
     expect(data.title).toEqual(`This is: ${hello}`);
@@ -97,17 +97,17 @@ describe('parsing', () => {
   it('should be able to use instance context in function values', async () => {
     const parser = createParser({
       title: async (context) => {
-        const addedValue = context.instanceContext?.['customValue'];
+        const addedValue = context.variables['customValue'];
         expect(addedValue).toEqual(hello);
         return `This is: ${addedValue}`;
       },
     });
-    const instanceContext = { customValue: hello };
+    const variables = { customValue: hello };
     const data = await parser(
       {
         nothing: true,
       },
-      instanceContext,
+      { variables },
     );
     expect(data).toBeTruthy();
     expect(data.title).toEqual(`This is: ${hello}`);
@@ -117,7 +117,7 @@ describe('parsing', () => {
     const parser = createParser({ contextual: 'object', another: 'object' });
 
     const custom = { nested: lorem, deep: { value: hello } };
-    const instanceContext = { custom };
+    const instanceContext = { variables: { custom } };
     const data = await parser({ contextual: '{{custom}}', another: '{{custom.deep}}' }, instanceContext);
     expect(data).toBeTruthy();
     expect(data.contextual).toEqual(custom);
@@ -182,7 +182,7 @@ describe('parsing', () => {
     const custom = { deep: { value: hello } };
     const data = await parser(
       { deepCheck: '{{custom.deep.not.found || custom.deep.stillNo || custom.deep}}', deeperCheck: '{{custom.deep.notFound || custom.deep.value}}' },
-      { custom },
+      { variables: { custom } },
     );
     expect(data).toBeTruthy();
     expect(data.deepCheck).toEqual(custom.deep);
@@ -234,7 +234,8 @@ describe('parsing', () => {
         another: `{{base | multiply:6}}`,
         withDefault: `{{base | multiply}}`,
       },
-      { base: 10 },
+      // { base: 10 },
+      { variables: { base: 10 } },
     );
     expect(data).toBeTruthy();
     expect(data.amount).toEqual(30);
@@ -255,7 +256,7 @@ describe('parsing', () => {
     const parser = createParser({
       title: 'string',
     });
-    const data = await parser({ title: `This is: {{variableTitle | join:"from":firstName:lastName}}` }, { firstName: 'John', lastName: 'Doe' });
+    const data = await parser({ title: `This is: {{variableTitle | join:"from":firstName:lastName}}` }, { variables: { firstName: 'John', lastName: 'Doe' } });
     expect(data).toBeTruthy();
     expect(data.title).toEqual(`This is: ${variableTitle} from John Doe`);
   });

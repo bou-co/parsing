@@ -6,7 +6,7 @@ let initializeCount = 0;
 const { createParser } = initializeParser(async () => {
   await new Promise((resolve) => setTimeout(resolve, 10));
   initializeCount++;
-  return { variableTitle };
+  return { variables: { variableTitle } };
 });
 
 describe('parsing', () => {

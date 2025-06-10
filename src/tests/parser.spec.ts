@@ -4,7 +4,7 @@ import { condition, optional } from '../parser-util';
 const variableTitle = 'variable title';
 
 const { createParser } = initializeParser(async () => {
-  return { variableTitle };
+  return { variables: { variableTitle } };
 });
 
 const hello = 'hello world';
@@ -416,21 +416,21 @@ describe('parsing', () => {
     const deepValue = 'deep';
     const asyncValue = 'async';
     const async = new Promise((resolve) => setTimeout(() => resolve(asyncValue), 10));
-    const nestedInstanceContext = { baseValue: hello, nested: { value: lorem, async }, deep: { 1: { 2: { 3: { value: deepValue } } } } };
+    const nestedInstanceContext = { variables: { baseValue: hello, nested: { value: lorem, async }, deep: { 1: { 2: { 3: { value: deepValue } } } } } };
 
     const parser = createParser({
       baseValue: 'string',
       nestedValue: 'string',
       asyncValue: 'string',
       deepValue: 'string',
-      title: async (context) => {
-        const _baseValue = context.instanceContext?.['baseValue'];
+      title: async ({ variables }) => {
+        const _baseValue = variables['baseValue'];
         expect(_baseValue).toEqual(hello);
-        const _nestedValue = context.instanceContext?.['nested'].value;
+        const _nestedValue = variables['nested'].value;
         expect(_nestedValue).toEqual(lorem);
-        const _asyncValue = await context.instanceContext?.['nested'].async;
+        const _asyncValue = await variables['nested'].async;
         expect(_asyncValue).toEqual(asyncValue);
-        const _deepValue = context.instanceContext?.['deep'][1][2][3].value;
+        const _deepValue = variables['deep'][1][2][3].value;
         expect(_deepValue).toEqual(_deepValue);
         return `This is: ${_baseValue}, ${_nestedValue}, ${_asyncValue}, ${_deepValue}`;
       },
@@ -454,14 +454,14 @@ describe('parsing', () => {
     expect(data.title).toEqual(`This is: ${hello}, ${lorem}, ${asyncValue}, ${deepValue}`);
   });
 
-  it('should be able to project full instance context as a value', async () => {
+  it('should be able to project full instance context variables as a value', async () => {
     const parser = createParser({ contextual: 'object' });
 
-    const instanceContext = { added: hello, custom: lorem };
+    const instanceContext = { variables: { added: hello, custom: lorem } };
     const data = await parser({ contextual: '{{...}}' }, instanceContext);
 
     expect(data).toBeTruthy();
-    expect(data.contextual).toEqual(instanceContext);
+    expect(data.contextual).toEqual(instanceContext.variables);
   });
 
   it('should be able to handle frozen objects', async () => {

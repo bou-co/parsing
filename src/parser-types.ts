@@ -1,3 +1,5 @@
+import { CreateContext, GlobalContext, InstanceContext } from './expandable-types';
+
 // Util types
 
 type OrFix = Record<never, never>;
@@ -17,16 +19,26 @@ export interface ParserContextVariables {
   [key: PropertyKey]: ContextParserValueFunction | OrString | OrNumber | OrBoolean | AppObject | unknown[];
 }
 
-export type ParserGlobalContextFn = () => ParserContextVariables | Promise<ParserContextVariables>;
+export interface ParserGlobalContext extends GlobalContext {
+  variables?: ParserContextVariables;
+}
 
-export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> {
-  parentContext?: ParserContext | undefined;
-  parserContext?: AppObject | undefined;
-  instanceContext?: AppObject;
+export type ParserGlobalContextFn = () => ParserGlobalContext | Promise<ParserGlobalContext>;
+
+export interface CreateParserContext extends CreateContext {
+  variables?: ParserContextVariables;
+}
+
+export interface ParserInstanceContext extends InstanceContext {
+  variables?: ParserContextVariables;
+}
+
+export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> extends InstanceContext, GlobalContext, CreateParserContext {
   data: DATA;
-  key: PropertyKey;
+  key?: PropertyKey;
   projection: ParserProjection;
   params?: PARAMS;
+  variables: AppObject;
 }
 
 export const valueKeys = ['string', 'object', 'number', 'boolean', 'array', 'undefined', 'any', 'unknown', 'date'] as const;
@@ -124,7 +136,7 @@ type _HandleChildren<T extends object> = { -readonly [K in keyof T]?: RealValue<
 type _HandleOptional<T extends object> = OptionalUndefined<T>;
 
 export type ParserFunction<T extends object> = {
-  (data: AppObject, instanceContext?: AppObject, parentContext?: ParserContext): Promise<_HandleProjectionObject<T>>;
+  (data: AppObject, instanceContext?: ParserInstanceContext, parentContext?: ParserContext): Promise<_HandleProjectionObject<T>>;
   // Additional functions
   as: <TYPE extends object>(data: AppObject, instanceContext?: AppObject, parentContext?: ParserContext) => Promise<TYPE>;
   asArray: <V = AppObject[]>(data: V, instanceContext?: AppObject, parentContext?: ParserContext) => Promise<_HandleProjectionObject<T>[]>;
