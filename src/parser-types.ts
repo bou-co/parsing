@@ -21,9 +21,18 @@ export interface ParserContextVariables {
   [key: PropertyKey]: ContextParserValueFunction | OrString | OrNumber | OrBoolean | AppObject | unknown[];
 }
 
+export interface ParserContextTransformer {
+  when: ParserCondition<unknown>;
+  then: ParserValueFunction<unknown, unknown>;
+}
+
+export interface ParserContextTransformers {
+  [key: string]: ParserContextTransformer;
+}
+
 export interface ParserGlobalContext extends GlobalContext {
   variables?: ParserContextVariables;
-  transformers?: Record<string, { when: ParserCondition<unknown>; then: ParserValueFunction<unknown, unknown> }>;
+  transformers?: ParserContextTransformers;
 }
 
 export type ParserGlobalContextFn = () => ParserGlobalContext | Promise<ParserGlobalContext>;
