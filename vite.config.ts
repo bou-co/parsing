@@ -21,6 +21,7 @@ export default defineConfig({
       entry: {
         index: 'src/index.ts',
         'react/index': 'src/react/index.ts',
+        'templates/localize': 'src/templates/localize.ts',
       },
       fileName: (format, entryName) => {
         const ext = format === 'es' ? 'js' : format;

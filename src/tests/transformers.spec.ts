@@ -1,4 +1,4 @@
-import { AppObject, initializeParser } from '../parser';
+import { initializeParser } from '../parser';
 import { get } from '../parser-util';
 
 declare module '../expandable-types' {
