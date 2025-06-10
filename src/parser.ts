@@ -238,13 +238,16 @@ class Parser {
           const alreadyParsed = (_value as AlreadyParsedObject)._parsed;
           if (alreadyParsed) return [_key, _value];
         }
+
+        // Apply global transformers if they exist
         if (parserGlobalContext.transformers) {
-          Object.values(parserGlobalContext.transformers).forEach((transformer) => {
+          for (const transformer of Object.values(parserGlobalContext.transformers)) {
             if (transformer.when({ ...context, data: _value })) {
-              _value = transformer.then({ ...context, data: _value });
+              _value = await transformer.then({ ...context, data: _value });
             }
-          });
+          }
         }
+
         const processedValue = await findVariables(_value);
         return [_key, processedValue];
       });
