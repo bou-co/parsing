@@ -103,7 +103,7 @@ class Parser {
                 if (shouldBeAdded) {
                   if (typeof then === 'function') {
                     if ('_parser' in then) {
-                      const result = await then(data, instanceContext, context);
+                      const result = await then(data as any, instanceContext, context);
                       conditionalEnties.push(...Object.entries(result));
                     } else {
                       const result = await then(context);
@@ -111,7 +111,7 @@ class Parser {
                     }
                   } else {
                     const parser = this.project(then) as ParserFunction<AppObject>;
-                    const result = await parser(data, instanceContext, context);
+                    const result = await parser(data as any, instanceContext, context);
                     conditionalEnties.push(...Object.entries(result));
                   }
                 }
@@ -231,14 +231,20 @@ class Parser {
 
         const projectedValue = await getValue();
         if (projectedValue === undefined) return undefined;
-        const [_key, _value] = projectedValue;
+        let [_key, _value] = projectedValue;
         if (_value === null) return [_key, undefined];
         if (typeof _value === 'object') {
           type AlreadyParsedObject = { _parsed?: boolean };
           const alreadyParsed = (_value as AlreadyParsedObject)._parsed;
           if (alreadyParsed) return [_key, _value];
         }
-
+        if (parserGlobalContext.transformers) {
+          Object.values(parserGlobalContext.transformers).forEach((transformer) => {
+            if (transformer.when({ ...context, data: _value })) {
+              _value = transformer.then({ ...context, data: _value });
+            }
+          });
+        }
         const processedValue = await findVariables(_value);
         return [_key, processedValue];
       });

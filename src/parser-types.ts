@@ -23,6 +23,7 @@ export interface ParserContextVariables {
 
 export interface ParserGlobalContext extends GlobalContext {
   variables?: ParserContextVariables;
+  transformers?: Record<string, { when: ParserCondition<unknown>; then: ParserValueFunction<unknown, unknown> }>;
 }
 
 export type ParserGlobalContextFn = () => ParserGlobalContext | Promise<ParserGlobalContext>;
@@ -151,15 +152,19 @@ export type ParserFunction<T extends object> = {
   projection: T;
 };
 
-type ParserValueFunction<R = unknown, DATA = AppObject, PARAMS = unknown[]> = (context: ParserContext<DATA, PARAMS>, __parserFnContext?: any) => R | Promise<R>;
+type ParserValueFunction<R = unknown, DATA = AppObject, PARAMS = unknown[]> = (
+  context: ParserContext<DATA, PARAMS>,
+  __parserFnContext?: any,
+  __parserFnParent?: any,
+) => R | Promise<R>;
 
 export type ParserReturnValue<T extends (...args: any) => any> = Awaited<ReturnType<T>>;
 
-export type ParserCondition = (context: ParserContext) => boolean | Promise<boolean>;
+export type ParserCondition<DATA = AppObject, PARAMS = unknown[]> = (context: ParserContext<DATA, PARAMS>) => boolean | Promise<boolean>;
 
-type ParserConditionalItemWhen = ParserProjection | ParserFunction<any> | ParserValueFunction<object>;
+type ParserConditionalItemThen = ParserProjection | ParserValueFunction<AppObject>;
 
-export type ParserConditionalItem = { when: ParserCondition; then: ParserConditionalItemWhen };
+export type ParserConditionalItem = { when: ParserCondition; then: ParserConditionalItemThen };
 
 export type ParserConditionalItems = ParserConditionalItem[];
 
