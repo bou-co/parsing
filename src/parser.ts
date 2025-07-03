@@ -14,7 +14,13 @@ import {
 } from './parser-types';
 import { asDate, asyncMapObject, filterNill, filterUndefinedEntries, optional, typed } from './parser-util';
 
+interface ParserCache {
+  variables: Record<string, any>;
+}
+
 class Parser {
+  private static _cache: ParserCache = { variables: {} };
+
   static initializingGlobalContext = false;
   static parserGlobalContext: ParserGlobalContext | ParserGlobalContextFn;
 
@@ -51,6 +57,7 @@ class Parser {
       if (parentContext) Object.assign(variables, parentContext.variables);
       if (parserContext) Object.assign(variables, parserContext.variables);
       if (instanceContext) Object.assign(variables, instanceContext.variables);
+      if (Parser._cache.variables) Object.assign(variables, Parser._cache.variables);
 
       const contextBase = {
         ...parserGlobalContext,
@@ -213,6 +220,16 @@ class Parser {
               if (res) return handlePipe(res);
             } else if (value !== undefined) {
               return handlePipe(value) as T;
+            } else if (parserGlobalContext.variableResolver) {
+              const cacheVariable = <T>(value: T): T => {
+                Object.assign(Parser._cache.variables, { [variable]: value });
+                return value;
+              };
+              const resolved = await parserGlobalContext.variableResolver(variable, context, cacheVariable);
+              if (resolved) {
+                Object.assign(variables, { [variable]: resolved });
+                return handlePipe(resolved) as T;
+              }
             }
           }
           return undefined as T;

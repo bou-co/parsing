@@ -30,9 +30,12 @@ export interface ParserContextTransformers {
   [key: string]: ParserContextTransformer;
 }
 
+export type CacheValueFn = <T>(value: T) => T;
+
 export interface ParserGlobalContext extends GlobalContext {
   variables?: ParserContextVariables;
   transformers?: ParserContextTransformers;
+  variableResolver?: (variableName: string, context: ParserContext, cache: CacheValueFn) => Promise<unknown> | unknown;
 }
 
 export type ParserGlobalContextFn = () => ParserGlobalContext | Promise<ParserGlobalContext>;
