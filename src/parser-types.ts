@@ -149,7 +149,7 @@ type _HandleOptional<T extends object> = OptionalUndefined<T>;
 
 export type ParserFunction<T extends object> = {
   (
-    data: AppObject,
+    data: AppObject | string,
     instanceContext: OnlyOptionalValues<ParserInstanceContext> extends true ? ParserInstanceContext | void : ParserInstanceContext,
     parentContext?: ParserContext,
   ): Promise<_HandleProjectionObject<T>>;

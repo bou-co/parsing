@@ -41,6 +41,7 @@ class Parser {
   public project = <const T extends object>(projection: T, parserContext?: CreateParserContext): ParserFunction<T> => {
     const parse = async (value: AppObject | string, instanceContext: ParserInstanceContext = {}, parentContext: Partial<ParserContext> = {}) => {
       if (!value) return undefined;
+      if (value instanceof Promise) value = await value;
       const data: AppObject = typeof value === 'string' ? this.objectify(value) : value;
 
       const variables = { current: data };
@@ -150,7 +151,23 @@ class Parser {
             }
             if (!data?.[key]) return [key, undefined];
             const parserFn = this.project(value);
-            return [key, await parserFn(data[key], instanceContext, context)];
+
+            // Check if calue for current key is an object
+            if (data[key] instanceof Object) {
+              return [key, await parserFn(data[key], instanceContext, context)];
+            }
+            // Check if value is a string that looks like a string object or a variable
+            if (typeof data[key] === 'string') {
+              // Match objects that are stringified
+              const isStringObject = data[key].match(/^\{[^}]+\}$/);
+              if (isStringObject) return [key, await parserFn(data[key], instanceContext, context)];
+
+              // Match variables that are wrapped in double curly braces
+              const isVariable = data[key].match(/^\{\{[^}]+\}\}$/);
+              if (!isVariable) return [key, undefined];
+              const variable = getVariableValue(data[key]);
+              if (variable instanceof Object) return [key, await parserFn(variable, instanceContext, context)];
+            }
           }
           if (valueKeys.includes(value)) return [key, data[key]];
           if (/^array<.+>/gi.test(value)) return [key, data[key]];
