@@ -38,7 +38,7 @@ export interface CacheLike {
   /** Add a value to cache with a key */
   add: (key: string, value: any, context: ParserContext) => Promise<void> | void;
   /** Define function for generating cache key */
-  generateKey?: (parserKey: string, dataHash: string, context: ParserContext) => string;
+  generateKey?: (parserKey: string, projectionHash: string, dataHash: string, context: ParserContext) => string;
   /** Remove a value from cache by key */
   remove?: (key: string, context: ParserContext) => Promise<void> | void;
   /** Clear the cache completely */

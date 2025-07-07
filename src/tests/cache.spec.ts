@@ -1,8 +1,8 @@
 import { CacheLike, initializeParser, ParserContext } from '../parser';
 
 class TestCache implements CacheLike {
-  generateKey = (parserKey: string, dataHash: string, context: ParserContext) => {
-    return `${parserKey}-${dataHash}`;
+  generateKey = (parserKey: string, projectionHash: string, dataHash: string, context: ParserContext) => {
+    return `${parserKey}-${projectionHash}-${dataHash}`;
   };
   values: Record<string, any> = {};
   match = async (key: string) => this.values[key];

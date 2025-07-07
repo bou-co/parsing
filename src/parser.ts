@@ -322,6 +322,7 @@ class Parser {
 
   public static createCached = <const T extends ParserProjection>(key: string, projection: T, parserContext?: CreateParserContext): ParserFunction<T> => {
     const projectionFn = this.create(projection, parserContext);
+    const projectionHash = toHash(projection);
 
     const proxyFn = new Proxy(projectionFn, {
       apply: async (target: any, thisArg: any, args: [any, ParserInstanceContext]) => {
@@ -343,7 +344,9 @@ class Parser {
         };
 
         const valueHash = toHash(args);
-        const _key = globalContext.cache.generateKey ? globalContext.cache.generateKey(key, valueHash, context) : `${key}::${valueHash}`;
+        const _key = globalContext.cache.generateKey
+          ? globalContext.cache.generateKey(key, projectionHash, valueHash, context)
+          : `${key}:${projectionHash}:${valueHash}`;
 
         const cachedValue = await globalContext.cache.match(_key, context);
         if (cachedValue) return cachedValue;
