@@ -13,6 +13,7 @@ import {
   ParserGlobalContext,
 } from './parser-types';
 import { asDate, asyncMapObject, filterNill, filterUndefinedEntries, optional, typed } from './parser-util';
+import { toHash } from './to-hash';
 
 interface ParserCache {
   variables: Record<string, any>;
@@ -46,6 +47,12 @@ class Parser {
 
   public project = <const T extends object>(projection: T, parserContext?: CreateParserContext): ParserFunction<T> => {
     const parse = async (value: AppObject | string, instanceContext: ParserInstanceContext = {}, parentContext: Partial<ParserContext> = {}) => {
+      if (parentContext.isRoot === undefined) {
+        parentContext.isRoot = true;
+      } else {
+        parentContext.isRoot = false;
+      }
+
       if (!value) return undefined;
       if (value instanceof Promise) value = await value;
       const data: AppObject = typeof value === 'string' ? this.objectify(value) : value;
@@ -60,6 +67,7 @@ class Parser {
       if (Parser._cache.variables) Object.assign(variables, Parser._cache.variables);
 
       const contextBase = {
+        isRoot: parentContext.isRoot,
         ...parserGlobalContext,
         ...parentContext,
         ...parserContext,
@@ -311,12 +319,53 @@ class Parser {
     const parser = new Parser();
     return parser.project(projection, parserContext);
   };
+
+  public static createCached = <const T extends ParserProjection>(key: string, projection: T, parserContext?: CreateParserContext): ParserFunction<T> => {
+    const projectionFn = this.create(projection, parserContext);
+
+    const proxyFn = new Proxy(projectionFn, {
+      apply: async (target: any, thisArg: any, args: [any, ParserInstanceContext]) => {
+        const globalContext = await this.getGlobalContext();
+        if (!globalContext.cache) return await target(...args);
+
+        const [data, instanceContext] = args;
+        const variables = { current: data };
+        if (globalContext) Object.assign(variables, globalContext.variables);
+        if (instanceContext) Object.assign(variables, instanceContext.variables);
+
+        const context: ParserContext = {
+          ...globalContext,
+          ...parserContext,
+          ...instanceContext,
+          variables,
+          data,
+          projection,
+        };
+
+        const valueHash = toHash(args);
+        const _key = globalContext.cache.generateKey ? globalContext.cache.generateKey(key, valueHash, context) : `${key}::${valueHash}`;
+
+        const cachedValue = await globalContext.cache.match(_key, context);
+        if (cachedValue) {
+          console.log(`Cache hit for key: "${_key}", returning cached value!`);
+          return cachedValue;
+        }
+        console.log(`No cache hit for key: "${_key}", running parser...`);
+        const newValue = await target(...args);
+        await globalContext.cache.add(_key, newValue, context);
+
+        return newValue;
+      },
+    });
+
+    return proxyFn;
+  };
 }
 
 export const initializeParser = (addGlobalContext?: ParserGlobalContext | ParserGlobalContextFn) => {
   Parser.parserGlobalContext = addGlobalContext || ({} as ParserGlobalContext);
-  const createParser = Parser.create;
-  return { createParser };
+  const { create: createParser, createCached } = Parser;
+  return { createParser, createCached };
 };
 
 export * from './parser-types';

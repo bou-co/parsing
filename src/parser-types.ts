@@ -32,7 +32,15 @@ export interface ParserContextTransformers {
 
 export type CacheValueFn = <T>(value: T) => T;
 
+export interface CacheLike {
+  generateKey?: (parserKey: string, dataHash: string, context: ParserContext) => string;
+  match: (key: string, context: ParserContext) => Promise<any> | any;
+  add: (key: string, value: any, context: ParserContext) => Promise<void> | void;
+  clear: (context: ParserContext) => Promise<void> | void;
+}
+
 export interface ParserGlobalContext extends GlobalContext {
+  cache?: CacheLike;
   variables?: ParserContextVariables;
   transformers?: ParserContextTransformers;
   variableResolver?: (variableName: string, context: ParserContext, cache: CacheValueFn) => Promise<unknown> | unknown;
@@ -49,6 +57,7 @@ export interface ParserInstanceContext extends InstanceContext {
 }
 
 export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> extends InstanceContext, GlobalContext, CreateParserContext {
+  isRoot?: boolean;
   data: DATA;
   key?: PropertyKey;
   projection: ParserProjection;
