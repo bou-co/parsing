@@ -33,10 +33,16 @@ export interface ParserContextTransformers {
 export type CacheValueFn = <T>(value: T) => T;
 
 export interface CacheLike {
-  generateKey?: (parserKey: string, dataHash: string, context: ParserContext) => string;
+  /** Match a key to value in cache and return it */
   match: (key: string, context: ParserContext) => Promise<any> | any;
+  /** Add a value to cache with a key */
   add: (key: string, value: any, context: ParserContext) => Promise<void> | void;
-  clear: (context: ParserContext) => Promise<void> | void;
+  /** Define function for generating cache key */
+  generateKey?: (parserKey: string, dataHash: string, context: ParserContext) => string;
+  /** Remove a value from cache by key */
+  remove?: (key: string, context: ParserContext) => Promise<void> | void;
+  /** Clear the cache completely */
+  clear?: (context: ParserContext) => Promise<void> | void;
 }
 
 export interface ParserGlobalContext extends GlobalContext {
