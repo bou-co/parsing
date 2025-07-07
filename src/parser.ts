@@ -346,11 +346,7 @@ class Parser {
         const _key = globalContext.cache.generateKey ? globalContext.cache.generateKey(key, valueHash, context) : `${key}::${valueHash}`;
 
         const cachedValue = await globalContext.cache.match(_key, context);
-        if (cachedValue) {
-          console.log(`Cache hit for key: "${_key}", returning cached value!`);
-          return cachedValue;
-        }
-        console.log(`No cache hit for key: "${_key}", running parser...`);
+        if (cachedValue) return cachedValue;
         const newValue = await target(...args);
         await globalContext.cache.add(_key, newValue, context);
 
