@@ -62,7 +62,7 @@ export interface ParserInstanceContext extends InstanceContext {
   variables?: ParserContextVariables;
 }
 
-export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> extends InstanceContext, GlobalContext, CreateParserContext {
+export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> extends InstanceContext, ParserGlobalContext, CreateParserContext {
   isRoot?: boolean;
   data: DATA;
   key?: PropertyKey;
