@@ -11,15 +11,16 @@ import {
   CreateParserContext,
   ParserInstanceContext,
   ParserGlobalContext,
+  CachingParserContext,
 } from './parser-types';
-import { asDate, asyncMapObject, filterNill, filterUndefinedEntries, optional, typed } from './parser-util';
+import { asDate, asyncMapObject, filterNill, filterUndefinedEntries, mergeObjects, optional, typed } from './parser-util';
 import { toHash } from './to-hash';
 
 interface ParserCache {
   variables: Record<string, any>;
 }
 
-class Parser {
+export class Parser {
   private static _cache: ParserCache = { variables: {} };
 
   static initializingGlobalContext = false;
@@ -59,8 +60,8 @@ class Parser {
 
       const variables = { current: data };
 
-      const parserGlobalContext = await Parser.getGlobalContext();
-      if (parserGlobalContext) Object.assign(variables, parserGlobalContext.variables);
+      const globalContext = await Parser.getGlobalContext();
+      if (globalContext) Object.assign(variables, globalContext.variables);
       if (parentContext) Object.assign(variables, parentContext.variables);
       if (parserContext) Object.assign(variables, parserContext.variables);
       if (instanceContext) Object.assign(variables, instanceContext.variables);
@@ -68,13 +69,15 @@ class Parser {
 
       const contextBase = {
         isRoot: parentContext.isRoot,
-        ...parserGlobalContext,
+        parser: this,
+        ...globalContext,
         ...parentContext,
         ...parserContext,
         ...instanceContext,
         variables,
         data,
         projection,
+        cachingOptions: mergeObjects(globalContext?.cachingOptions, parserContext?.cachingOptions, instanceContext?.cachingOptions),
       };
 
       const dataIsArray = Array.isArray(data) && data.every((item) => item instanceof Object);
@@ -228,12 +231,12 @@ class Parser {
               if (res) return handlePipe(res);
             } else if (value !== undefined) {
               return handlePipe(value) as T;
-            } else if (parserGlobalContext.variableResolver) {
+            } else if (globalContext.variableResolver) {
               const cacheVariable = <T>(value: T): T => {
                 Object.assign(Parser._cache.variables, { [variable]: value });
                 return value;
               };
-              const resolved = await parserGlobalContext.variableResolver(variable, context, cacheVariable);
+              const resolved = await globalContext.variableResolver(variable, context, cacheVariable);
               if (resolved) {
                 Object.assign(variables, { [variable]: resolved });
                 return handlePipe(resolved) as T;
@@ -282,8 +285,8 @@ class Parser {
         }
 
         // Apply global transformers if they exist
-        if (parserGlobalContext.transformers) {
-          for (const transformer of Object.values(parserGlobalContext.transformers)) {
+        if (globalContext.transformers) {
+          for (const transformer of Object.values(globalContext.transformers)) {
             if (transformer.when({ ...context, data: _value })) {
               _value = await transformer.then({ ...context, data: _value });
             }
@@ -320,12 +323,10 @@ class Parser {
     return parser.project(projection, parserContext);
   };
 
-  public static createCached = <const T extends ParserProjection>(key: string, projection: T, parserContext?: CreateParserContext): ParserFunction<T> => {
+  public static createCached = <const T extends ParserProjection>(projection: T, parserContext?: CreateParserContext): ParserFunction<T> => {
     const projectionFn = this.create(projection, parserContext);
-    const projectionHash = toHash(projection);
-
     const proxyFn = new Proxy(projectionFn, {
-      apply: async (target: any, thisArg: any, args: [any, ParserInstanceContext]) => {
+      apply: async (target: any, thisArg: Parser, args: [any, ParserInstanceContext]) => {
         const globalContext = await this.getGlobalContext();
         if (!globalContext.cache) return await target(...args);
 
@@ -334,19 +335,18 @@ class Parser {
         if (globalContext) Object.assign(variables, globalContext.variables);
         if (instanceContext) Object.assign(variables, instanceContext.variables);
 
-        const context: ParserContext = {
+        const context: CachingParserContext = {
+          parser: thisArg,
           ...globalContext,
           ...parserContext,
           ...instanceContext,
           variables,
           data,
           projection,
+          cachingOptions: mergeObjects(globalContext?.cachingOptions, parserContext?.cachingOptions, instanceContext?.cachingOptions),
         };
 
-        const valueHash = toHash(args);
-        const _key = globalContext.cache.generateKey
-          ? globalContext.cache.generateKey(key, projectionHash, valueHash, context)
-          : `${key}:${projectionHash}:${valueHash}`;
+        const _key = globalContext.cache.generateKey ? globalContext.cache.generateKey(context) : `${toHash(projection)}:${toHash(args)}`;
 
         const cachedValue = await globalContext.cache.match(_key, context);
         if (cachedValue) return cachedValue;

@@ -9,3 +9,7 @@ export interface CreateContext {
 export interface InstanceContext {
   // This context can be modified per project
 }
+
+export interface ParserCachingOptions {
+  // Add custom caching options per project
+}

@@ -1,8 +1,20 @@
-import { CacheLike, initializeParser, ParserContext } from '../parser';
+import { CacheLike, CachingParserContext, initializeParser, ParserContext } from '../parser';
+import { toHash } from '../to-hash';
+
+declare module '../expandable-types' {
+  export interface ParserCachingOptions {
+    name?: string;
+    globalPrefix?: string;
+  }
+}
 
 class TestCache implements CacheLike {
-  generateKey = (parserKey: string, projectionHash: string, dataHash: string, context: ParserContext) => {
-    return `${parserKey}-${projectionHash}-${dataHash}`;
+  generateKey = ({ data, projection, cachingOptions }: CachingParserContext) => {
+    if (!cachingOptions.globalPrefix) throw new Error('Caching options must have a global prefix defined');
+    if (!cachingOptions.name) throw new Error('Caching options must have a name defined');
+    const projectionHash = toHash(projection);
+    const dataHash = toHash(data);
+    return `${cachingOptions.name}-${projectionHash}-${dataHash}`;
   };
   values: Record<string, any> = {};
   match = async (key: string) => this.values[key];
@@ -16,17 +28,25 @@ class TestCache implements CacheLike {
 
 const { createCached } = initializeParser({
   cache: new TestCache(),
+  cachingOptions: {
+    globalPrefix: 'global-prefix',
+  },
 });
 
 describe('parsing', () => {
   it('should be able basic variable resolution', async () => {
-    const parser = createCached('cache-test-1', {
-      title: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        return 'Hello World';
+    const parser = createCached(
+      {
+        title: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          return 'Hello World';
+        },
+        description: 'string',
       },
-      description: 'string',
-    });
+      {
+        cachingOptions: { name: 'test-cache' },
+      },
+    );
     const timeStart = Date.now();
     const data = await parser({ description: 'Lorem ipsum' });
     const timeEnd = Date.now();
@@ -45,5 +65,13 @@ describe('parsing', () => {
     expect(secondData).toBeTruthy();
     expect(secondData.title).toEqual('Hello World');
     expect(secondData.description).toEqual('Lorem ipsum');
+  });
+
+  it('should fail if caching options are not defined', async () => {
+    const parser = createCached({
+      description: 'string',
+    });
+
+    await expect(parser({ description: 'Lorem ipsum' })).rejects.toThrow('Caching options must have a name defined');
   });
 });

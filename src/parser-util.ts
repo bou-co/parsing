@@ -39,3 +39,30 @@ export function get<T = unknown>(path: string, from?: AppObject) {
   if (from) return getFromObject(from, path) as Promise<T>;
   return ({ data }: ParserContext) => getFromObject(data, path) as Promise<T>;
 }
+
+/**
+ * Merges multiple objects into one.
+ * It combines the properties of the objects, handling arrays and nested objects.
+ * @param base - The base object to merge into.
+ * @param objects - The objects to merge with the base schema.
+ * @returns A new object that combines the base object with the provided objects.
+ */
+export const mergeObjects = <T = AppObject>(...objects: (AppObject | undefined)[]): T => {
+  return objects
+    .filter((obj) => obj !== undefined)
+    .reduce((acc, object) => {
+      Object.entries(object).forEach(([key, value]) => {
+        if (typeof value === 'object' && value !== null) {
+          if (Array.isArray(value)) {
+            if (!Array.isArray(acc[key])) acc[key] = [];
+            acc[key] = [...acc[key], ...value];
+          } else {
+            acc[key] = mergeObjects(acc[key] || {}, value);
+          }
+        } else {
+          acc[key] = value;
+        }
+      });
+      return acc;
+    }, {} as AppObject);
+};
