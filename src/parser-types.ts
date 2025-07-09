@@ -179,8 +179,8 @@ export type InstaceContext = OnlyOptionalValues<ParserInstanceContext> extends t
 export type ParserFunction<T extends object> = {
   (data: AppObject | string, instanceContext: InstaceContext, parentContext?: ParserContext): Promise<_HandleProjectionObject<T>>;
   // Additional functions
-  as: <TYPE extends object>(data: AppObject, instanceContext?: InstaceContext, parentContext?: ParserContext) => Promise<TYPE>;
-  asArray: <V = AppObject[]>(data: V, instanceContext?: InstaceContext, parentContext?: ParserContext) => Promise<_HandleProjectionObject<T>[]>;
+  as: <TYPE extends object>(data: AppObject, instanceContext: InstaceContext, parentContext?: ParserContext) => Promise<TYPE>;
+  asArray: <V = AppObject[]>(data: V, instanceContext: InstaceContext, parentContext?: ParserContext) => Promise<_HandleProjectionObject<T>[]>;
   // Metadata
   _parser: true;
   projection: T;
