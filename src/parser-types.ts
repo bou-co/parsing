@@ -174,15 +174,13 @@ type _HandleChildren<T extends object> = { -readonly [K in keyof T]?: RealValue<
 // 5. Handle optional
 type _HandleOptional<T extends object> = OptionalUndefined<T>;
 
+export type InstaceContext = OnlyOptionalValues<ParserInstanceContext> extends true ? ParserInstanceContext | void : ParserInstanceContext;
+
 export type ParserFunction<T extends object> = {
-  (
-    data: AppObject | string,
-    instanceContext: OnlyOptionalValues<ParserInstanceContext> extends true ? ParserInstanceContext | void : ParserInstanceContext,
-    parentContext?: ParserContext,
-  ): Promise<_HandleProjectionObject<T>>;
+  (data: AppObject | string, instanceContext: InstaceContext, parentContext?: ParserContext): Promise<_HandleProjectionObject<T>>;
   // Additional functions
-  as: <TYPE extends object>(data: AppObject, instanceContext?: AppObject, parentContext?: ParserContext) => Promise<TYPE>;
-  asArray: <V = AppObject[]>(data: V, instanceContext?: AppObject, parentContext?: ParserContext) => Promise<_HandleProjectionObject<T>[]>;
+  as: <TYPE extends object>(data: AppObject, instanceContext?: InstaceContext, parentContext?: ParserContext) => Promise<TYPE>;
+  asArray: <V = AppObject[]>(data: V, instanceContext?: InstaceContext, parentContext?: ParserContext) => Promise<_HandleProjectionObject<T>[]>;
   // Metadata
   _parser: true;
   projection: T;
