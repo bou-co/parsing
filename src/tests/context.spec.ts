@@ -1,4 +1,4 @@
-import { CreateParserContext, initializeParser, ParserGlobalContext, ParserInstanceContext } from '../parser';
+import { CreateParserContext, initializeParser, ParserContext, ParserGlobalContext, ParserInstanceContext } from '../parser';
 
 declare module '../expandable-types' {
   export interface GlobalContext {
@@ -100,5 +100,39 @@ describe('parsing', () => {
     expect(data.value).toEqual('Hello world!!!');
     expect(data.innerValue).toBeTruthy();
     expect(data.innerValue?.contextValue).toEqual('custom context value');
+  });
+
+  it('should be pass the context variables and other values to @if child parsers', async () => {
+    const { createParser } = initializeParser({ globalValue: 'global-works' });
+
+    const innerParser = createParser({
+      title: 'string',
+      contextValue: (context) => {
+        const { customContext } = context;
+        return customContext;
+      },
+    });
+
+    const parser = createParser({
+      '@if': [
+        {
+          when: ({ globalValue }: ParserContext) => globalValue === 'global-works',
+          then: innerParser,
+        },
+      ],
+    });
+
+    const data = await parser(
+      {
+        title: 'Hello world!!!',
+      },
+      {
+        customContext: 'custom context value',
+      },
+    );
+
+    expect(data).toBeTruthy();
+    expect(data.title).toEqual('Hello world!!!');
+    expect(data.contextValue).toEqual('custom context value');
   });
 });
