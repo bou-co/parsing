@@ -46,7 +46,10 @@ export class Parser {
     }
   };
 
-  public project = <const T extends object>(projection: T, parserContext?: CreateParserContext): ParserFunction<T> => {
+  public createProjection = <const T extends object>(
+    project: T | ((context: ParserContext) => T | Promise<T>),
+    parserContext?: CreateParserContext,
+  ): ParserFunction<T> => {
     const parse = async (value: AppObject | string, instanceContext: ParserInstanceContext = {}, parentContext: Partial<ParserContext> = {}) => {
       if (parentContext.isRoot === undefined) {
         parentContext.isRoot = true;
@@ -67,7 +70,7 @@ export class Parser {
       if (instanceContext) Object.assign(variables, instanceContext.variables);
       if (Parser._cache.variables) Object.assign(variables, Parser._cache.variables);
 
-      const contextBase = {
+      const contextBase: ParserContext = {
         isRoot: parentContext.isRoot,
         parser: this,
         ...globalContext,
@@ -76,9 +79,11 @@ export class Parser {
         ...instanceContext,
         variables,
         data,
-        projection,
         cachingOptions: mergeObjects(globalContext?.cachingOptions, parserContext?.cachingOptions, instanceContext?.cachingOptions),
       };
+
+      const projection = typeof project === 'function' ? await project(contextBase) : project;
+      Object.assign(contextBase, { projection });
 
       const dataIsArray = Array.isArray(data) && data.every((item) => item instanceof Object);
       if (dataIsArray) {
@@ -90,12 +95,12 @@ export class Parser {
             const itemProjection = projection[index];
             const context: ParserContext = { ...contextBase, key: index };
             if (!itemProjection) return undefined;
-            const parserFn = this.project(itemProjection);
+            const parserFn = this.createProjection(itemProjection);
             return await parserFn(item, instanceContext, context);
           });
           return Promise.all(promises).then(filterNill);
         }
-        const parserFn = this.project(projection) as ParserFunction<AppObject>;
+        const parserFn = this.createProjection(projection) as ParserFunction<AppObject>;
         const promises = data.map(async (item, index) => {
           const context: ParserContext = { ...contextBase, key: index };
           return await parserFn(item, instanceContext, context);
@@ -129,7 +134,7 @@ export class Parser {
                       conditionalEnties.push(...Object.entries(result));
                     }
                   } else {
-                    const parser = this.project(then) as ParserFunction<AppObject>;
+                    const parser = this.createProjection(then) as ParserFunction<AppObject>;
                     const result = await parser(data as any, instanceContext, context);
                     conditionalEnties.push(...Object.entries(result));
                   }
@@ -168,7 +173,7 @@ export class Parser {
               return [key, await value];
             }
             if (!data?.[key]) return [key, undefined];
-            const parserFn = this.project(value);
+            const parserFn = this.createProjection(value);
 
             // Check if calue for current key is an object
             if (data[key] instanceof Object) {
@@ -313,14 +318,17 @@ export class Parser {
     Object.defineProperty(parse, 'as', { value: parse });
     Object.defineProperty(parse, 'asArray', { value: parse });
     Object.defineProperty(parse, '_parser', { value: true });
-    Object.defineProperty(parse, 'projection', { value: projection });
+    Object.defineProperty(parse, 'projection', { value: project });
 
     return parse as unknown as ParserFunction<T>;
   };
 
-  public static create = <const T extends ParserProjection>(projection: T, parserContext?: CreateParserContext): ParserFunction<T> => {
+  public static create = <const T extends ParserProjection>(
+    project: T | ((context: ParserContext) => T | Promise<T>),
+    parserContext?: CreateParserContext,
+  ): ParserFunction<T> => {
     const parser = new Parser();
-    return parser.project(projection, parserContext);
+    return parser.createProjection(project, parserContext);
   };
 
   public static createCached = <const T extends ParserProjection>(projection: T, parserContext?: CreateParserContext): ParserFunction<T> => {

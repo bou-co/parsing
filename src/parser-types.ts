@@ -71,7 +71,7 @@ export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> extends Ins
   parser: Parser;
   data: DATA;
   key?: PropertyKey;
-  projection: ParserProjection;
+  projection?: ParserProjection;
   params?: PARAMS;
   variables: AppObject;
 }
