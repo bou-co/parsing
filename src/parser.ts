@@ -320,6 +320,15 @@ export class Parser {
     Object.defineProperty(parse, '_parser', { value: true });
     Object.defineProperty(parse, 'projection', { value: project });
 
+    Object.defineProperty(parse, 'extend', {
+      value: <X extends ParserProjection>(extendProject: X, extendContext?: CreateParserContext): ParserFunction<T & X> => {
+        if (typeof project === 'function') throw new Error('Cannot extend a projection that is a function');
+        const _project = { ...project, ...extendProject };
+        const _parserContext = mergeObjects(parserContext, extendContext);
+        return this.createProjection(_project, _parserContext);
+      },
+    });
+
     return parse as unknown as ParserFunction<T>;
   };
 
