@@ -11,5 +11,6 @@ export interface InstanceContext {
 }
 
 export interface ParserCachingOptions {
+  enabled?: boolean;
   // Add custom caching options per project
 }

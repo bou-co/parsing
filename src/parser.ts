@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { ParserCachingOptions } from './expandable-types';
 import { getFromObject } from './internal';
 import {
   ParserFunction,
@@ -79,7 +80,7 @@ export class Parser {
         ...instanceContext,
         variables,
         data,
-        cachingOptions: mergeObjects(globalContext?.cachingOptions, parserContext?.cachingOptions, instanceContext?.cachingOptions),
+        cache: mergeObjects(globalContext?.cache, parserContext?.cache, instanceContext?.cache),
       };
 
       const projection = typeof project === 'function' ? await project(contextBase) : project;
@@ -332,24 +333,25 @@ export class Parser {
     return parse as unknown as ParserFunction<T>;
   };
 
-  public static create = <const T extends ParserProjection>(
+  public static createParser = <const T extends ParserProjection>(
     project: T | ((context: ParserContext) => T | Promise<T>),
     parserContext?: CreateParserContext,
   ): ParserFunction<T> => {
     const parser = new Parser();
-    return parser.createProjection(project, parserContext);
-  };
+    const projectionFn = parser.createProjection(project, parserContext);
 
-  public static createCached = <const T extends ParserProjection>(projection: T, parserContext?: CreateParserContext): ParserFunction<T> => {
-    const projectionFn = this.create(projection, parserContext);
     const proxyFn = new Proxy(projectionFn, {
       apply: async (target: any, thisArg: Parser, args: [any, ParserInstanceContext]) => {
         const globalContext = await this.getGlobalContext();
-        if (!globalContext.cache) return await target(...args);
-
+        if (!globalContext.storage) return await target(...args);
         const [data, instanceContext] = args;
+
+        const cache: ParserCachingOptions = mergeObjects(globalContext?.cache, parserContext?.cache, instanceContext?.cache);
+        if (!cache.enabled) return await target(...args);
+
         const variables = { current: data };
         if (globalContext) Object.assign(variables, globalContext.variables);
+        if (parserContext) Object.assign(variables, parserContext.variables);
         if (instanceContext) Object.assign(variables, instanceContext.variables);
 
         const context: CachingParserContext = {
@@ -359,16 +361,16 @@ export class Parser {
           ...instanceContext,
           variables,
           data,
-          projection,
-          cachingOptions: mergeObjects(globalContext?.cachingOptions, parserContext?.cachingOptions, instanceContext?.cachingOptions),
+          projection: projectionFn.projection,
+          cache,
         };
 
-        const _key = globalContext.cache.generateKey ? globalContext.cache.generateKey(context) : `${toHash(projection)}:${toHash(args)}`;
+        const _key = globalContext.storage.generateKey ? globalContext.storage.generateKey(context) : `${toHash(projectionFn.projection)}:${toHash(args)}`;
 
-        const cachedValue = await globalContext.cache.match(_key, context);
+        const cachedValue = await globalContext.storage.match(_key, context);
         if (cachedValue) return cachedValue;
         const newValue = await target(...args);
-        await globalContext.cache.add(_key, newValue, context);
+        await globalContext.storage.add(_key, newValue, context);
 
         return newValue;
       },
@@ -380,8 +382,8 @@ export class Parser {
 
 export const initializeParser = (addGlobalContext?: ParserGlobalContext | ParserGlobalContextFn) => {
   Parser.parserGlobalContext = addGlobalContext || ({} as ParserGlobalContext);
-  const { create: createParser, createCached } = Parser;
-  return { createParser, createCached };
+  const { createParser } = Parser;
+  return { createParser };
 };
 
 export * from './parser-types';

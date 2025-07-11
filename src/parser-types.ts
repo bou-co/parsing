@@ -33,7 +33,7 @@ export interface ParserContextTransformers {
 
 export type CacheValueFn = <T>(value: T) => T;
 
-export interface CacheLike {
+export interface StorageLike {
   /** Match a key to value in cache and return it */
   match: (key: string, context: CachingParserContext) => Promise<any> | any;
   /** Add a value to cache with a key */
@@ -47,23 +47,23 @@ export interface CacheLike {
 }
 
 export interface ParserGlobalContext extends GlobalContext {
-  cache?: CacheLike;
+  storage?: StorageLike;
   variables?: ParserContextVariables;
   transformers?: ParserContextTransformers;
   variableResolver?: (variableName: string, context: ParserContext, cache: CacheValueFn) => Promise<unknown> | unknown;
-  cachingOptions?: ParserCachingOptions;
+  cache?: ParserCachingOptions;
 }
 
 export type ParserGlobalContextFn = () => ParserGlobalContext | Promise<ParserGlobalContext>;
 
 export interface CreateParserContext extends CreateContext {
   variables?: ParserContextVariables;
-  cachingOptions?: ParserCachingOptions;
+  cache?: ParserCachingOptions;
 }
 
 export interface ParserInstanceContext extends InstanceContext {
   variables?: ParserContextVariables;
-  cachingOptions?: ParserCachingOptions;
+  cache?: ParserCachingOptions;
 }
 
 export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> extends InstanceContext, ParserGlobalContext, CreateParserContext {
@@ -77,7 +77,7 @@ export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> extends Ins
 }
 
 export interface CachingParserContext extends ParserContext {
-  cachingOptions: ParserCachingOptions;
+  cache: ParserCachingOptions;
 }
 
 export const valueKeys = ['string', 'object', 'number', 'boolean', 'array', 'undefined', 'any', 'unknown', 'date'] as const;
