@@ -260,4 +260,33 @@ describe('parsing', () => {
     expect(data).toBeTruthy();
     expect(data.title).toEqual(`This is: ${variableTitle} from John Doe`);
   });
+
+  it('should be able handle variables that need to be resolved from context', async () => {
+    const parser = createParser(
+      {
+        href: 'string',
+        host: 'string',
+        pathname: 'string',
+        campaign: 'string',
+      },
+      {
+        variables: {
+          url: () => {
+            return new URL('/about?campaign=123', 'https://bou.co');
+          },
+        },
+      },
+    );
+    const data = await parser({
+      href: `{{url.origin}}/careers`,
+      host: `{{url.host}}`,
+      pathname: `{{url.pathname}}`,
+      campaign: `{{url.searchParams.campaign}}`,
+    });
+    expect(data).toBeTruthy();
+    expect(data.href).toEqual('https://bou.co/careers');
+    expect(data.host).toEqual('bou.co');
+    expect(data.pathname).toEqual('/about');
+    expect(data.campaign).toEqual('123');
+  });
 });

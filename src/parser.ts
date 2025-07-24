@@ -220,7 +220,7 @@ export class Parser {
                   if (/^".+"$/.test(param)) return param.slice(1, -1) as T;
                   if (/^\d+$/.test(param)) return parseInt(param, 10) as T;
                   if (/^false$|^true$/.test(param)) return param === 'true' ? (true as T) : (false as T);
-                  const paramValue = await getFromObject(variables, param);
+                  const paramValue = await getFromObject(variables, param, context);
                   if (typeof paramValue === 'function') return await paramValue(context);
                   return paramValue;
                 }),
@@ -231,7 +231,7 @@ export class Parser {
             if (/^".+"$/.test(variable)) return variable.slice(1, -1) as T;
             if (/^\d+$/.test(variable)) return parseInt(variable, 10) as T;
             if (/^false$|^true$/.test(variable)) return variable === 'true' ? (true as T) : (false as T);
-            const value = await getFromObject(variables, variable);
+            const value = await getFromObject(variables, variable, context);
             if (typeof value === 'function') {
               const res = await value(context);
               if (res) return handlePipe(res);
