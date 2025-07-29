@@ -231,23 +231,23 @@ export class Parser {
             if (/^".+"$/.test(variable)) return variable.slice(1, -1) as T;
             if (/^\d+$/.test(variable)) return parseInt(variable, 10) as T;
             if (/^false$|^true$/.test(variable)) return variable === 'true' ? (true as T) : (false as T);
-            const value = await getFromObject(variables, variable, context);
-            if (typeof value === 'function') {
-              const res = await value(context);
-              if (res) return handlePipe(res);
-            } else if (value !== undefined) {
-              return handlePipe(value) as T;
-            } else if (globalContext.variableResolver) {
+
+            const getVariableValue = async (path: string): Promise<unknown> => {
               const cacheVariable = <T>(value: T): T => {
-                Object.assign(Parser._cache.variables, { [variable]: value });
+                Object.assign(Parser._cache.variables, { [path]: value });
                 return value;
               };
-              const resolved = await globalContext.variableResolver(variable, context, cacheVariable);
-              if (resolved) {
-                Object.assign(variables, { [variable]: resolved });
-                return handlePipe(resolved) as T;
-              }
-            }
+
+              let value: unknown = await getFromObject(variables, path, context);
+              if (value === undefined && globalContext.variableResolver) value = await globalContext.variableResolver(path, context, cacheVariable);
+              if (typeof value === 'function') value = await value(context);
+              return value;
+            };
+
+            const [key, ...rest] = variable.split('.');
+            let value = await getVariableValue(key);
+            if (value && typeof value === 'object' && rest.length) value = await getFromObject(value, rest.join('.'), context);
+            if (value !== undefined || context.pipeUndefined) return handlePipe(value);
           }
           return undefined as T;
         };

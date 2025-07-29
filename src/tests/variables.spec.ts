@@ -4,7 +4,7 @@ const variableTitle = 'variable title';
 const variableFunction = () => variableTitle + ' function';
 const asyncVariable = Promise.resolve(variableTitle + ' async');
 const asyncVariableFunction = async () => variableTitle + ' async function';
-const uppercase: ContextParserValueFunction<string> = ({ data }) => data.toUpperCase();
+const uppercase: ContextParserValueFunction<string> = ({ data }) => (data ? data.toUpperCase() : 'undefined'.toUpperCase());
 const multiply: ContextParserValueFunction<number, [number]> = ({ data, params: [by] = [2] }) => {
   return data * by;
 };
@@ -288,5 +288,39 @@ describe('parsing', () => {
     expect(data.host).toEqual('bou.co');
     expect(data.pathname).toEqual('/about');
     expect(data.campaign).toEqual('123');
+  });
+
+  it('should be able handle pipes for values that are undefined if configured so in the context', async () => {
+    const parser = createParser(
+      {
+        exists: 'string',
+        undefined: 'string',
+      },
+      {
+        variables: {
+          url: () => {
+            return new URL('/about?campaign=123', 'https://bou.co');
+          },
+        },
+      },
+    );
+    const data = await parser({
+      exists: `{{url.origin | uppercase}}`,
+      undefined: `{{url.notFound | uppercase}}`,
+    });
+    expect(data).toBeTruthy();
+    expect(data.exists).toEqual('HTTPS://BOU.CO');
+    expect(data.undefined).toEqual(undefined);
+
+    const data2 = await parser(
+      {
+        exists: `{{url.origin | uppercase}}`,
+        undefined: `{{url.notFound | uppercase}}`,
+      },
+      { pipeUndefined: true },
+    );
+    expect(data2).toBeTruthy();
+    expect(data2.exists).toEqual('HTTPS://BOU.CO');
+    expect(data2.undefined).toEqual('UNDEFINED');
   });
 });

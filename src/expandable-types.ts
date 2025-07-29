@@ -1,16 +1,18 @@
-export interface GlobalContext {
-  // This context can be modified per project
+// This context can be modified per project
+export interface CommonContext {
+  pipeUndefined?: boolean;
 }
 
-export interface CreateContext {
-  // This context can be modified per project
-}
+// This context can be modified per project
+export interface GlobalContext {}
 
-export interface InstanceContext {
-  // This context can be modified per project
-}
+// This context can be modified per project
+export interface CreateContext {}
 
+// This context can be modified per project
+export interface InstanceContext {}
+
+// Add custom caching options per project
 export interface ParserCachingOptions {
   enabled?: boolean;
-  // Add custom caching options per project
 }

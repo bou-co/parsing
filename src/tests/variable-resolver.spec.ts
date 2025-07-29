@@ -27,6 +27,14 @@ const { createParser } = initializeParser(async () => {
           }, 100);
         });
       }
+      if (variableName === 'nestedVariable') {
+        return {
+          inner: {
+            value: 'nested variable value',
+          },
+        };
+      }
+
       return undefined;
     },
   };
@@ -88,5 +96,15 @@ describe('parsing', () => {
     expect(data.title).toEqual(`This is: ${_cache['randomVariable']}`);
     expect(calledVariables.has('randomVariable')).toBeTruthy();
     expect(randomVariableCount).toEqual(1); // Should not increase, as it is cached
+  });
+
+  it('should be able handle variables that are returned from resolver and return nested value', async () => {
+    const parser = createParser({
+      title: 'string',
+    });
+    const data = await parser({ title: `This is: {{nestedVariable.inner.value}}` });
+    expect(data).toBeTruthy();
+    expect(data.title).toEqual(`This is: nested variable value`);
+    expect(calledVariables.has('nestedVariable')).toBeTruthy();
   });
 });

@@ -1,5 +1,5 @@
 import type { Parser } from './parser';
-import { CreateContext, GlobalContext, InstanceContext, ParserCachingOptions } from './expandable-types';
+import { CommonContext, CreateContext, GlobalContext, InstanceContext, ParserCachingOptions } from './expandable-types';
 
 // Util types
 
@@ -46,7 +46,7 @@ export interface StorageLike {
   clear?: (context: ParserContext) => Promise<void> | void;
 }
 
-export interface ParserGlobalContext extends GlobalContext {
+export interface ParserGlobalContext extends CommonContext, GlobalContext {
   storage?: StorageLike;
   variables?: ParserContextVariables;
   transformers?: ParserContextTransformers;
@@ -56,17 +56,17 @@ export interface ParserGlobalContext extends GlobalContext {
 
 export type ParserGlobalContextFn = () => ParserGlobalContext | Promise<ParserGlobalContext>;
 
-export interface CreateParserContext extends CreateContext {
+export interface CreateParserContext extends CommonContext, CreateContext {
   variables?: ParserContextVariables;
   cache?: ParserCachingOptions;
 }
 
-export interface ParserInstanceContext extends InstanceContext {
+export interface ParserInstanceContext extends CommonContext, InstanceContext {
   variables?: ParserContextVariables;
   cache?: ParserCachingOptions;
 }
 
-export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> extends InstanceContext, ParserGlobalContext, CreateParserContext {
+export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> extends CommonContext, InstanceContext, ParserGlobalContext, CreateParserContext {
   isRoot?: boolean;
   parser: Parser;
   data: DATA;
