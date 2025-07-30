@@ -49,6 +49,53 @@ describe('parsing', () => {
     expect(result.value).toEqual(initialValue + baseValue); // Value should be base + initialValue
   });
 
+  it('should be able to add before hook to add additional context properties for arrays', async () => {
+    const { createParser } = initializeParser();
+    const initialValue = 5;
+    const baseValue = 10;
+    const parser = createParser(
+      { value: ({ data, base }) => data['value'] + base },
+      {
+        before: (context) => {
+          context.base = baseValue; // Set base to baseValue
+          return context;
+        },
+      },
+    );
+
+    expect(parser).toBeTruthy();
+    const result = await parser.asArray([{ value: initialValue }, { value: initialValue }]);
+    expect(result).toBeTruthy();
+    for (const item of result) {
+      expect(item.value).toEqual(initialValue + baseValue); // Each value should be base + initialValue
+    }
+  });
+
+  it('should be able to add before hook to add additional context properties to parsers that are then extended', async () => {
+    const { createParser } = initializeParser();
+    const initialValue = 5;
+    const baseValue = 10;
+    const parser = createParser(
+      { value: ({ data, base }) => data['value'] + base },
+      {
+        before: (context) => {
+          context.base = baseValue; // Set base to baseValue
+          return context;
+        },
+      },
+    );
+
+    const extendedParser = parser.extend({
+      extraValue: ({ data, base }) => data['value'] + base + 5,
+    });
+
+    expect(extendedParser).toBeTruthy();
+    const result = await extendedParser({ value: initialValue });
+    expect(result).toBeTruthy();
+    expect(result.value).toEqual(initialValue + baseValue); // Value should be base + initialValue
+    expect(result.extraValue).toEqual(initialValue + baseValue + 5);
+  });
+
   it('should be able to add after hook to modify data returned from parser', async () => {
     const { createParser } = initializeParser();
     const parser = createParser(
