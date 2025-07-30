@@ -1,5 +1,5 @@
 import type { Parser } from './parser';
-import { CommonContext, CreateContext, GlobalContext, InstanceContext, ParserCachingOptions } from './expandable-types';
+import { CommonContext, CreateContext, FunctionalContext, GlobalContext, InstanceContext, ParserCachingOptions } from './expandable-types';
 
 // Util types
 
@@ -66,7 +66,12 @@ export interface ParserInstanceContext extends CommonContext, InstanceContext {
   cache?: ParserCachingOptions;
 }
 
-export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> extends CommonContext, InstanceContext, ParserGlobalContext, CreateParserContext {
+export interface ParserContext<DATA = AppObject, PARAMS = unknown[]>
+  extends FunctionalContext,
+    CommonContext,
+    InstanceContext,
+    ParserGlobalContext,
+    CreateParserContext {
   isRoot?: boolean;
   parser: Parser;
   data: DATA;

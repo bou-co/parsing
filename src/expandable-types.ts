@@ -8,6 +8,9 @@ export interface CommonContext {
 }
 
 // This context can be modified per project
+export interface FunctionalContext {}
+
+// This context can be modified per project
 export interface GlobalContext {}
 
 // This context can be modified per project
