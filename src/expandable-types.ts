@@ -1,6 +1,10 @@
+import { ParserContext } from './parser-types';
+
 // This context can be modified per project
 export interface CommonContext {
   pipeUndefined?: boolean;
+  before?: (context: ParserContext) => ParserContext | Promise<ParserContext>;
+  after?: (context: ParserContext) => ParserContext | Promise<ParserContext>;
 }
 
 // This context can be modified per project

@@ -176,7 +176,7 @@ export class Parser {
       if (instanceContext) Object.assign(variables, instanceContext.variables);
       if (Parser._cache.variables) Object.assign(variables, Parser._cache.variables);
 
-      const contextBase: ParserContext = {
+      let contextBase: ParserContext = {
         isRoot: parentContext.isRoot,
         parser: this,
         ...globalContext,
@@ -188,6 +188,7 @@ export class Parser {
         cache: mergeObjects(globalContext?.cache, parserContext?.cache, instanceContext?.cache),
       };
 
+      if (contextBase.before) contextBase = await contextBase.before(contextBase);
       const projection = typeof project === 'function' ? await project(contextBase) : project;
       Object.assign(contextBase, { projection });
 
@@ -329,8 +330,11 @@ export class Parser {
 
       const resolved = await Promise.all(promises).then(filterNill).then(filterUndefinedEntries);
       if (Array.isArray(projection)) return resolved.map(([, value]) => value);
-      const combined = Object.fromEntries([...resolved, ...conditionalEnties]);
-
+      let combined = Object.fromEntries([...resolved, ...conditionalEnties]);
+      if (contextBase.after) {
+        const afterResult = await contextBase.after({ ...contextBase, data: combined });
+        if (afterResult.data) combined = afterResult.data;
+      }
       return new Proxy(combined, {
         get: (target, prop) => {
           // Add "_parsed" property to indicate that the object has been parsed and does not need to be checked for variables again
