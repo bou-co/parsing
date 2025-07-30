@@ -186,12 +186,8 @@ export class Parser {
         variables,
         data,
         cache: mergeObjects(globalContext?.cache, parserContext?.cache, instanceContext?.cache),
-      };
+      } satisfies Partial<ParserContext> as any;
 
-      const contextsWithHooks = [globalContext, parserContext, instanceContext];
-      for (const context of contextsWithHooks) {
-        if (context?.before) contextBase = await context.before(contextBase);
-      }
       const projection = typeof project === 'function' ? await project(contextBase) : project;
       Object.assign(contextBase, { projection });
 
@@ -205,17 +201,22 @@ export class Parser {
             const itemProjection = projection[index];
             const context: ParserContext = { ...contextBase, key: index };
             if (!itemProjection) return undefined;
-            const parserFn = this.createProjection(itemProjection);
+            const parserFn = this.createProjection(itemProjection, parserContext);
             return await parserFn(item, instanceContext, context);
           });
           return Promise.all(promises).then(filterNill);
         }
-        const parserFn = this.createProjection(projection) as ParserFunction<AppObject>;
+        const parserFn = this.createProjection(projection, parserContext) as ParserFunction<AppObject>;
         const promises = data.map(async (item, index) => {
           const context: ParserContext = { ...contextBase, key: index };
           return await parserFn(item, instanceContext, context);
         });
         return Promise.all(promises).then(filterNill);
+      }
+
+      const contextsWithHooks = [globalContext, parserContext, instanceContext];
+      for (const context of contextsWithHooks) {
+        if (context?.before) contextBase = await context.before(contextBase);
       }
 
       const entries = Object.entries(projection);
@@ -396,7 +397,7 @@ export class Parser {
           data,
           projection: projectionFn.projection,
           cache,
-        };
+        } satisfies Partial<CachingParserContext> as any;
 
         const _key = globalContext.storage.generateKey ? globalContext.storage.generateKey(context) : `${toHash(projectionFn.projection)}:${toHash(args)}`;
 

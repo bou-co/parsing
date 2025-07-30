@@ -72,6 +72,27 @@ describe('parsing', () => {
     }
   });
 
+  it('should be able to add before hook to add additional context properties for arrays based on the data per array item', async () => {
+    const { createParser } = initializeParser();
+    const initialValue = 5;
+    const parser = createParser(
+      { value: ({ data, base }) => data['value'] + base },
+      {
+        before: (context) => {
+          context.base = context.data['value'] || 0; // Set base to value from data
+          return context;
+        },
+      },
+    );
+
+    expect(parser).toBeTruthy();
+    const result = await parser.asArray([{ value: initialValue }, { value: initialValue }]);
+    expect(result).toBeTruthy();
+    for (const item of result) {
+      expect(item.value).toEqual(initialValue + initialValue); // Each value should be base + initialValue
+    }
+  });
+
   it('should be able to add before hook to add additional context properties to parsers that are then extended', async () => {
     const { createParser } = initializeParser();
     const initialValue = 5;
