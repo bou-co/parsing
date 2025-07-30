@@ -1,4 +1,4 @@
-import { AppObject, ContextParserValueFunction, initializeParser } from '../parser';
+import { AppObject, ContextParserValueFunction, getVariableValue, initializeParser, resolveVariables } from '../parser';
 
 const variableTitle = 'variable title';
 const variableFunction = () => variableTitle + ' function';
@@ -322,5 +322,32 @@ describe('parsing', () => {
     expect(data2).toBeTruthy();
     expect(data2.exists).toEqual('HTTPS://BOU.CO');
     expect(data2.undefined).toEqual('UNDEFINED');
+  });
+
+  it('should be able to use resolveVariables and getVariableValue', async () => {
+    const parser = createParser(
+      {
+        resolveVariablesResult: (context) => resolveVariables({ origin: 'Nested origin: {{url.origin}}' }, context),
+        resolveVariablesResultString: (context) => resolveVariables('Just origin: {{url.origin}}', context),
+        getVariableValueResult: (context) => getVariableValue('{{url.origin}}', context),
+        getVariableValueResultSimple: (context) => getVariableValue('url.origin', context),
+      },
+      {
+        variables: {
+          url: () => {
+            return new URL('/about?campaign=123', 'https://bou.co');
+          },
+        },
+      },
+    );
+    const data = await parser({
+      exists: `{{url.origin | uppercase}}`,
+      undefined: `{{url.notFound | uppercase}}`,
+    });
+    expect(data).toBeTruthy();
+    expect(data.resolveVariablesResult).toEqual({ origin: 'Nested origin: https://bou.co' });
+    expect(data.resolveVariablesResultString).toEqual('Just origin: https://bou.co');
+    expect(data.getVariableValueResult).toEqual('https://bou.co');
+    expect(data.getVariableValueResultSimple).toEqual('https://bou.co');
   });
 });

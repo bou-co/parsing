@@ -461,7 +461,8 @@ describe('parsing', () => {
     const data = await parser({ contextual: '{{...}}' }, instanceContext);
 
     expect(data).toBeTruthy();
-    expect(data.contextual).toEqual(instanceContext.variables);
+    expect(data.contextual?.['added']).toEqual(hello);
+    expect(data.contextual?.['custom']).toEqual(lorem);
   });
 
   it('should be able to handle frozen objects', async () => {

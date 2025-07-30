@@ -47,6 +47,111 @@ export class Parser {
     }
   };
 
+  /**
+   * Retrieves the value of a variable from the context based on the provided match string.
+   * The match string should be in the format `{{variableName}}` or `{{variableName|pipeConfig}}`.
+   * If the variable is not found, it will try to resolve it using the variable resolver function from the context.
+   * If the variable is an object, it will apply the specified pipe configuration to the value.
+   * If the variable is a string, it will return the string without any processing.
+   * If the variable is a number, it will return the number as is.
+   * If the variable is a boolean, it will return the boolean as is.
+   * If the variable is an array, it will return the array as is.
+   * @param match The match string containing the variable name and optional pipe configuration.
+   * @param context The context containing variable definitions and a variable resolver function.
+   * @returns A promise that resolves to the value of the variable, processed according to the pipe configuration if applicable.
+   * @throws Will throw an error if the pipe is not found or if the pipe is not a function.
+   */
+  public static getVariableValue = async <T = unknown>(match: string, context: ParserContext): Promise<T> => {
+    const { variables, variableResolver } = context;
+    if (match === '{{...}}') return variables as T;
+
+    const parts = match
+      .slice(2, -2)
+      .split('||')
+      .map((item) => item.trim());
+
+    for (const part of parts) {
+      const [variable, pipeConfig] = part.split('|').map((item) => item.trim());
+      const handlePipe = async <T>(value: T) => {
+        if (!pipeConfig) return value;
+        const [pipeName, ...pipeParams] = pipeConfig.split(':').map((item) => item.trim());
+        const pipe = await getFromObject(variables, pipeName);
+        if (!pipe) throw new Error(`Pipe "${pipeName}" not found`);
+        if (typeof pipe !== 'function') throw new Error(`Pipe "${pipeName}" is not a function`);
+        const params = await Promise.all(
+          pipeParams.map(async (param) => {
+            if (/^".+"$/.test(param)) return param.slice(1, -1) as T;
+            if (/^\d+$/.test(param)) return parseInt(param, 10) as T;
+            if (/^false$|^true$/.test(param)) return param === 'true' ? (true as T) : (false as T);
+            const paramValue = await getFromObject(variables, param, context);
+            if (typeof paramValue === 'function') return await paramValue(context);
+            return paramValue;
+          }),
+        );
+        return await pipe({ ...context, data: value, params: params.length ? params : undefined });
+      };
+
+      if (/^".+"$/.test(variable)) return variable.slice(1, -1) as T;
+      if (/^\d+$/.test(variable)) return parseInt(variable, 10) as T;
+      if (/^false$|^true$/.test(variable)) return variable === 'true' ? (true as T) : (false as T);
+
+      const resolveVariableValue = async (path: string): Promise<unknown> => {
+        const cacheVariable = <T>(value: T): T => {
+          Object.assign(Parser._cache.variables, { [path]: value });
+          return value;
+        };
+
+        let value: unknown = await getFromObject(variables, path, context);
+        if (value === undefined && variableResolver) value = await variableResolver(path, context, cacheVariable);
+        if (typeof value === 'function') value = await value(context);
+        return value;
+      };
+
+      const [key, ...rest] = variable.split('.');
+      let value = await resolveVariableValue(key);
+      if (value && typeof value === 'object' && rest.length) value = await getFromObject(value, rest.join('.'), context);
+      if (value !== undefined || context.pipeUndefined) return handlePipe(value);
+    }
+    return undefined as T;
+  };
+
+  /**
+   * Resolves variables in the current value based on the context.
+   * If the current value is an object, it recursively resolves its properties.
+   * If the current value is a string, it checks for variables wrapped in `{{}}` and replaces them with their values.
+   * @param current The value to resolve variables in.
+   * @param context The context containing variable definitions and other information.
+   * @returns A promise that resolves to the value with variables resolved.
+   */
+  public static resolveVariables = async <T>(current: T, context: ParserContext): Promise<T> => {
+    // If the current value does not exist, return it as is
+    if (!current) return current;
+
+    // If the current value is an object, iterate over its entries
+    if (typeof current === 'object') {
+      const callback = (value: any) => this.resolveVariables(value, context);
+      return asyncMapObject(current, callback);
+    }
+
+    // If the current value is a string, check if it contains a variable
+    if (typeof current === 'string') {
+      const variables = current.match(/\{\{[^}]+\}\}/g);
+      if (!variables) return current;
+      const isVariable = current.match(/^\{\{[^}]+\}\}$/);
+      if (isVariable) return this.getVariableValue(current, context);
+
+      return variables.reduce(
+        async (acc, variableName) => {
+          const awaited = await acc;
+          const value = await this.getVariableValue<string>(variableName, context);
+          return awaited.replace(variableName, value);
+        },
+        Promise.resolve(current) as Promise<string>,
+      ) as T;
+    }
+    return current;
+  };
+
   public createProjection = <const T extends object>(
     project: T | ((context: ParserContext) => T | Promise<T>),
     parserContext?: CreateParserContext,
@@ -189,7 +294,7 @@ export class Parser {
               // Match variables that are wrapped in double curly braces
               const isVariable = data[key].match(/^\{\{[^}]+\}\}$/);
               if (!isVariable) return [key, undefined];
-              const variable = getVariableValue(data[key]);
+              const variable = Parser.getVariableValue(data[key], context);
               if (variable instanceof Object) return [key, await parserFn(variable, instanceContext, context)];
             }
           }
@@ -197,87 +302,6 @@ export class Parser {
           if (/^array<.+>/gi.test(value)) return [key, data[key]];
           if (value) return [key, value];
           return [key, undefined];
-        };
-
-        const getVariableValue = async <T = unknown>(match: string): Promise<T> => {
-          if (match === '{{...}}') return instanceContext?.variables as T;
-
-          const parts = match
-            .slice(2, -2)
-            .split('||')
-            .map((item) => item.trim());
-
-          for (const part of parts) {
-            const [variable, pipeConfig] = part.split('|').map((item) => item.trim());
-            const handlePipe = async <T>(value: T) => {
-              if (!pipeConfig) return value;
-              const [pipeName, ...pipeParams] = pipeConfig.split(':').map((item) => item.trim());
-              const pipe = await getFromObject(variables, pipeName);
-              if (!pipe) throw new Error(`Pipe "${pipeName}" not found`);
-              if (typeof pipe !== 'function') throw new Error(`Pipe "${pipeName}" is not a function`);
-              const params = await Promise.all(
-                pipeParams.map(async (param) => {
-                  if (/^".+"$/.test(param)) return param.slice(1, -1) as T;
-                  if (/^\d+$/.test(param)) return parseInt(param, 10) as T;
-                  if (/^false$|^true$/.test(param)) return param === 'true' ? (true as T) : (false as T);
-                  const paramValue = await getFromObject(variables, param, context);
-                  if (typeof paramValue === 'function') return await paramValue(context);
-                  return paramValue;
-                }),
-              );
-              return await pipe({ ...context, data: value, params: params.length ? params : undefined });
-            };
-
-            if (/^".+"$/.test(variable)) return variable.slice(1, -1) as T;
-            if (/^\d+$/.test(variable)) return parseInt(variable, 10) as T;
-            if (/^false$|^true$/.test(variable)) return variable === 'true' ? (true as T) : (false as T);
-
-            const getVariableValue = async (path: string): Promise<unknown> => {
-              const cacheVariable = <T>(value: T): T => {
-                Object.assign(Parser._cache.variables, { [path]: value });
-                return value;
-              };
-
-              let value: unknown = await getFromObject(variables, path, context);
-              if (value === undefined && globalContext.variableResolver) value = await globalContext.variableResolver(path, context, cacheVariable);
-              if (typeof value === 'function') value = await value(context);
-              return value;
-            };
-
-            const [key, ...rest] = variable.split('.');
-            let value = await getVariableValue(key);
-            if (value && typeof value === 'object' && rest.length) value = await getFromObject(value, rest.join('.'), context);
-            if (value !== undefined || context.pipeUndefined) return handlePipe(value);
-          }
-          return undefined as T;
-        };
-
-        const findVariables = async <T>(current: T): Promise<T> => {
-          // If the current value does not exist, return it as is
-          if (!current) return current;
-
-          // If the current value is an object, iterate over its entries
-          if (typeof current === 'object') {
-            return asyncMapObject(current, findVariables);
-          }
-
-          // If the current value is a string, check if it contains a variable
-          if (typeof current === 'string') {
-            const variables = current.match(/\{\{[^}]+\}\}/g);
-            if (!variables) return current;
-            const isVariable = current.match(/^\{\{[^}]+\}\}$/);
-            if (isVariable) return getVariableValue(current);
-
-            return variables.reduce(
-              async (acc, variableName) => {
-                const awaited = await acc;
-                const value = await getVariableValue<string>(variableName);
-                return awaited.replace(variableName, value);
-              },
-              Promise.resolve(current) as Promise<string>,
-            ) as T;
-          }
-          return current;
         };
 
         const projectedValue = await getValue();
@@ -299,7 +323,7 @@ export class Parser {
           }
         }
 
-        const processedValue = await findVariables(_value);
+        const processedValue = await Parser.resolveVariables(_value, context);
         return [_key, processedValue];
       });
 
@@ -384,6 +408,15 @@ export const initializeParser = (addGlobalContext?: ParserGlobalContext | Parser
   Parser.parserGlobalContext = addGlobalContext || ({} as ParserGlobalContext);
   const { createParser } = Parser;
   return { createParser };
+};
+
+export const resolveVariables = async <T>(current: T, context: ParserContext): Promise<T> => {
+  return Parser.resolveVariables(current, context);
+};
+
+export const getVariableValue = async <T = unknown>(variable: string, context: ParserContext): Promise<T> => {
+  if (!/^\{\{[^}]+\}\}$/.test(variable)) variable = `{{${variable}}}`;
+  return Parser.getVariableValue(variable, context);
 };
 
 export * from './parser-types';
