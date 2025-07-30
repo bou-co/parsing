@@ -188,7 +188,10 @@ export class Parser {
         cache: mergeObjects(globalContext?.cache, parserContext?.cache, instanceContext?.cache),
       };
 
-      if (contextBase.before) contextBase = await contextBase.before(contextBase);
+      const contextsWithHooks = [globalContext, parserContext, instanceContext];
+      for (const context of contextsWithHooks) {
+        if (context?.before) contextBase = await context.before(contextBase);
+      }
       const projection = typeof project === 'function' ? await project(contextBase) : project;
       Object.assign(contextBase, { projection });
 
@@ -331,9 +334,11 @@ export class Parser {
       const resolved = await Promise.all(promises).then(filterNill).then(filterUndefinedEntries);
       if (Array.isArray(projection)) return resolved.map(([, value]) => value);
       let combined = Object.fromEntries([...resolved, ...conditionalEnties]);
-      if (contextBase.after) {
-        const afterResult = await contextBase.after({ ...contextBase, data: combined });
-        if (afterResult.data) combined = afterResult.data;
+      for (const context of contextsWithHooks) {
+        if (context?.after) {
+          const afterResult = await context.after({ ...contextBase, data: combined });
+          if (afterResult.data) combined = afterResult.data;
+        }
       }
       return new Proxy(combined, {
         get: (target, prop) => {

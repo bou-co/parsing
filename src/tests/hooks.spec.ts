@@ -1,8 +1,9 @@
 import { initializeParser } from '../parser';
 
 declare module '../expandable-types' {
-  export interface CommonContext {
-    base?: number;
+  export interface FunctionalContext {
+    base: number;
+    instanceMultiplier?: number;
   }
 }
 
@@ -114,5 +115,76 @@ describe('parsing', () => {
     expect(result).toBeTruthy();
     expect(result.value).toEqual(246); // Value should be doubled
     expect(result.always).toEqual(true); // Always should be true
+  });
+
+  it('should be able to run global before for all parsers while instance before should only run for the instance', async () => {
+    const { createParser } = initializeParser({
+      before: (context) => {
+        context.base = 100; // Set a global base value
+        return context;
+      },
+    });
+
+    const parser = createParser({ value: ({ data, base, instanceMultiplier }) => data['value'] + base * (instanceMultiplier || 2) });
+
+    const results1 = await parser({ value: 5 });
+    expect(results1).toBeTruthy();
+    expect(results1.value).toEqual(5 + 100 * 2); // Global base should be applied with default multiplier
+
+    const results2 = await parser(
+      { value: 5 },
+      {
+        before: (context) => {
+          context.instanceMultiplier = 3; // Set instance-specific multiplier
+          return context;
+        },
+      },
+    );
+    expect(results2).toBeTruthy();
+    expect(results2.value).toEqual(5 + 100 * 3); // Global base should be applied with instance-specific multiplier
+
+    const results3 = await parser(
+      { value: 5 },
+      {
+        before: (context) => {
+          context.base = 50; // Override global base for this instance
+          context.instanceMultiplier = 4; // Set instance-specific multiplier
+          return context;
+        },
+      },
+    );
+    expect(results3).toBeTruthy();
+    expect(results3.value).toEqual(5 + 50 * 4); // Instance-specific base should be applied with instance-specific multiplier
+  });
+
+  it('should be able to run global after for all parsers while instance after should only run for the instance', async () => {
+    const { createParser } = initializeParser({
+      after: (context) => {
+        context.data['global'] = 'This is global'; // Add a global property
+        return context;
+      },
+    });
+
+    const parser = createParser({ value: 'number', global: 'string', instance: 'string' });
+
+    const results1 = await parser({ value: 5 });
+    expect(results1).toBeTruthy();
+    expect(results1.value).toEqual(5); // Value should remain unchanged
+    expect(results1.global).toEqual('This is global'); // Global property should be added
+    expect(results1.instance).toBeUndefined(); // Instance-specific property should not be present
+
+    const results2 = await parser(
+      { value: 10 },
+      {
+        after: (context) => {
+          context.data['instance'] = 'This is instance'; // Add an instance-specific property
+          return context;
+        },
+      },
+    );
+    expect(results2).toBeTruthy();
+    expect(results2.value).toEqual(10); // Value should remain unchanged
+    expect(results2.global).toEqual('This is global'); // Global property should still be present
+    expect(results2.instance).toEqual('This is instance'); // Instance-specific property should be added
   });
 });
