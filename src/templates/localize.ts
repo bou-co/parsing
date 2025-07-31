@@ -1,4 +1,4 @@
-import { ParserCondition, ParserContext, ParserContextTransformer } from '../parser-types';
+import { ParserCondition, ParserContext, ParserContextTransformer, ParserFunction } from '../parser-types';
 import { get } from '../parser-util';
 
 declare module '../expandable-types' {
@@ -14,19 +14,35 @@ declare module '../expandable-types' {
 
 type Matching = 'every' | 'some' | ParserCondition<unknown>;
 
-export const localize: (matching: Matching) => ParserContextTransformer = (matching = 'every') => ({
-  when:
+type FallbackFunction = (context: ParserContext<unknown>) => string | Promise<string>;
+
+interface LocalizeOptions {
+  matching?: Matching;
+  fallback?: boolean | FallbackFunction;
+}
+
+export const localize: (options: LocalizeOptions) => ParserContextTransformer = ({ matching = 'every', fallback = true }) => {
+  const when: ParserCondition<unknown> =
     typeof matching === 'function'
       ? matching
-      : ({ data, locales = [] }) => (data && typeof data === 'object' ? Object.keys(data)[matching]((key) => locales.includes(key)) : false),
-  then: async (context) => {
-    if (typeof context.data !== 'object' || !context.data) return context.data;
-    const { defaultLocale, currentLocale, resolveCurrentLocale } = context;
-    if (currentLocale) return get(currentLocale, context.data);
-    if (resolveCurrentLocale) {
-      const locale = await resolveCurrentLocale(context);
-      return get(locale, context.data);
-    }
-    return get(defaultLocale, context.data);
-  },
-});
+      : ({ data, locales = [] }) => (data && typeof data === 'object' ? Object.keys(data)[matching]((key) => locales.includes(key)) : false);
+
+  return {
+    when,
+    then: async (context) => {
+      if (typeof context.data !== 'object' || !context.data) return context.data;
+      const { data, defaultLocale, currentLocale, resolveCurrentLocale } = context;
+      let match = undefined;
+      if (currentLocale) match = await get(currentLocale, data);
+      else if (resolveCurrentLocale) {
+        const locale = await resolveCurrentLocale(context);
+        match = await get(locale, data);
+      }
+      if (!match && fallback) {
+        if (typeof fallback === 'function') return fallback(context);
+        match = await get(defaultLocale, data);
+      }
+      return match;
+    },
+  };
+};
