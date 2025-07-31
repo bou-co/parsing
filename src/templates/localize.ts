@@ -1,4 +1,4 @@
-import { ParserContext, ParserContextTransformer } from '../parser-types';
+import { ParserCondition, ParserContext, ParserContextTransformer } from '../parser-types';
 import { get } from '../parser-util';
 
 declare module '../expandable-types' {
@@ -12,8 +12,13 @@ declare module '../expandable-types' {
   }
 }
 
-export const localize: ParserContextTransformer = {
-  when: ({ data, locales = [] }) => (data && typeof data === 'object' ? Object.keys(data).every((key) => locales.includes(key)) : false),
+type Matching = 'every' | 'some' | ParserCondition<unknown>;
+
+export const localize: (matching: Matching) => ParserContextTransformer = (matching = 'every') => ({
+  when:
+    typeof matching === 'function'
+      ? matching
+      : ({ data, locales = [] }) => (data && typeof data === 'object' ? Object.keys(data)[matching]((key) => locales.includes(key)) : false),
   then: async (context) => {
     if (typeof context.data !== 'object' || !context.data) return context.data;
     const { defaultLocale, currentLocale, resolveCurrentLocale } = context;
@@ -24,4 +29,4 @@ export const localize: ParserContextTransformer = {
     }
     return get(defaultLocale, context.data);
   },
-};
+});
