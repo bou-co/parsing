@@ -350,8 +350,14 @@ export class Parser {
       });
     };
 
+    const withContext = (context: Partial<ParserInstanceContext>) => {
+      const _parserContext = mergeObjects(parserContext, context);
+      return this.createProjection(project, _parserContext);
+    };
+
     Object.defineProperty(parse, 'as', { value: parse });
     Object.defineProperty(parse, 'asArray', { value: parse });
+    Object.defineProperty(parse, 'withContext', { value: withContext });
     Object.defineProperty(parse, '_parser', { value: true });
     Object.defineProperty(parse, 'projection', { value: project });
 
