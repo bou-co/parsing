@@ -278,4 +278,111 @@ describe('parsing', () => {
     expect(thirdItem.title).toEqual('!');
     expect(thirdItem.indexTimesThree).toEqual(6);
   });
+  it('should be able to get index of parent item in array with "asArray" syntax while extending parser context with hooks', async () => {
+    const { createParser } = initializeParser();
+
+    const itemParserBase = createParser(
+      {
+        title: 'string',
+      },
+      {
+        before: async (context) => {
+          Object.assign(context, { extra: { addedInHook: true } });
+          return context;
+        },
+      },
+    );
+
+    const itemParser = itemParserBase.extend({
+      metadata: {
+        indexTimesThree: ({ index }) => {
+          return index !== undefined ? index * 3 : undefined;
+        },
+      },
+    });
+
+    const parser = createParser({
+      rootValue: 'number',
+      items: itemParser.asArray,
+    });
+
+    expect(parser).toBeTruthy();
+
+    const originalData = {
+      rootValue: 123,
+      items: [
+        { title: 'hello', metadata: {} },
+        { title: 'world', metadata: {} },
+        { title: '!', metadata: {} },
+      ],
+    };
+
+    const res = await parser(originalData);
+    expect(res).toBeTruthy();
+    expect(res.rootValue).toEqual(123);
+    if (!res.items || !Array.isArray(res.items)) throw new Error('Items is not an array');
+    const [firstItem, secondItem, thirdItem] = res.items;
+    expect(firstItem).toBeTruthy();
+    expect(firstItem.title).toEqual('hello');
+    expect(firstItem.metadata?.indexTimesThree).toEqual(0);
+
+    expect(secondItem).toBeTruthy();
+    expect(secondItem.title).toEqual('world');
+    expect(secondItem.metadata?.indexTimesThree).toEqual(3);
+
+    expect(thirdItem).toBeTruthy();
+    expect(thirdItem.title).toEqual('!');
+    expect(thirdItem.metadata?.indexTimesThree).toEqual(6);
+  });
+  it('should be able to get index of parent item in array with "asArray" and override index if that has been provided by parent', async () => {
+    const { createParser } = initializeParser();
+
+    const itemParserBase = createParser({
+      title: 'string',
+    });
+
+    const itemParser = itemParserBase.extend({
+      indexTimesThree: ({ index }) => {
+        return index !== undefined ? index * 3 : undefined;
+      },
+    });
+
+    const parser = createParser(
+      {
+        rootValue: 'number',
+        items: itemParser.asArray,
+      },
+      {
+        index: 5, // This should be overridden by actual index in array
+      } as any,
+    );
+
+    expect(parser).toBeTruthy();
+
+    const originalData = {
+      rootValue: 123,
+      items: [
+        { title: 'hello', metadata: {} },
+        { title: 'world', metadata: {} },
+        { title: '!', metadata: {} },
+      ],
+    };
+
+    const res = await parser(originalData);
+    expect(res).toBeTruthy();
+    expect(res.rootValue).toEqual(123);
+    if (!res.items || !Array.isArray(res.items)) throw new Error('Items is not an array');
+    const [firstItem, secondItem, thirdItem] = res.items;
+    expect(firstItem).toBeTruthy();
+    expect(firstItem.title).toEqual('hello');
+    expect(firstItem.indexTimesThree).toEqual(0);
+
+    expect(secondItem).toBeTruthy();
+    expect(secondItem.title).toEqual('world');
+    expect(secondItem.indexTimesThree).toEqual(3);
+
+    expect(thirdItem).toBeTruthy();
+    expect(thirdItem.title).toEqual('!');
+    expect(thirdItem.indexTimesThree).toEqual(6);
+  });
 });

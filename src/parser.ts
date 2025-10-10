@@ -199,17 +199,19 @@ export class Parser {
           if (!sameLength) console.warn('Data and projection length do not match');
           const promises = data.map(async (item, index) => {
             const itemProjection = projection[index];
-            const context: ParserContext = { ...contextBase, key: index, index };
             if (!itemProjection) return undefined;
+            const _parentContext: ParserContext = { ...contextBase, key: index };
+            const _instanceContext = { ...instanceContext, index };
             const parserFn = this.createProjection(itemProjection, parserContext);
-            return await parserFn(item, instanceContext, context);
+            return await parserFn(item, _instanceContext, _parentContext);
           });
           return Promise.all(promises).then(filterNill);
         }
         const parserFn = this.createProjection(projection, parserContext) as ParserFunction<AppObject>;
         const promises = data.map(async (item, index) => {
-          const context: ParserContext = { ...contextBase, key: index, index };
-          return await parserFn(item, instanceContext, context);
+          const _parentContext: ParserContext = { ...contextBase, key: index };
+          const _instanceContext = { ...instanceContext, index };
+          return await parserFn(item, _instanceContext, _parentContext);
         });
         return Promise.all(promises).then(filterNill);
       }
