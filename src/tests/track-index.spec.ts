@@ -181,4 +181,101 @@ describe('parsing', () => {
     expect(thirdItem.title).toEqual('!');
     expect(thirdItem.indexTimesThree).toEqual(6);
   });
+  it('should be able to get index of parent item in array with "asArray" syntax while extending parser', async () => {
+    const { createParser } = initializeParser();
+
+    const itemParserBase = createParser({
+      title: 'string',
+    });
+
+    const itemParser = itemParserBase.extend({
+      indexTimesThree: ({ index }) => {
+        return index !== undefined ? index * 3 : undefined;
+      },
+    });
+
+    const parser = createParser({
+      rootValue: 'number',
+      items: itemParser.asArray,
+      moreItems: ({ data }) => itemParser.asArray(data['items'] || []),
+    });
+
+    expect(parser).toBeTruthy();
+
+    const originalData = {
+      rootValue: 123,
+      items: [{ title: 'hello' }, { title: 'world' }, { title: '!' }],
+    };
+
+    const res = await parser(originalData);
+    expect(res).toBeTruthy();
+    expect(res.rootValue).toEqual(123);
+    if (!res.items || !Array.isArray(res.items)) throw new Error('Items is not an array');
+    const [firstItem, secondItem, thirdItem] = res.items;
+    expect(firstItem).toBeTruthy();
+    expect(firstItem.title).toEqual('hello');
+    expect(firstItem.indexTimesThree).toEqual(0);
+    if (!res.moreItems || !Array.isArray(res.moreItems)) throw new Error('moreItems is not an array');
+    const [firstItemCopy, secondItemCopy, thirdItemCopy] = res.moreItems;
+    expect(firstItemCopy).toEqual(firstItem);
+    expect(secondItemCopy).toEqual(secondItem);
+    expect(thirdItemCopy).toEqual(thirdItem);
+
+    expect(secondItem).toBeTruthy();
+    expect(secondItem.title).toEqual('world');
+    expect(secondItem.indexTimesThree).toEqual(3);
+
+    expect(thirdItem).toBeTruthy();
+    expect(thirdItem.title).toEqual('!');
+    expect(thirdItem.indexTimesThree).toEqual(6);
+  });
+  it('should be able to get index of parent item in array with "asArray" syntax while extending parser and using conditional syntax', async () => {
+    const { createParser } = initializeParser();
+
+    const itemParserBase = createParser({
+      title: 'string',
+    });
+
+    const itemParser = itemParserBase.extend({
+      indexTimesThree: ({ index }) => {
+        return index !== undefined ? index * 3 : undefined;
+      },
+    });
+
+    const parser = createParser({
+      rootValue: 'number',
+      '@if': [
+        {
+          when: () => true,
+          then: {
+            items: itemParser.asArray,
+          },
+        },
+      ],
+    });
+
+    expect(parser).toBeTruthy();
+
+    const originalData = {
+      rootValue: 123,
+      items: [{ title: 'hello' }, { title: 'world' }, { title: '!' }],
+    };
+
+    const res = await parser(originalData);
+    expect(res).toBeTruthy();
+    expect(res.rootValue).toEqual(123);
+    if (!res.items || !Array.isArray(res.items)) throw new Error('Items is not an array');
+    const [firstItem, secondItem, thirdItem] = res.items;
+    expect(firstItem).toBeTruthy();
+    expect(firstItem.title).toEqual('hello');
+    expect(firstItem.indexTimesThree).toEqual(0);
+
+    expect(secondItem).toBeTruthy();
+    expect(secondItem.title).toEqual('world');
+    expect(secondItem.indexTimesThree).toEqual(3);
+
+    expect(thirdItem).toBeTruthy();
+    expect(thirdItem.title).toEqual('!');
+    expect(thirdItem.indexTimesThree).toEqual(6);
+  });
 });
