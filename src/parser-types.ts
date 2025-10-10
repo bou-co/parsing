@@ -79,6 +79,7 @@ export interface ParserContext<DATA = AppObject, PARAMS = unknown[]>
   projection?: ParserProjection;
   params?: PARAMS;
   variables: AppObject;
+  index?: number;
 }
 
 export interface CachingParserContext extends ParserContext {
