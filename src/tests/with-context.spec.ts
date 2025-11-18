@@ -38,4 +38,25 @@ describe('parsing', () => {
     expect(originalResult).toBeTruthy();
     expect(originalResult.values).toEqual('variable value is original');
   });
+
+  it('should be able to use multiple times "withContext" without affecting other instances', async () => {
+    const { createParser } = initializeParser();
+    const parser = createParser({ values: 'string' }, { variables: { variableValue: 'original' } });
+
+    expect(parser).toBeTruthy();
+    const withChangedContext = parser.withContext({ variables: { variableValue: 'changed' } });
+    const withAnotherChangedContext = parser.withContext({ variables: { variableValue: 'another change' } });
+
+    const changedResult = await withChangedContext({ values: 'variable value is {{variableValue}}' });
+    expect(changedResult).toBeTruthy();
+    expect(changedResult.values).toEqual('variable value is changed');
+
+    const anotherChangedResult = await withAnotherChangedContext({ values: 'variable value is {{variableValue}}' });
+    expect(anotherChangedResult).toBeTruthy();
+    expect(anotherChangedResult.values).toEqual('variable value is another change');
+
+    const originalResult = await parser({ values: 'variable value is {{variableValue}}' });
+    expect(originalResult).toBeTruthy();
+    expect(originalResult.values).toEqual('variable value is original');
+  });
 });
