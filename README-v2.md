@@ -335,7 +335,9 @@ import { initializeParser } from '@bou-co/parsing';
 export const { createParser } = initializeParser(() => {
   const currentYear = new Date().getFullYear();
   return {
-    currentYear,
+    variables: {
+      currentYear,
+    },
   };
 });
 ```
@@ -361,7 +363,7 @@ const result = await myParser(rawDataFromApi);
 Result in case above is:
 
 ```json
-{ "title": "Hello from 2025", "description": "Is the current year really 2025?" }
+{ "title": "Hello from 2026", "description": "Is the current year really 2026?" }
 ```
 
 #### Instance variables
@@ -380,7 +382,9 @@ const myParser = createParser({
 });
 
 const instanceData = {
-  entity: 'world',
+  variables: {
+    entity: 'world',
+  },
 };
 
 const result = await myParser(rawDataFromApi, instanceData);
@@ -414,7 +418,9 @@ const myParser = createParser({
 });
 
 const instanceData = {
-  lastName: 'Johnson',
+  variables: {
+    lastName: 'Johnson',
+  },
 };
 
 const result = await myParser(rawDataFromApi, instanceData);
@@ -451,14 +457,16 @@ const myParser = createParser({
 });
 
 const instanceData = {
-  // Variable values
-  title: 'the space',
-  publishedAt: '2025-05-22T12:00:00',
-  score: 0.42,
-  // Pipe functions (could most likely be added with initializeParser and not per instance)
-  uppercase: ({ data }) => data.toUpperCase(),
-  toDateString: ({ data }) => new Date(data).toLocaleString(),
-  multiply: ({ data, params: [by] = [2] }) => data * by,
+  variables: {
+    // Variable values
+    title: 'the space',
+    publishedAt: '2026-05-22T12:00:00',
+    score: 0.42,
+    // Pipe functions (could most likely be added with initializeParser and not per instance)
+    uppercase: ({ data }) => data.toUpperCase(),
+    toDateString: ({ data }) => new Date(data).toLocaleString(),
+    multiply: ({ data, params: [by] = [2] }) => data * by,
+  },
 };
 
 const result = await myParser(rawDataFromApi, instanceData);
@@ -469,24 +477,83 @@ Result in case above is:
 ```json
 {
   "title": "Message for THE SPACE",
-  "publishedAt": "5/22/2025, 12:00:00 PM",
+  "publishedAt": "5/22/2026, 12:00:00 PM",
   "score": 42
 }
 ```
 
-### Caching
+### Caching and storage
 
-[Placeholder]
+Caching is build in to the library to make less requests agains databases and save calculations without need for additional hassle. Caching configuration connects to a storage you define and any results of queries or computations can be saved to the storage when needed.
 
 ---
 
 ### Initialize parser
 
-[Placeholder]
+```ts
+import { initializeParser, toHash } from '@bou-co/parsing';
+import { redis } from '../redis';
+
+declare module '@bou-co/parsing' {
+  // Additional context options for caching
+  interface ParserCachingOptions {
+    name?: string;
+    ttl?: number;
+  }
+}
+
+const { createParser } = initializeParser({
+  storage: {
+    generateKey: (context) => {
+      if (!context.cache.name) throw new Error('Caching options must include a name');
+      const valueHash = toHash(context.data);
+      const key = `${context.cache.name}:${valueHash}`;
+      return key;
+    },
+    add(key, value, context) {
+      const asString = typeof value === 'string' ? value : JSON.stringify(value);
+      await redis.set(key, asString, { ex: context.cache.ttl });
+    },
+    match: async (key, context) => {
+      const value = await redis.get(key);
+      return value;
+    },
+  },
+});
+```
 
 ### Create parser
 
-[Placeholder]
+```ts
+import { createParser } from '../path-to/parser-config';
+
+const parser = createParser(
+  {
+    title: async () => {
+      // Let's imagine that this is complex computation or big query that takes long time to resolve
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      return 'Hello World';
+    },
+  },
+  {
+    cache: {
+      enabled: true, // Enable caching for this parser
+      ttl: 60 * 60 // 1 hour in seconds
+      name: 'title-cache'
+    },
+  },
+);
+```
+
+Result in case above is:
+
+```json
+{
+  "title": "Hello World"
+}
+```
+
+First function run will take 1 second to complete but the next ones will be gotten from redis cache making parsing a lot faster. For more complex cases, better key generation is possible as the key can get the same data as any parser.
 
 ---
 
