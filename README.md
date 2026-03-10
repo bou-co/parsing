@@ -545,24 +545,48 @@ const withAdditionalContext = parser.withContext({ variables: { second: 2 } });
 
 ### Lifecycle hooks
 
-You can register `before` and `after` hooks either globally in `initializeParser` or locally in `createParser`. A `before` hook can mutate `context.data` or inject new context variables before parsing begins. An `after` hook can manipulate the resulting data before it gets returned.
+You can register `before` and `after` hooks either globally in `initializeParser` or locally in `createParser`. A `before` hook is especially useful for injecting shared context values before parsing begins. Those values are then available to all value functions and are also inherited automatically by child parsers created with `.extend()`. An `after` hook can still manipulate the resulting data before it gets returned when needed.
 
 ```ts
-import { createParser } from '../path-to/parser-config';
+import { initializeParser } from '@bou-co/parsing';
 
-const parser = createParser(
-  { value: 'number' },
+declare module '@bou-co/parsing' {
+  interface FunctionalContext {
+    basePrice: number;
+  }
+}
+
+const { createParser } = initializeParser();
+
+const productParser = createParser(
+  {
+    finalPrice: ({ data, basePrice }) => data.price + basePrice,
+  },
   {
     before: (context) => {
-      context.data['value'] += 1; // Increment before parsing
-      return context;
-    },
-    after: (context) => {
-      context.data['value'] *= 2; // Double the final parsed result
+      context.basePrice = 10;
       return context;
     },
   },
 );
+
+const productCardParser = productParser.extend({
+  label: ({ data, basePrice }) => `${data.name} (${data.price + basePrice} EUR)`,
+});
+
+const result = await productCardParser({
+  name: 'Notebook',
+  price: 25,
+});
+```
+
+Result in case above is:
+
+```json
+{
+  "finalPrice": 35,
+  "label": "Notebook (35 EUR)"
+}
 ```
 
 ### Transformers
@@ -593,7 +617,15 @@ const baseParser = createParser({ value: 'number' });
 const doubleParser = createParser({ value: ({ data }) => data.value * 2 });
 
 const baseData = await baseParser({ value: 123 });
-const finalData = await doubleParser(baseData); // { value: 246 }
+const finalData = await doubleParser(baseData);
+```
+
+Result in case above is:
+
+```json
+{
+  "value": 246
+}
 ```
 
 ### Caching and storage
