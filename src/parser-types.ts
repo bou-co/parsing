@@ -1,3 +1,6 @@
+import type { Parser } from './parser';
+import { CommonContext, CreateContext, FunctionalContext, GlobalContext, InstanceContext, ParserCachingOptions } from './expandable-types';
+
 // Util types
 
 type OrFix = Record<never, never>;
@@ -9,6 +12,8 @@ export type OrBoolean = Or<boolean>;
 
 export type AppObject = Record<PropertyKey, any>;
 
+export type OnlyOptionalValues<T> = { [K in keyof T]: undefined extends T[K] ? true : false }[keyof T] extends true | undefined ? true : false;
+
 // Parser types
 
 export type ContextParserValueFunction<DATA = unknown, PARAMS = unknown[]> = ParserValueFunction<unknown, DATA, PARAMS>;
@@ -17,16 +22,68 @@ export interface ParserContextVariables {
   [key: PropertyKey]: ContextParserValueFunction | OrString | OrNumber | OrBoolean | AppObject | unknown[];
 }
 
-export type ParserGlobalContextFn = () => ParserContextVariables | Promise<ParserContextVariables>;
+export interface ParserContextTransformer {
+  when: ParserCondition<unknown>;
+  then: ParserValueFunction<unknown, unknown>;
+}
 
-export interface ParserContext<DATA = AppObject, PARAMS = unknown[]> {
-  parentContext?: ParserContext | undefined;
-  parserContext?: AppObject | undefined;
-  instanceContext?: AppObject;
+export interface ParserContextTransformers {
+  [key: string]: ParserContextTransformer;
+}
+
+export type CacheValueFn = <T>(value: T) => T;
+
+export interface StorageLike {
+  /** Match a key to value in cache and return it */
+  match: (key: string, context: CachingParserContext) => Promise<any> | any;
+  /** Add a value to cache with a key */
+  add: (key: string, value: any, context: CachingParserContext) => Promise<void> | void;
+  /** Define function for generating cache key */
+  generateKey?: (context: CachingParserContext) => string;
+  /** Remove a value from cache by key */
+  remove?: (key: string, context: ParserContext) => Promise<void> | void;
+  /** Clear the cache completely */
+  clear?: (context: ParserContext) => Promise<void> | void;
+}
+
+export interface ParserGlobalContext extends CommonContext, GlobalContext {
+  storage?: StorageLike;
+  variables?: ParserContextVariables;
+  transformers?: ParserContextTransformers;
+  variableResolver?: (variableName: string, context: ParserContext, cache: CacheValueFn) => Promise<unknown> | unknown;
+  cache?: ParserCachingOptions;
+}
+
+export type ParserGlobalContextFn = () => ParserGlobalContext | Promise<ParserGlobalContext>;
+
+export interface CreateParserContext extends CommonContext, CreateContext {
+  variables?: ParserContextVariables;
+  cache?: ParserCachingOptions;
+}
+
+export interface ParserInstanceContext extends CommonContext, InstanceContext {
+  variables?: ParserContextVariables;
+  cache?: ParserCachingOptions;
+}
+
+export interface ParserContext<DATA = AppObject, PARAMS = unknown[]>
+  extends FunctionalContext,
+    CommonContext,
+    InstanceContext,
+    ParserGlobalContext,
+    CreateParserContext {
+  isRoot?: boolean;
+  parser: Parser;
   data: DATA;
-  key: PropertyKey;
-  projection: ParserProjection;
+  key?: PropertyKey;
+  projection?: ParserProjection;
   params?: PARAMS;
+  variables: AppObject;
+  index?: number;
+}
+
+export interface CachingParserContext extends ParserContext {
+  cache: ParserCachingOptions;
 }
 
 export const valueKeys = ['string', 'object', 'number', 'boolean', 'array', 'undefined', 'any', 'unknown', 'date'] as const;
@@ -123,25 +180,33 @@ type _HandleChildren<T extends object> = { -readonly [K in keyof T]?: RealValue<
 // 5. Handle optional
 type _HandleOptional<T extends object> = OptionalUndefined<T>;
 
+export type InstaceContext = OnlyOptionalValues<ParserInstanceContext> extends true ? ParserInstanceContext | void : ParserInstanceContext;
+
 export type ParserFunction<T extends object> = {
-  (data: AppObject, instanceContext?: AppObject, parentContext?: ParserContext): Promise<_HandleProjectionObject<T>>;
+  (data: AppObject | string, instanceContext: InstaceContext, parentContext?: ParserContext): Promise<_HandleProjectionObject<T>>;
   // Additional functions
-  as: <TYPE extends object>(data: AppObject, instanceContext?: AppObject, parentContext?: ParserContext) => Promise<TYPE>;
-  asArray: <V = AppObject[]>(data: V, instanceContext?: AppObject, parentContext?: ParserContext) => Promise<_HandleProjectionObject<T>[]>;
+  as: <TYPE extends object>(data: AppObject, instanceContext: InstaceContext, parentContext?: ParserContext) => Promise<TYPE>;
+  asArray: <V = AppObject[]>(data: V, instanceContext: InstaceContext, parentContext?: ParserContext) => Promise<_HandleProjectionObject<T>[]>;
+  withContext: (context: Partial<ParserInstanceContext>) => ParserFunction<T>;
+  extend: <X extends ParserProjection>(extendWith: X, parserContext?: CreateParserContext) => ParserFunction<T & X>;
   // Metadata
   _parser: true;
   projection: T;
 };
 
-type ParserValueFunction<R = unknown, DATA = AppObject, PARAMS = unknown[]> = (context: ParserContext<DATA, PARAMS>) => R | Promise<R>;
+type ParserValueFunction<R = unknown, DATA = AppObject, PARAMS = unknown[]> = (
+  context: ParserContext<DATA, PARAMS>,
+  __parserFnContext?: any,
+  __parserFnParent?: any,
+) => R | Promise<R>;
 
 export type ParserReturnValue<T extends (...args: any) => any> = Awaited<ReturnType<T>>;
 
-export type ParserCondition = (context: ParserContext) => boolean | Promise<boolean>;
+export type ParserCondition<DATA = AppObject, PARAMS = unknown[]> = (context: ParserContext<DATA, PARAMS>) => boolean | Promise<boolean>;
 
-type ParserConditionalItemWhen = ParserProjection | ParserFunction<any> | ParserValueFunction<object>;
+type ParserConditionalItemThen = ParserProjection | ParserValueFunction<AppObject>;
 
-export type ParserConditionalItem = { when: ParserCondition; then: ParserConditionalItemWhen };
+export type ParserConditionalItem = { when: ParserCondition; then: ParserConditionalItemThen };
 
 export type ParserConditionalItems = ParserConditionalItem[];
 

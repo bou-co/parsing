@@ -6,7 +6,7 @@ let initializeCount = 0;
 const { createParser } = initializeParser(async () => {
   await new Promise((resolve) => setTimeout(resolve, 10));
   initializeCount++;
-  return { variableTitle };
+  return { variables: { variableTitle } };
 });
 
 describe('parsing', () => {
@@ -70,9 +70,9 @@ describe('parsing', () => {
     expect(basicEndTime - basicStartTime).toBeLessThan(5);
 
     expect(asyncCount).toBe(0); // Ensure async function hasn't been called yet
-    console.time('Parse no data');
+    console.time('Parse no data (10-11ms)');
     await rootParser({});
-    console.timeEnd('Parse no data');
+    console.timeEnd('Parse no data (10-11ms)');
     expect(asyncCount).toBe(1); // Ensure async function to be called once for the root parser
 
     asyncCount = 0; // Reset async count

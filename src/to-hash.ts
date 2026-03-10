@@ -19,6 +19,11 @@ const toPhash = (h: number, x: string): number => {
  * Create unique hash string from any value
  */
 export const toHash = (value: unknown): string => {
-  const numericHash = toPhash(5381, JSON.stringify(value)) >>> 0;
+  if (!value) return toHash('undefined');
+  const asString = JSON.stringify(value, (key, value) => {
+    if (value instanceof Function) return value.toString();
+    return value;
+  });
+  const numericHash = toPhash(5381, JSON.stringify(asString)) >>> 0;
   return toAlphabeticName(numericHash);
 };

@@ -1,6 +1,6 @@
 {
   "name": "@bou-co/parsing",
-  "version": "1.0.21",
+  "version": "2.0.0",
   "type": "module",
   "license": "MIT",
   "scripts": {
@@ -21,27 +21,27 @@
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",
-    "@types/lodash": "^4.17.17",
-    "@types/node": "^22.15.29",
-    "@types/react": "^19.1.6",
-    "@typescript-eslint/eslint-plugin": "^8.33.1",
-    "@typescript-eslint/parser": "^8.33.1",
-    "@typescript-eslint/utils": "^8.33.1",
-    "eslint": "^9.28.0",
-    "eslint-config-prettier": "^10.1.5",
+    "@types/lodash": "^4.17.24",
+    "@types/node": "^22.19.15",
+    "@types/react": "^19.2.14",
+    "@typescript-eslint/eslint-plugin": "^8.46.0",
+    "@typescript-eslint/parser": "^8.46.0",
+    "@typescript-eslint/utils": "^8.46.0",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
     "jest": "^29.7.0",
     "jest-environment-node": "^29.7.0",
-    "lerna": "^8.2.2",
-    "prettier": "^3.5.3",
-    "ts-jest": "^29.3.4",
+    "lerna": "^8.2.4",
+    "prettier": "^3.8.1",
+    "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "tslib": "^2.8.1",
-    "typescript": "^5.8.2",
-    "vite": "^6.3.5",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.1",
     "vite-plugin-dts": "^4.5.4"
   },
   "dependencies": {
-    "react": "^19.1.0"
+    "react": "^19.2.4"
   },
   "main": "./dist/index.js",
   "typings": "./dist/index.d.ts",
@@ -57,6 +57,12 @@
       "import": "./dist/react/index.js",
       "require": "./dist/react/index.cjs",
       "default": "./dist/react/index.js"
+    },
+    "./templates/*": {
+      "types": "./dist/templates/*.d.ts",
+      "import": "./dist/templates/*.js",
+      "require": "./dist/templates/*.cjs",
+      "default": "./dist/templates/*.js"
     }
   },
   "files": [

@@ -13,7 +13,7 @@ describe('parsing', () => {
     expect(data1.value).toEqual(undefined);
 
     const { createParser: createParserFromFunction } = initializeParser(async () => {
-      return { variableTitle };
+      return { variables: { variableTitle } };
     });
     const parser2 = createParserFromFunction({ value: '{{variableTitle}}' });
     expect(parser2).toBeTruthy();
@@ -21,7 +21,7 @@ describe('parsing', () => {
     expect(data2).toBeTruthy();
     expect(data2.value).toEqual(variableTitle);
 
-    const { createParser: createParserFromObject } = initializeParser({ variableTitle });
+    const { createParser: createParserFromObject } = initializeParser({ variables: { variableTitle } });
     const parser3 = createParserFromObject({ value: '{{variableTitle}}' });
     expect(parser3).toBeTruthy();
     const data3 = await parser3({});
@@ -34,7 +34,7 @@ describe('parsing', () => {
     const { createParser: createParserFromFunction } = initializeParser(async () => {
       initializeCount += 1;
       await new Promise((resolve) => setTimeout(resolve, 50));
-      return { variableTitle };
+      return { variables: { variableTitle } };
     });
     const parser = createParserFromFunction({ value: '{{variableTitle}}' });
     expect(parser).toBeTruthy();
@@ -52,7 +52,7 @@ describe('parsing', () => {
     const { createParser: createParserFromFunction } = initializeParser(async () => {
       initializeCount += 1;
       await new Promise((resolve) => setTimeout(resolve, 50));
-      return { variableTitle };
+      return { variables: { variableTitle } };
     });
     const parser = createParserFromFunction({ value: '{{variableTitle}}' });
     expect(parser).toBeTruthy();
@@ -71,7 +71,7 @@ describe('parsing', () => {
     const { createParser: createParserFromFunction } = initializeParser(async () => {
       initializeCount += 1;
       await new Promise((resolve) => setTimeout(resolve, 50));
-      return { variableTitle };
+      return { variables: { variableTitle } };
     });
     const parser = createParserFromFunction({ value: '{{variableTitle}}' });
     expect(parser).toBeTruthy();
