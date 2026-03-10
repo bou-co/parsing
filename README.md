@@ -46,7 +46,13 @@ const dataThatYouWanted = await myParser(rawDataFromApi);
 5. [Conditional data](#conditional-data)
 6. [Merging data](#merging-data)
 7. [Variables](#variables)
-8. [Caching results](#caching)
+8. [Caching results](#caching-and-storage)
+9. [Dynamic projections](#dynamic-projections)
+10. [Extending parsers](#extending-parsers)
+11. [Context overriding](#context-overriding)
+12. [Lifecycle hooks](#lifecycle-hooks)
+13. [Transformers](#transformers)
+14. [Chaining parsers](#chaining-parsers-reparsing)
 
 ## API
 
@@ -79,6 +85,21 @@ const dataThatYouWanted = await myParser(rawDataFromApi);
 In the example above we pick to get `title, description and priority` but omit the `_id`.
 
 **Note:** value returned by `createParser` is an async function as parsers do have a wide support for promises. For React.js component usage we have developed a client side hook `useParserValue` to allow parser usage easily inside of React.js.
+
+### Dynamic projections
+
+Instead of passing a static object definition to `createParser`, you can pass a synchronous or asynchronous function. This function receives the parser context and can return a different projection structure dynamically based on the input data.
+
+```ts
+import { createParser } from '../path-to/parser-config';
+
+const dynamicParser = createParser(({ data }) => {
+  if (data['addMetadata']) {
+    return { value: 'number', metadata: 'string' };
+  }
+  return { value: 'number' };
+});
+```
 
 ### Generate types to your picked data
 
@@ -228,6 +249,18 @@ const myParser = createParser({
     '@array': true,
     description: 'string',
     priority: 'number',
+  },
+});
+```
+
+When parsing an array of items, the parser automatically populates an `index` property in the context. This allows your value functions to know their positional index within the parsed array.
+
+```ts
+const parserWithIndex = createParser({
+  items: {
+    '@array': true,
+    title: 'string',
+    indexTimesThree: ({ index }) => (index !== undefined ? index * 3 : undefined),
   },
 });
 ```
@@ -480,6 +513,87 @@ Result in case above is:
   "publishedAt": "5/22/2026, 12:00:00 PM",
   "score": 42
 }
+```
+
+### Extending parsers
+
+You can build upon an existing parser by using the `.extend()` method. It merges a new projection object with the original one, allowing you to append new fields or override existing ones without mutating the original parser.
+
+```ts
+import { createParser } from '../path-to/parser-config';
+
+const original = createParser({ value: 'number' });
+const extended = original.extend({ additional: 'string' });
+
+const result = await extended({ value: 456, additional: 'test' });
+```
+
+**Note:** parsers created with a function projection cannot be extended.
+
+### Context overriding
+
+You can inject new context properties (like variables) into a pre-existing parser by calling `.withContext()`. This returns a new instance of the parser containing the updated context, allowing you to reuse the same parser blueprint seamlessly without affecting the original definition.
+
+```ts
+import { createParser } from '../path-to/parser-config';
+
+const parser = createParser({ values: 'string' }, { variables: { first: 1 } });
+
+// Creates a cloned instance with 'second' merged into the context variables
+const withAdditionalContext = parser.withContext({ variables: { second: 2 } });
+```
+
+### Lifecycle hooks
+
+You can register `before` and `after` hooks either globally in `initializeParser` or locally in `createParser`. A `before` hook can mutate `context.data` or inject new context variables before parsing begins. An `after` hook can manipulate the resulting data before it gets returned.
+
+```ts
+import { createParser } from '../path-to/parser-config';
+
+const parser = createParser(
+  { value: 'number' },
+  {
+    before: (context) => {
+      context.data['value'] += 1; // Increment before parsing
+      return context;
+    },
+    after: (context) => {
+      context.data['value'] *= 2; // Double the final parsed result
+      return context;
+    },
+  },
+);
+```
+
+### Transformers
+
+You can define a suite of global `transformers` inside `initializeParser`. A transformer contains a `when` conditional statement and a `then` transformation method. This is highly effective for things like custom data structures or global automatic localization (e.g., returning the correct translation string out of an object of translations).
+
+```ts
+import { initializeParser } from '@bou-co/parsing';
+
+const localize = {
+  when: ({ data, locales = [] }) => Object.keys(data).every((k) => locales.includes(k)),
+  then: ({ data, currentLocale = 'en' }) => data[currentLocale],
+};
+
+const { createParser } = initializeParser({
+  transformers: { localize },
+});
+```
+
+### Chaining parsers (Reparsing)
+
+The data returned by one parser is fully compatible to be passed directly into another parser. This makes it possible to parse objects in multiple passes, chain parser executions, or apply different structural projections sequentially.
+
+```ts
+import { createParser } from '../path-to/parser-config';
+
+const baseParser = createParser({ value: 'number' });
+const doubleParser = createParser({ value: ({ data }) => data.value * 2 });
+
+const baseData = await baseParser({ value: 123 });
+const finalData = await doubleParser(baseData); // { value: 246 }
 ```
 
 ### Caching and storage
