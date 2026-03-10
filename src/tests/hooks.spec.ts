@@ -208,4 +208,25 @@ describe('parsing', () => {
     expect(results2.global).toEqual('This is global'); // Global property should still be present
     expect(results2.instance).toEqual('This is instance'); // Instance-specific property should be added
   });
+
+  it('should be able to modify context in before hook of a parent parser and have the modified context available in child parser', async () => {
+    const { createParser } = initializeParser();
+    const parentParser = createParser(
+      { value: ({ data, base }) => data['value'] + base },
+      {
+        before: (context) => {
+          context.base = 20; // Set base in parent parser
+          return context;
+        },
+      },
+    );
+
+    const childParser = parentParser.extend({
+      value: ({ data, base }) => data['value'] * base, // Use modified base from parent parser
+    });
+
+    const result = await childParser({ value: 5 });
+    expect(result).toBeTruthy();
+    expect(result.value).toEqual(5 * 20); // Value should be multiplied by the base set in the parent parser
+  });
 });
