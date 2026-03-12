@@ -75,6 +75,7 @@ const result = await myParser(rawDataFromApi);
   - [Transformers](#transformers)
   - [Chaining parsers (Reparsing)](#chaining-parsers-reparsing)
 - [Examples & Use Cases](#examples--use-cases)
+  - [Next.js App Router & Server Components](#nextjs-app-router--server-components)
   - [Server-Side Data Fetching & Caching](#server-side-data-fetching--caching)
   - [CMS Content Templating with Variables](#cms-content-templating-with-variables)
   - [Advanced TypeScript Generation & Utilities](#advanced-typescript-generation--utilities)
@@ -529,6 +530,226 @@ const finalData = await stepTwo(initialData);
 ---
 
 ## Examples & Use Cases
+
+### Next.js App Router & Server Components
+
+**Why:** Bou Parsing is natively asynchronous, making it an ideal companion for React Server Components in the Next.js App Router. Instead of manually typing incoming API props or component structures, the parser automatically infers the final shape of the data based on your schema.
+
+_Note: You do not need the `useParserValue` hook on the server. Just `await` the parser function directly! For Client Components, refer to the [Client-Side React Integration](#client-side-react-integration) section._
+
+#### Example 1: The "CMS-Driven" Approach (Dynamic Input)
+
+In this approach, the component receives a loosely typed object (e.g., a dynamic block from a headless CMS) and the parser validates and shapes the data, outputting strictly typed `props` for the JSX. It's a best practice to co-locate the parser and the component.
+
+```ts
+// components/hero-block/parser.ts
+import { createParser } from '../../path-to/parser-config';
+
+export const heroBlockParser = createParser({
+  title: 'string',
+  description: 'string',
+  imageUrl: ({ data }) => `https://example.com/images/${data.imageId}`,
+});
+```
+
+```tsx
+// components/hero-block/hero-block.tsx
+import React from 'react';
+import { heroBlockParser } from './parser';
+
+export const HeroBlock = async (initialProps: object) => {
+  const props = await heroBlockParser(initialProps);
+  // `props` is automatically typed as: { title: string, description: string, imageUrl: string }
+
+  return (
+    <section>
+      <h1>{props.title}</h1>
+      <p>{props.description}</p>
+      <img src={props.imageUrl} alt={props.title} />
+    </section>
+  );
+};
+```
+
+```tsx
+// app/[...slug]/page.tsx
+import { HeroBlock } from '../../components/hero-block/hero-block';
+
+// Map CMS block types to React Components
+const ComponentMap: Record<string, any> = {
+  hero: HeroBlock,
+};
+
+// Catch-all route to handle dynamic nested paths (e.g. /about/our-team)
+export default async function Page({ params }: { params: { slug?: string[] } }) {
+  // Resolve the path, defaulting to 'home' if at the root
+  const path = params.slug ? params.slug.join('/') : 'home';
+
+  // Fake data fetching based on the dynamic route path
+  const res = await fetch(`https://api.example.com/pages/${path}`);
+  const data = await res.json();
+
+  return (
+    <main>
+      {/* Dynamically resolve and pass raw, loosely typed data to the components */}
+      {data.blocks?.map((block: any, index: number) => {
+        const Component = ComponentMap[block.type];
+
+        // Skip unknown block types safely
+        if (!Component) return null;
+
+        // The component's inner parser will handle typing and validation natively
+        return <Component key={index} {...block} />;
+      })}
+    </main>
+  );
+}
+```
+
+#### Example 2: The "Traditional Component" Approach (Strictly Typed Input)
+
+When you need excellent developer experience for hardcoding components manually, you can strictly type the `initialProps`. The parser takes these strict props, validates them, and can execute side-effects like fetching additional data.
+
+```ts
+// components/user-card/parser.ts
+import { createParser } from '../../path-to/parser-config';
+
+// Define the strict input interface
+export interface UserCardInitialProps {
+  userId: string;
+  theme?: 'light' | 'dark';
+}
+
+export const userCardParser = createParser({
+  theme: ({ data }) => data.theme || 'light', // Fallback
+  userProfile: async ({ data }) => {
+    // Fetch user details dynamically based on the strict userId prop
+    const res = await fetch(`https://api.example.com/users/${data.userId}`);
+    return await res.json();
+  },
+});
+```
+
+```tsx
+// components/user-card/user-card.tsx
+import React from 'react';
+import { userCardParser, UserCardInitialProps } from './parser';
+
+export const UserCard = async (initialProps: UserCardInitialProps) => {
+  // `props` infers both the fallback theme and the resolved userProfile
+  const props = await userCardParser(initialProps);
+
+  return (
+    <div className={`theme-${props.theme}`}>
+      <h2>{props.userProfile.name}</h2>
+    </div>
+  );
+};
+```
+
+```tsx
+// app/page.tsx
+import { UserCard } from '../components/user-card/user-card';
+
+export default function Page() {
+  return (
+    <main>
+      <h1>Our Team</h1>
+      {/* Strongly typed props with excellent DX */}
+      <UserCard userId="u_123" theme="dark" />
+      <UserCard userId="u_456" /> {/* theme defaults to 'light' */}
+    </main>
+  );
+}
+```
+
+#### Example 3: The "Hybrid" Approach (Nested Parsers & Reusable Sub-components)
+
+In complex pages, you often have a large block of data coming from a CMS containing nested structures (like an article with an author). You can nest parsers to validate the entire tree at once.
+
+Then, you can use `ParserReturnValue` to extract the inferred TypeScript type from the child parser, allowing you to pass the pre-parsed, strictly-typed data into a static, "dumb" React component that doesn't need to run any parsing itself.
+
+```ts
+// components/author-badge/parser.ts
+import { createParser, ParserReturnValue } from '../../path-to/parser-config';
+
+// 1. Define the child parser in its own generic folder
+export const authorBadgeParser = createParser({
+  name: 'string',
+  role: 'string',
+});
+
+// 2. Export its inferred type for use in static components
+export type AuthorBadgeProps = ParserReturnValue<typeof authorBadgeParser>;
+```
+
+```tsx
+// components/author-badge/author-badge.tsx
+import React from 'react';
+import type { AuthorBadgeProps } from './parser';
+
+// This is a "dumb" static component. It expects strictly typed, pre-parsed data.
+export const AuthorBadge = (props: AuthorBadgeProps) => {
+  return (
+    <div className="author-badge">
+      <strong>{props.name}</strong>
+      <span>{props.role}</span>
+    </div>
+  );
+};
+```
+
+```ts
+// components/article-block/parser.ts
+import { createParser } from '../../path-to/parser-config';
+import { authorBadgeParser } from '../author-badge/parser';
+
+// 3. Nest the generic author parser inside the parent parser
+export const articleBlockParser = createParser({
+  title: 'string',
+  content: 'string',
+  author: authorBadgeParser, // Nests the parser directly
+});
+```
+
+```tsx
+// components/article-block/article-block.tsx
+import React from 'react';
+import { articleBlockParser } from './parser';
+import { AuthorBadge } from '../author-badge/author-badge';
+
+// This is the parent component handling the raw, dynamic input
+export const ArticleBlock = async (initialProps: object) => {
+  // `props` is automatically typed and includes the parsed `author` object!
+  const { title, content, authorBadge } = await articleBlockParser(initialProps);
+
+  return (
+    <article>
+      <h1>{title}</h1>
+      {/* Pass the fully parsed and typed `author` object to the child component */}
+      <AuthorBadge {...authorBadge} />
+      <p>{content}</p>
+    </article>
+  );
+};
+```
+
+```tsx
+// app/article/[slug]/page.tsx
+import { ArticleBlock } from '../../../components/article-block/article-block';
+
+export default async function Page({ params }: { params: { slug: string } }) {
+  // Fake data fetching
+  const res = await fetch(`https://api.example.com/articles/${params.slug}`);
+  const articleData = await res.json();
+
+  return (
+    <main>
+      <ArticleBlock {...articleData} />
+    </main>
+  );
+}
+```
 
 ### Server-Side Data Fetching & Caching
 
