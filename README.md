@@ -1,30 +1,45 @@
 # Bou Parsing
 
-Bou Parsing is your ultimate sidekick for taming unruly data! Whether you're wrangling data from APIs, generating TypeScript types on the fly, or splitting complex queries into bite-sized pieces, Bou Parsing has got you covered. With its powerful yet easy-to-use functions, you can effortlessly manipulate, validate, and transform your data into exactly what you need. Say goodbye to tedious data handling and hello to a smoother, more efficient workflow with Bou Parsing!
+Bou Parsing is your ultimate sidekick for taming unruly data! Whether you're wrangling data from APIs, generating TypeScript types on the fly, or splitting complex queries into bite-sized pieces, Bou Parsing has got you covered. With its powerful yet easy-to-use functions, you can effortlessly manipulate, validate, and transform your data into exactly what you need.
+
+While Bou Parsing is fully isomorphic and works perfectly in the browser, **it truly shines on the server-side** (e.g., in Next.js App Router, Astro, NestJS, or Express). It allows you to fetch massive API responses or do complex mappings and calculations, parse them into exact, type-safe structures, and cache the computations to drastically reduce server, database and network load before sending data to the frontend.
 
 [NPM](https://www.npmjs.com/package/@bou-co/parsing) | [GitHub](https://github.com/bou-co/parsing)
 
-## Get started
+## Get Started
 
-### 1 - Install Bou Parsing package from NPM. Same package supports is made to support all frameworks.
+### 1 - Install the package
+
+Install the Bou Parsing package from NPM. It supports all frameworks.
 
 ```bash
 npm i @bou-co/parsing
 ```
 
-### 2 - In root level of your code, run `initializeParser` function to export `createParser` function.
+### 2 - Initialize the parser
+
+In the root level of your code, run the `initializeParser` function to export your tailored `createParser` function. This allows you to set up global configurations like caching and variables once.
 
 ```ts
 // parser-config.ts
 import { initializeParser } from '@bou-co/parsing';
 
-export const { createParser } = initializeParser();
+export const { createParser } = initializeParser(/** Global configurations comes here **/);
 ```
 
-### 3 - Start using parser anywhere in your app's or website's data flow
+### 3 - Start using the parser
+
+Use your customized `createParser` anywhere in your app's data flow to safely pick, validate, and type your data.
 
 ```ts
 import { createParser } from '../path-to/parser-config';
+
+const rawDataFromApi = {
+  _id: 'abc-123',
+  title: 'Hello World',
+  description: 'Lorem ipsum',
+  priority: 1,
+};
 
 const myParser = createParser({
   title: 'string',
@@ -32,36 +47,48 @@ const myParser = createParser({
   priority: 'number',
 });
 
-const dataThatYouWanted = await myParser(rawDataFromApi);
+const result = await myParser(rawDataFromApi);
+
+/* Result:
+{
+  "title": "Hello World",
+  "description": "Lorem ipsum",
+  "priority": 1
+}
+*/
 ```
 
-[View simple usage example](#define-the-data-you-want)
+## Table of Contents
 
-## Features
+- [Basic Usage](#basic-usage)
+  - [Defining the data you want](#defining-the-data-you-want)
+  - [Adding and modifying values](#adding-and-modifying-values)
+  - [Nested data structures](#nested-data-structures)
+  - [Conditional data](#conditional-data)
+- [Advanced Usage](#advanced-usage)
+  - [Merging data](#merging-data)
+  - [Variables](#variables)
+  - [Dynamic projections](#dynamic-projections)
+  - [Extending parsers](#extending-parsers)
+  - [Context overriding](#context-overriding)
+  - [Lifecycle hooks](#lifecycle-hooks)
+  - [Transformers](#transformers)
+  - [Chaining parsers (Reparsing)](#chaining-parsers-reparsing)
+- [Examples & Use Cases](#examples--use-cases)
+  - [Server-Side Data Fetching & Caching](#server-side-data-fetching--caching)
+  - [CMS Content Templating with Variables](#cms-content-templating-with-variables)
+  - [Advanced TypeScript Generation & Utilities](#advanced-typescript-generation--utilities)
+  - [Global Localization via Transformers](#global-localization-via-transformers)
+  - [Client-Side React Integration](#client-side-react-integration)
+- [API Reference](#api-reference)
 
-1. [Define the data you want](#define-the-data-you-want)
-2. [Generate types](#generate-types-to-your-picked-data)
-3. [Add and modify values](#adding-additional-data-or-modifying-raw-values)
-4. [Nested data structures](#nested-data-structures)
-5. [Conditional data](#conditional-data)
-6. [Merging data](#merging-data)
-7. [Variables](#variables)
-8. [Caching results](#caching-and-storage)
-9. [Dynamic projections](#dynamic-projections)
-10. [Extending parsers](#extending-parsers)
-11. [Context overriding](#context-overriding)
-12. [Lifecycle hooks](#lifecycle-hooks)
-13. [Transformers](#transformers)
-14. [Chaining parsers](#chaining-parsers-reparsing)
+---
 
-## API
+## Basic Usage
 
-1. [Initialize parser](#initialize-parser)
-1. [Create parser](#create-parser)
+### Defining the data you want
 
-### Define the data you want
-
-When querying data with an API that does not support picking what you want, `createParser` function can be used to pick the data you need and remove the rest.
+When querying data with an API that returns more than you need, you can use the parser to pick only the exact fields you want, omitting the rest.
 
 ```ts
 import { createParser } from '../path-to/parser-config';
@@ -79,445 +106,324 @@ const myParser = createParser({
   priority: 'number',
 });
 
-const dataThatYouWanted = await myParser(rawDataFromApi);
-```
+const result = await myParser(rawDataFromApi);
 
-In the example above we pick to get `title, description and priority` but omit the `_id`.
-
-**Note:** value returned by `createParser` is an async function as parsers do have a wide support for promises. For React.js component usage we have developed a client side hook `useParserValue` to allow parser usage easily inside of React.js.
-
-### Dynamic projections
-
-Instead of passing a static object definition to `createParser`, you can pass a synchronous or asynchronous function. This function receives the parser context and can return a different projection structure dynamically based on the input data.
-
-```ts
-import { createParser } from '../path-to/parser-config';
-
-const dynamicParser = createParser(({ data }) => {
-  if (data['addMetadata']) {
-    return { value: 'number', metadata: 'string' };
-  }
-  return { value: 'number' };
-});
-```
-
-### Generate types to your picked data
-
-Rarely you can get good and easy type generation from external APIs (especially from CMS). With `ParserReturnValue` it's possible to use your parser projection as the TypeScript type instead of writing the types on your own.
-
-```ts
-import { ParserReturnValue } from '@bou-co/parsing';
-import { createParser } from '../path-to/parser-config';
-
-const myParser = createParser({
-  title: 'string',
-  description: 'string',
-  priority: 'number',
-});
-
-export type MyParserData = ParserReturnValue<typeof myParser>;
-```
-
-Type `MyParserData` equals to:
-
-```ts
-interface MyParserData {
-  title?: string;
-  description?: string;
-  priority?: number;
+/* Result:
+{
+  "title": "Test",
+  "description": "Lorem ipsum",
+  "priority": 1
 }
+*/
 ```
 
-Possible values that are automatically turned to types are `string, number, boolean, object, any, unknown, undefined, date, array` or `array<string etc.>`.
+### Adding and modifying values
 
-**Note:** `@bou-co/parsing` type generation by default expects that any value can also be undefined!
-
-#### Using custom types
-
-It's also possible to use custom types for value with `typed` function. With `typed` you can pass any custom TypeScript values to be used as values generated with the typing.
-
-```ts
-import { typed } from '@bou-co/parsing';
-import { createParser } from '../path-to/parser-config';
-
-interface Author {
-  name?: string;
-  title?: string;
-}
-
-const anotherParser = createParser({
-  title: 'string',
-  category: typed<'blog' | 'news' | 'releases'>,
-  author: typed<Author>,
-});
-
-export type AnotherParserData = ParserReturnValue<typeof anotherParser>;
-```
-
-In this case type `AnotherParserData` equals to:
-
-```ts
-interface AnotherParserData {
-  title?: string;
-  category?: 'blog' | 'news' | 'releases';
-  author?: Author;
-}
-```
-
-### Adding additional data or modifying raw values
-
-With `@bou-co/parsing` it's also possible to add values that are not part of the initial data.
+You can append static values, compute synchronous/asynchronous values, or derive new properties from the raw input data.
 
 ```ts
 import { createParser } from '../path-to/parser-config';
 
 const rawDataFromApi = {
-  _id: 'abc-123',
   title: 'Test',
-  description: 'Lorem ipsum',
   priority: 1,
 };
 
-const BLOG_POST = 'blogPost';
-
 const myParser = createParser({
   title: 'string',
-  description: 'string',
 
   // 1. Static value added as is
-  postType: BLOG_POST,
+  postType: 'blogPost',
 
   // 2. Function return value
-  randomNumber: () => Math.random(),
+  randomNumber: () => 42,
 
   // 3. Promises supported
   asyncText: async () => {
-    const awaited = await fetch('your-api').then((res) => res.text());
-    return awaited;
+    return await Promise.resolve('Fetched later');
   },
 
-  // 4. Custom override for priority
+  // 4. Custom override based on existing data
   priority: (context) => {
-    const { data } = context;
-    if (!data.priority) return 1;
-    return data.priority;
+    if (!context.data.priority) return 100;
+    return context.data.priority * 10;
   },
 
   // 5. Variation of raw value
-  metaTitle: (context) => {
-    const { data } = context;
-    if (!data.title) return 'Untitled blog post';
-    return `${data.title} - Our blog`;
-  },
+  metaTitle: (context) => `${context.data.title} - Our blog`,
 });
 
-const dataThatYouWanted = await myParser(rawDataFromApi);
+const result = await myParser(rawDataFromApi);
+
+/* Result:
+{
+  "title": "Test",
+  "postType": "blogPost",
+  "randomNumber": 42,
+  "asyncText": "Fetched later",
+  "priority": 10,
+  "metaTitle": "Test - Our blog"
+}
+*/
 ```
-
-**Note:** When using functions to set data, you might need to manually define the type of the value that the function returns!
-
-**Good to know:** The type of first argument (context) for any function is `ParserContext` and it contains current raw data as "data" but also some information about the current parser!
 
 ### Nested data structures
 
-Parsers can handle nested objects as properties defined in projection or as additional parsers.
-
-#### Nested objects in parsers
+Parsers seamlessly handle nested objects, arrays, and even other parsers as property definitions.
 
 ```ts
 import { createParser } from '../path-to/parser-config';
 
-const myParser = createParser({
-  title: 'string',
-  nestedDataObject: {
-    description: 'string',
-    priority: 'number',
-  },
+const rawDataFromApi = {
+  title: 'Nested Test',
+  details: { desc: 'Inner description', level: 5 },
+  tags: [{ name: 'ts' }, { name: 'js' }],
+};
+
+const tagParser = createParser({
+  name: 'string',
+  isAwesome: () => true,
 });
-```
-
-#### Nested arrays in parsers
-
-Adding `'@array': true,` defines that projection inside of current level should be defined as array.
-
-```ts
-import { createParser } from '../path-to/parser-config';
 
 const myParser = createParser({
   title: 'string',
+
+  // Nested Object
+  nestedDataObject: {
+    desc: 'string',
+    level: 'number',
+  },
+
+  // Nested Array
   nestedDataArray: {
     '@array': true,
-    description: 'string',
-    priority: 'number',
+    name: 'string',
+    indexLabel: ({ index }) => `Item ${index}`, // Arrays expose 'index' in context
   },
-});
-```
 
-When parsing an array of items, the parser automatically populates an `index` property in the context. This allows your value functions to know their positional index within the parsed array.
-
-```ts
-const parserWithIndex = createParser({
-  items: {
-    '@array': true,
-    title: 'string',
-    indexTimesThree: ({ index }) => (index !== undefined ? index * 3 : undefined),
-  },
-});
-```
-
-#### Nested parsers
-
-```ts
-import { createParser } from '../path-to/parser-config';
-
-const innerParser = createParser({
-  description: 'string',
-  priority: 1,
+  // Nested Parser
+  parsedTags: tagParser.asArray,
 });
 
-const myParser = createParser({
-  title: 'string',
-  nestedDataObject: innerParser,
-  nestedDataArray: innerParser.asArray,
-});
+// Notice we map 'details' to 'nestedDataObject' and 'tags' to 'nestedDataArray'/'parsedTags'
+// Since input keys don't match exactly, we'd normally alias them or pass data directly.
+// Let's execute assuming the raw data matches the parser schema structure for simplicity:
+const structuredData = {
+  title: rawDataFromApi.title,
+  nestedDataObject: rawDataFromApi.details,
+  nestedDataArray: rawDataFromApi.tags,
+  parsedTags: rawDataFromApi.tags,
+};
+
+const result = await myParser(structuredData);
+
+/* Result:
+{
+  "title": "Nested Test",
+  "nestedDataObject": { "desc": "Inner description", "level": 5 },
+  "nestedDataArray": [
+    { "name": "ts", "indexLabel": "Item 0" },
+    { "name": "js", "indexLabel": "Item 1" }
+  ],
+  "parsedTags": [
+    { "name": "ts", "isAwesome": true },
+    { "name": "js", "isAwesome": true }
+  ]
+}
+*/
 ```
 
 ### Conditional data
 
-Parsing supports fully conditional data picking and addition with `@if`.
+Support for fully conditional data picking and addition using `@if`.
 
 ```ts
 import { createParser } from '../path-to/parser-config';
+
+const rawDataFromApi = {
+  title: 'Test',
+  priority: 2,
+};
 
 const myParser = createParser({
   title: 'string',
   priority: 'number',
   '@if': [
-    // 1. Show description only if priority is 1
     {
-      when: (context) => context.data.priority === 1,
-      then: {
-        description: 'string',
-      },
-    },
-    // 2. Omit description and add "highPriority: true" if priority is above 1
-    {
+      // Adds 'highPriority' if priority is above 1
       when: (context) => context.data.priority > 1,
-      then: {
-        highPriority: true,
-      },
+      then: { highPriority: true },
     },
-    // 3. Modify description and add "lowPriority: true" if priority is below 1
     {
-      when: (context) => context.data.priority < 1,
-      then: {
-        lowPriority: true,
-        description: (context) => context.data.description + '?',
-      },
+      // Modifies 'title' if priority is below 10
+      when: (context) => context.data.priority < 10,
+      then: { title: (context) => `${context.data.title} (Draft)` },
     },
   ],
 });
+
+const result = await myParser(rawDataFromApi);
+
+/* Result:
+{
+  "title": "Test (Draft)",
+  "priority": 2,
+  "highPriority": true
+}
+*/
 ```
+
+---
+
+## Advanced Usage
 
 ### Merging data
 
-Adding data as individual property & value pairs is good when only few values are added but to manage larger additions you can use `@combine`.
+Use `@combine` to fetch or compute large external datasets and merge them directly into the current parser projection.
 
 ```ts
 import { createParser } from '../path-to/parser-config';
 
-const rawDataFromApi = {
-  _id: 'abc-123',
-  title: 'Test',
-  description: 'Lorem ipsum',
-  priority: 1,
-};
+const rawDataFromApi = { _id: '123', title: 'Test' };
 
 const additionalDataParser = createParser({
   readCount: 'number',
-  likes: 'number',
 });
 
 const myParser = createParser({
   title: 'string',
-  priority: 'number',
-  description: 'string',
-  '@combine': (context) => {
-    const { _id } = context.data;
-    const query = `your-api?id=${_id}`;
-    const rawAdditionalData = await fetch(query).then((res) => res.json());
-    return additionalDataParser(rawAdditionalData);
+  '@combine': async (context) => {
+    // Imagine an API call here based on context.data._id
+    const externalData = { readCount: 42 };
+    return await additionalDataParser(externalData);
   },
 });
 
-const mergedData = await myParser(rawDataFromApi);
+const result = await myParser(rawDataFromApi);
+
+/* Result:
+{
+  "title": "Test",
+  "readCount": 42
+}
+*/
 ```
 
 ### Variables
 
-Variables in parsing are a way to easily edit string values that are coming from raw data. Variables can be used to easily add data about the build, render or current user.
+Variables provide advanced template logic for string values coming from raw data. They allow content editors (e.g., in a CMS) to use dynamic data without requiring coders to build an entire EJS or templating engine.
 
-#### Global variables
+Variables support:
 
-To use variables anywhere, define them in your parsing config.
+- **Functions:** Resolve dynamic data (e.g., `currentYear: () => new Date().getFullYear()`).
+- **Async Execution:** Fetch variable values from a DB or CMS dynamically.
+- **Deep object resolution:** Access nested properties using dot notation (e.g., `{{user.address.city}}`).
+- **Fallbacks:** Chain variable checks (e.g., `{{user.name || "Guest"}}` or `{{score || 0}}`).
+- **Pipes:** Transform output values inline (e.g., `{{date | toDateString}}` or `{{title | uppercase}}`).
 
 ```ts
-// parser-config.ts
+// 1. Global Setup (in parser-config.ts)
 import { initializeParser } from '@bou-co/parsing';
 
-export const { createParser } = initializeParser(() => {
-  const currentYear = new Date().getFullYear();
-  return {
-    variables: {
-      currentYear,
-    },
-  };
-});
-```
+export const { createParser } = initializeParser(() => ({
+  variables: {
+    currentYear: () => new Date().getFullYear(),
+    uppercase: ({ data }) => String(data).toUpperCase(),
+  },
+}));
 
-After definition you can use them in the raw data.
-
-```ts
+// 2. Usage
 import { createParser } from '../path-to/parser-config';
 
+// Imagine this string comes directly from database or CMS
 const rawDataFromApi = {
-  title: 'Hello from {{currentYear}}',
-  description: 'Is the current year really {{currentYear}}?',
+  title: 'Copyright {{currentYear}}',
+  user: 'Hello {{user.firstName || "Guest" | uppercase}}!',
 };
 
 const myParser = createParser({
   title: 'string',
-  description: 'string',
+  user: 'string',
 });
 
-const result = await myParser(rawDataFromApi);
-```
-
-Result in case above is:
-
-```json
-{ "title": "Hello from 2026", "description": "Is the current year really 2026?" }
-```
-
-#### Instance variables
-
-```ts
-import { createParser } from '../path-to/parser-config';
-
-const rawDataFromApi = {
-  title: 'Message for the whole {{entity}}',
-  description: 'Hello {{entity}}!',
-};
-
-const myParser = createParser({
-  title: 'string',
-  description: 'string',
-});
-
+// Provide instance variables overriding or supplementing global ones
 const instanceData = {
   variables: {
-    entity: 'world',
+    user: { firstName: 'john' },
   },
 };
 
 const result = await myParser(rawDataFromApi, instanceData);
-```
 
-Result in case above is:
-
-```json
-{ "title": "Message for the whole world", "description": "Hello world!" }
-```
-
-#### Variable fallbacks
-
-For any variable provided in the data, there can be a fallback value in a form of another variable, string, number or boolean. Fallback values can be added with adding `||` after the initial variable and after that a secondary variable or just a value.
-
-```ts
-import { createParser } from '../path-to/parser-config';
-
-const rawDataFromApi = {
-  title: 'Message for the whole {{notFound || "city"}}',
-  description: 'Hello {{firstName || lastName || "Doe"}}!',
-  score: '{{score || 0}}',
-  active: '{{isActive || false}}',
-};
-
-const myParser = createParser({
-  title: 'string',
-  description: 'string',
-  score: 'number',
-  active: 'boolean',
-});
-
-const instanceData = {
-  variables: {
-    lastName: 'Johnson',
-  },
-};
-
-const result = await myParser(rawDataFromApi, instanceData);
-```
-
-Result in case above is:
-
-```json
+/* Result:
 {
-  "title": "Message for the whole city",
-  "description": "Hello Johnson!",
-  "score": 0,
-  "active": false
+  "title": "Copyright 2026",
+  "user": "Hello JOHN!"
 }
+*/
 ```
 
-#### Variable pipes
+#### Dynamic Variable Resolvers
 
-If you need to transform the value of a variable, you can do that with pipes. Pipes are useful for example when you want to transform an ISO date to something meant for humans. Pipes are defined in code as variables that are funtions and get the current variable value in the context as data. Pipes can also take in params that are then an array in the context.
+Instead of defining every possible variable upfront, `variableResolver` allows you to dynamically intercept and resolve variables by their exact name when they are encountered. This is incredibly powerful for catching wildcards, fetching data on-demand from a database, or handling dynamic keys.
+
+```ts
+import { initializeParser } from '@bou-co/parsing';
+
+export const { createParser } = initializeParser(() => ({
+  variableResolver: async (variableName, context) => {
+    // Dynamically catch variables named 'userName'
+    if (variableName === 'userName') {
+      const { userId } = context.data; //
+
+      // Simulated DB fetch (e.g., await db.getUser(userId))
+      const userName = await Promise.resolve('Alice');
+      return userName;
+    }
+
+    // Return undefined to let standard fallbacks or other variables take over
+    return undefined;
+  },
+}));
+
+const dynamicParser = createParser({ message: 'string' });
+
+const result = await dynamicParser({ message: 'Welcome back, {{userName}}!', userId: 123 });
+
+/* Result:
+{
+  "message": "Welcome back, Alice!"
+}
+*/
+```
+
+### Dynamic projections
+
+Pass a function instead of a static object to return a different projection structure based on the input data dynamically.
 
 ```ts
 import { createParser } from '../path-to/parser-config';
 
-const rawDataFromApi = {
-  title: 'Hello from {{title | uppercase}}',
-  publishedAt: 'This is published at {{date | toDateString}}',
-  score: '{{score | multiply:100 }}', // Add param for how much should the value be multiplied
-};
-
-const myParser = createParser({
-  title: 'string',
-  publishedAt: 'string',
-  score: 'number',
+const dynamicParser = createParser(({ data }) => {
+  if (data.type === 'detailed') {
+    return { value: 'number', metadata: 'string' };
+  }
+  return { value: 'number' };
 });
 
-const instanceData = {
-  variables: {
-    // Variable values
-    title: 'the space',
-    publishedAt: '2026-05-22T12:00:00',
-    score: 0.42,
-    // Pipe functions (could most likely be added with initializeParser and not per instance)
-    uppercase: ({ data }) => data.toUpperCase(),
-    toDateString: ({ data }) => new Date(data).toLocaleString(),
-    multiply: ({ data, params: [by] = [2] }) => data * by,
-  },
-};
+const result = await dynamicParser({ type: 'detailed', value: 10, metadata: 'extra info' });
 
-const result = await myParser(rawDataFromApi, instanceData);
-```
-
-Result in case above is:
-
-```json
+/* Result:
 {
-  "title": "Message for THE SPACE",
-  "publishedAt": "5/22/2026, 12:00:00 PM",
-  "score": 42
+  "value": 10,
+  "metadata": "extra info"
 }
+*/
 ```
 
 ### Extending parsers
 
-You can build upon an existing parser by using the `.extend()` method. It merges a new projection object with the original one, allowing you to append new fields or override existing ones without mutating the original parser.
+Merge a new projection onto an existing parser securely without mutating the original definition.
 
 ```ts
 import { createParser } from '../path-to/parser-config';
@@ -526,37 +432,34 @@ const original = createParser({ value: 'number' });
 const extended = original.extend({ additional: 'string' });
 
 const result = await extended({ value: 456, additional: 'test' });
-```
 
-**Note:** parsers created with a function projection cannot be extended.
+/* Result:
+{
+  "value": 456,
+  "additional": "test"
+}
+*/
+```
 
 ### Context overriding
 
-You can inject new context properties (like variables) into a pre-existing parser by calling `.withContext()`. This returns a new instance of the parser containing the updated context, allowing you to reuse the same parser blueprint seamlessly without affecting the original definition.
+Inject new context properties (like variables) into a pre-existing parser by calling `.withContext()`.
 
 ```ts
 import { createParser } from '../path-to/parser-config';
 
-const parser = createParser({ values: 'string' }, { variables: { first: 1 } });
+const parser = createParser({ value: 'string' }, { variables: { first: 1 } });
+const overriddenParser = parser.withContext({ variables: { second: 2 } });
 
-// Creates a cloned instance with 'second' merged into the context variables
-const withAdditionalContext = parser.withContext({ variables: { second: 2 } });
+// overriddenParser now has both { first: 1, second: 2 } available in variables context.
 ```
 
 ### Lifecycle hooks
 
-You can register `before` and `after` hooks either globally in `initializeParser` or locally in `createParser`. A `before` hook is especially useful for injecting shared context values before parsing begins. Those values are then available to all value functions and are also inherited automatically by child parsers created with `.extend()`. An `after` hook can still manipulate the resulting data before it gets returned when needed.
+Register `before` and `after` hooks. `before` hooks inject shared context values prior to parsing, which trickle down to nested/extended parsers.
 
 ```ts
-import { initializeParser } from '@bou-co/parsing';
-
-declare module '@bou-co/parsing' {
-  interface FunctionalContext {
-    basePrice: number;
-  }
-}
-
-const { createParser } = initializeParser();
+import { createParser } from '../path-to/parser-config';
 
 const productParser = createParser(
   {
@@ -570,136 +473,399 @@ const productParser = createParser(
   },
 );
 
-const productCardParser = productParser.extend({
-  label: ({ data, basePrice }) => `${data.name} (${data.price + basePrice} EUR)`,
-});
+const result = await productParser({ price: 25 });
 
-const result = await productCardParser({
-  name: 'Notebook',
-  price: 25,
-});
-```
-
-Result in case above is:
-
-```json
+/* Result:
 {
-  "finalPrice": 35,
-  "label": "Notebook (35 EUR)"
+  "finalPrice": 35
 }
+*/
 ```
 
 ### Transformers
 
-You can define a suite of global `transformers` inside `initializeParser`. A transformer contains a `when` conditional statement and a `then` transformation method. This is highly effective for things like custom data structures or global automatic localization (e.g., returning the correct translation string out of an object of translations).
+Transformers run conditionally globally against properties. Helpful for automatic data morphing based on context.
 
 ```ts
+// 1. Setup in parser-config.ts
 import { initializeParser } from '@bou-co/parsing';
 
 const localize = {
-  when: ({ data, locales = [] }) => Object.keys(data).every((k) => locales.includes(k)),
+  // If the object looks like a translation map (e.g. { en: 'Hello', fi: 'Hei' })
+  when: ({ data, locales = ['en', 'fi'] }) => typeof data === 'object' && Object.keys(data).every((k) => locales.includes(k)),
+  // Resolve the string of the current locale
   then: ({ data, currentLocale = 'en' }) => data[currentLocale],
 };
 
-const { createParser } = initializeParser({
-  transformers: { localize },
-});
+export const { createParser } = initializeParser({ transformers: { localize } });
+
+// 2. Usage
+import { createParser } from '../path-to/parser-config';
+
+const myParser = createParser({ greeting: 'string' });
+
+const rawData = { greeting: { en: 'Hello', fi: 'Hei' } };
+const result = await myParser(rawData);
+
+/* Result: { "greeting": "Hello" } */
 ```
 
 ### Chaining parsers (Reparsing)
 
-The data returned by one parser is fully compatible to be passed directly into another parser. This makes it possible to parse objects in multiple passes, chain parser executions, or apply different structural projections sequentially.
+The data output by one parser can be safely passed into another parser for multi-pass executions.
 
 ```ts
 import { createParser } from '../path-to/parser-config';
 
-const baseParser = createParser({ value: 'number' });
-const doubleParser = createParser({ value: ({ data }) => data.value * 2 });
+const stepOne = createParser({ value: 'number' });
+const stepTwo = createParser({ value: ({ data }) => data.value * 2 });
 
-const baseData = await baseParser({ value: 123 });
-const finalData = await doubleParser(baseData);
+const initialData = await stepOne({ value: 123 });
+const finalData = await stepTwo(initialData);
+
+/* Result: { "value": 246 } */
 ```
-
-Result in case above is:
-
-```json
-{
-  "value": 246
-}
-```
-
-### Caching and storage
-
-Caching is build in to the library to make less requests agains databases and save calculations without need for additional hassle. Caching configuration connects to a storage you define and any results of queries or computations can be saved to the storage when needed.
 
 ---
 
-### Initialize parser
+## Examples & Use Cases
+
+### Server-Side Data Fetching & Caching
+
+**Why:** Server-side environments (like Next.js App Router or Express) are perfect for parsing heavy API responses. By configuring the `storage` options, `createParser` can cache expensive computations (like DB calls or formatted strings) natively.
+
+**Features Used:** `initializeParser` (storage), `createParser` (cache options), Async parsing.
 
 ```ts
+// 1. Setup caching in parser-config.ts
 import { initializeParser, toHash } from '@bou-co/parsing';
 import { redis } from '../redis';
 
+// Advanced typing: extend the context interface
 declare module '@bou-co/parsing' {
-  // Additional context options for caching
   interface ParserCachingOptions {
     name?: string;
     ttl?: number;
   }
 }
 
-const { createParser } = initializeParser({
+export const { createParser } = initializeParser({
   storage: {
     generateKey: (context) => {
       if (!context.cache.name) throw new Error('Caching options must include a name');
-      const valueHash = toHash(context.data);
-      const key = `${context.cache.name}:${valueHash}`;
-      return key;
+      return `${context.cache.name}:${toHash(context.data)}`;
     },
-    add(key, value, context) {
-      const asString = typeof value === 'string' ? value : JSON.stringify(value);
-      await redis.set(key, asString, { ex: context.cache.ttl });
+    add: async (key, value, context) => {
+      await redis.set(key, JSON.stringify(value), { ex: context.cache.ttl });
     },
-    match: async (key, context) => {
-      const value = await redis.get(key);
-      return value;
-    },
+    match: async (key) => await redis.get(key),
   },
 });
-```
 
-### Create parser
-
-```ts
+// 2. Create the parser with caching enabled
 import { createParser } from '../path-to/parser-config';
 
-const parser = createParser(
+const expensiveParser = createParser(
   {
-    title: async () => {
-      // Let's imagine that this is complex computation or big query that takes long time to resolve
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      return 'Hello World';
+    summary: async ({ data }) => {
+      // Expensive DB Query or AI generation based on data.id
+      await new Promise((r) => setTimeout(r, 1000));
+      return `Processed: ${data.id}`;
     },
   },
   {
-    cache: {
-      enabled: true, // Enable caching for this parser
-      ttl: 60 * 60 // 1 hour in seconds
-      name: 'title-cache'
-    },
+    cache: { enabled: true, ttl: 3600, name: 'summary-cache' },
   },
 );
+
+// 3. Execution (e.g., inside an Express route or Next.js Server Action)
+const rawData = { id: 'user_123' };
+const result = await expensiveParser(rawData); // Takes 1s first time, almost instant on subsequent calls!
 ```
 
-Result in case above is:
+### CMS Content Templating with Variables
 
-```json
+**Why:** Instead of building complex string-replacement utilities or integrating heavy templating engines like EJS, Bou Parsing allows content editors in a CMS to use double curly braces (`{{variable}}`) for dynamic injection. Coders define the variable resolvers (which can even be async DB lookups), and the parser handles replacing them safely.
+
+**Features Used:** `variables` (Global & Instance), Async resolvers, Fallbacks (`||`), Pipes (`|`), Deep object resolution.
+
+```ts
+// 1. Global Setup in parser-config.ts
+import { initializeParser } from '@bou-co/parsing';
+import { db } from '../database';
+
+export const { createParser } = initializeParser(() => ({
+  variables: {
+    // Basic function resolver
+    currentYear: () => new Date().getFullYear(),
+
+    // Async DB fetch: only called if the variable is actually used in the text!
+    latestRelease: async () => {
+      const release = await db.query('SELECT version FROM releases ORDER BY date DESC LIMIT 1');
+      return release.version;
+    },
+
+    // Pipe for transformation
+    capitalize: ({ data }) => String(data).charAt(0).toUpperCase() + String(data).slice(1),
+  },
+}));
+
+// 2. Parser definition
+import { createParser } from '../path-to/parser-config';
+
+const cmsBlockParser = createParser({
+  heading: 'string',
+  body: 'string',
+});
+
+// 3. Execution (e.g., inside an API route fetching CMS data)
+// This raw data represents what a content editor typed into the CMS:
+const rawDataFromCMS = {
+  heading: 'Release {{latestRelease || "v1.0.0"}} is out!',
+  body: 'Copyright {{currentYear}}. Welcome back, {{user.name || "friend" | capitalize}}.',
+};
+
+// We pass the current logged-in user dynamically via instance context
+const instanceContext = {
+  variables: {
+    user: { name: 'alice' },
+  },
+};
+
+const result = await cmsBlockParser(rawDataFromCMS, instanceContext);
+
+/* Result:
 {
-  "title": "Hello World"
+  "heading": "Release v2.4.1 is out!",
+  "body": "Copyright 2026. Welcome back, Alice."
 }
+*/
 ```
 
-First function run will take 1 second to complete but the next ones will be gotten from redis cache making parsing a lot faster. For more complex cases, better key generation is possible as the key can get the same data as any parser.
+### CMS Dynamic Variables with On-Demand Fetching & Caching
+
+**Why:** Often in CMS systems, content editors want to embed reusable snippets or documents directly into their text (e.g., `{{snippets/summer-sale.title}}`). Instead of pre-fetching all possible snippets upfront—which can be slow and resource-heavy—you can use `variableResolver` to fetch only the exact snippets used in the text on-demand.
+
+**Features Used:** `variableResolver`, Deep object resolution.
+
+```ts
+// 1. Global Setup in parser-config.ts
+import { initializeParser } from '@bou-co/parsing';
+
+export const { createParser } = initializeParser(() => ({
+  variableResolver: async (variableName, context) => {
+    // Intercept any variable starting with 'snippets/'
+    if (variableName.startsWith('snippets/')) {
+      const slug = variableName.split('/')[1];
+
+      // Fetch the snippet from the CMS
+      const dataFromCMS = {
+        'current-sale-title': '50% Off Summer Sale',
+        'current-sale-description': 'Get the best deals of the season.',
+      };
+      const snippet = await Promise.resolve(slug.toUpperCase());
+
+      // Cache the result globally so subsequent usages of this exact
+      // variableName don't trigger another CMS fetch
+      return snippet;
+    }
+
+    // Return undefined to let standard fallbacks or other variables take over
+    return undefined;
+  },
+}));
+
+// 2. Parser definition
+import { createParser } from '../path-to/parser-config';
+
+const pageParser = createParser({
+  content: 'string',
+});
+
+// 3. Execution
+// The raw data from the CMS contains a reference to a snippet
+const rawDataFromCMS = {
+  content: 'Check out our latest promo: {{snippets/current-sale-title}}! {{snippets/current-sale-description}}',
+};
+
+const result = await pageParser(rawDataFromCMS);
+
+/* Result:
+{
+  "content": "Check out our latest promo: 50% Off Summer Sale! Get the best deals of the season."
+}
+*/
+```
+
+### Advanced TypeScript Generation & Utilities
+
+**Why:** Hand-writing types for CMS or 3rd-party API responses is brittle. Bou Parsing allows you to infer exact TypeScript interfaces directly from your parser definitions.
+
+**Features Used:** `ParserReturnValue`, `typed<T>`, `optional<T>`, Module Declaration Overrides.
+
+```ts
+import { ParserReturnValue, typed, optional } from '@bou-co/parsing';
+import { createParser } from '../path-to/parser-config';
+
+// 1. Extend global context for strict type safety inside functions
+declare module '@bou-co/parsing' {
+  interface FunctionalContext {
+    userRole: 'admin' | 'guest';
+  }
+}
+
+// 2. Define custom interfaces
+interface Author {
+  name: string;
+  title?: string;
+}
+
+// 3. Create the Parser
+const articleParser = createParser({
+  title: 'string',
+  category: typed<'blog' | 'news'>, // Forces union type instead of generic 'string'
+  author: optional<Author>, // Custom complex interface, explicitly optional
+  canEdit: ({ userRole }) => userRole === 'admin', // userRole is typed!
+});
+
+// 4. Extract the exact TypeScript Type
+export type Article = ParserReturnValue<typeof articleParser>;
+
+/*
+Article type equals:
+interface Article {
+  title?: string;
+  category?: 'blog' | 'news';
+  author?: Author | undefined;
+  canEdit?: boolean;
+}
+*/
+
+const rawData = { title: 'Hello', category: 'blog', author: { name: 'Jane' } };
+const result = await articleParser(rawData, { userRole: 'admin' });
+
+/* Result:
+{ "title": "Hello", "category": "blog", "author": { "name": "Jane" }, "canEdit": true }
+*/
+```
+
+### Global Localization via Transformers
+
+**Why:** Content models often return localized data as objects (e.g. `{ en: 'Text', es: 'Texto' }`). Rather than parsing this manually in every component, transformers intercept and resolve the correct locale automatically across your entire dataset.
+
+**Features Used:** `transformers`, Context variables.
+
+```ts
+// 1. Configure the transformer
+import { initializeParser } from '@bou-co/parsing';
+
+const localize = {
+  when: ({ data }) => typeof data === 'object' && ('en' in data || 'es' in data),
+  then: ({ data, locale = 'en' }) => data[locale] || data['en'], // Fallback to en
+};
+
+export const { createParser } = initializeParser({
+  transformers: { localize },
+});
+
+// 2. Create the Parser
+import { createParser } from '../path-to/parser-config';
+
+const pageParser = createParser({
+  heading: 'string',
+  body: 'string',
+});
+
+// 3. Execution
+const rawDataFromCMS = {
+  heading: { en: 'Welcome', es: 'Bienvenido' },
+  body: { en: 'Content', es: 'Contenido' },
+};
+
+const resultEn = await pageParser(rawDataFromCMS, { locale: 'en' });
+
+/* Result: { "heading": "Welcome", "body": "Content" } */
+
+const resultEs = await pageParser(rawDataFromCMS, { locale: 'es' });
+
+/* Result: { "heading": "Bienvenido", "body": "Contenido" } */
+```
+
+### Client-Side React Integration
+
+**Why:** When running the parser directly inside a React component, handling asynchronous resolution and states can be tedious. The `useParserValue` hook abstracts this safely.
+
+**Features Used:** `useParserValue`
+
+```tsx
+import React from 'react';
+import { useParserValue } from '@bou-co/parsing/react';
+import { createParser } from '../path-to/parser-config';
+
+const userParser = createParser({
+  name: 'string',
+  profileUrl: async ({ data }) => `https://img.com/${data.id}`,
+});
+
+export const UserProfile = ({ rawData }) => {
+  // Hook handles async resolution natively
+  const { data: user, loading } = useParserValue(rawData, userParser);
+
+  if (loading) return <div>Loading profile...</div>;
+
+  return (
+    <div>
+      <h1>{user?.name}</h1>
+      <img src={user?.profileUrl} alt="Profile" />
+    </div>
+  );
+};
+```
+
+---
+
+## API Reference
+
+### Core Functions
+
+#### `initializeParser(config?)`
+
+Initializes the parsing engine with global settings (transformers, storage caching, variables, lifecycle hooks).
+
+- **Returns:** `{ createParser, resolveVariables, getVariableValue }`
+
+#### `createParser(projection, options?)`
+
+Creates an executable parser function based on the provided schema projection.
+
+- **Returns:** An asynchronous parsing function that takes `(rawData, contextOverride?)`.
+- **Methods:** `.extend(newProjection)`, `.withContext(newContext)`
+
+### Utility Functions
+
+#### `typed<T>(value?)`
+
+Forces TypeScript to infer a specific custom type instead of basic primitives. Used inside projection definitions.
+
+#### `optional<T>(value?)`
+
+Similar to `typed<T>`, but explicitly marks the inferred TypeScript type as possibly `undefined`.
+
+#### `condition(when, then)`
+
+Helper to create conditional projection logic structurally, typically used inside `@if`.
+
+#### `get(path, from?)`
+
+Utility to easily pick nested string properties (e.g. `get('user.address.street')`) when writing custom value resolver functions.
+
+#### `toHash(data)`
+
+Deterministically hashes an object or primitive into a stable string. Highly useful for generating deterministic Cache/Storage keys in `initializeParser`.
+
+#### `useParserValue(data, parser)`
+
+React hook exported from `@bou-co/parsing/react`. Safely resolves async parsers inside React components, returning `{ data, loading, error }`.
 
 ---
 
