@@ -1062,31 +1062,121 @@ Creates an executable parser function based on the provided schema projection.
 - **Returns:** An asynchronous parsing function that takes `(rawData, contextOverride?)`.
 - **Methods:** `.extend(newProjection)`, `.withContext(newContext)`
 
+### Context Object (`ParserContext`)
+
+The `context` object is passed to all dynamic resolver functions in your projection. It contains the raw data, some info about current execution and custom properties.
+
+- **`data`**: The raw input data at the currently executing nested level.
+- **`variables`**: A merged dictionary of global, schema, and instance variables, including a `current` reference to the input data. Used automatically in string template replacement. See [Variables](#variables).
+- **`key`**: The string key of the property currently being evaluated.
+- **`index`**: The numeric index if the current data is being evaluated inside an array. See [Nested Arrays](#nested-data-structures).
+- **`isRoot`**: A boolean indicating if this is the top-level execution of the parser.
+- **`projection`**: The active projection schema definition for the current level.
+- **`cache`**: The merged caching options. See [Caching](#server-side-data-fetching--caching).
+- **`parser`**: A reference to the underlying `Parser` instance handling the execution.
+- **Custom Properties**: Any additional properties passed via context overriding or lifecycle hooks. To enable strong typing for custom properties, use TypeScript module augmentation. See [Advanced TypeScript Generation](#advanced-typescript-generation--utilities) and [Context Overriding](#context-overriding).
+
+### Context Configuration & Modifiers
+
+Context can be configured at three distinct levels, allowing you to scope variables, caching, and hooks appropriately.
+
+1. **Global Level (`initializeParser`)**: Settings applied here affect all parsers created from the returned `createParser` instance. Ideal for `storage`, global `transformers`, and global `variables`.
+2. **Schema Level (`createParser`)**: Settings applied here affect all executions of this specific parser schema. Ideal for schema-specific `variables`, `cache` definitions, or `before`/`after` hooks.
+3. **Instance Level (`myParser(data, context)`)**: Settings applied during execution. Ideal for request-specific `variables` (e.g., currently logged-in user, active locale).
+
+### Projection Directives
+
+Advanced structural controls available as keys within your schema definition.
+
+- **`@if`**: Accepts an array of objects containing `when` (a condition function) and `then` (the projection to merge if true). Allows fully conditional object picking. See [Conditional Data](#conditional-data).
+- **`@combine`**: Accepts an async function returning an object. Merges the returned object directly into the current parsed output. Useful for fetching secondary datasets. See [Merging Data](#merging-data).
+- **`@array`**: When set to `true` at the root of a nested projection, signals the parser to iterate over the input data as an array and apply the remaining properties to each item. See [Nested Arrays](#nested-data-structures).
+
+### Built-in Types & Keywords
+
+When defining standard properties in your projection schema, you can use the following string identifiers and keywords:
+
+- **Primitive Identifiers**: `"string"`, `"number"`, `"boolean"`, `"object"`, `"date"`, `"any"`, `"unknown"`, `"undefined"`.
+- **Array Identifiers**: `"array"` or strict typed arrays like `"array<string>"`, `"array<number>"`.
+
 ### Utility Functions
 
-#### `typed<T>(value?)`
+#### `typed<T>`
 
 Forces TypeScript to infer a specific custom type instead of basic primitives. Used inside projection definitions.
 
-#### `optional<T>(value?)`
+```ts
+import { typed } from '@bou-co/parsing';
 
-Similar to `typed<T>`, but explicitly marks the inferred TypeScript type as possibly `undefined`.
+type CustomValue = { lorem: string };
+
+const myParser = createParser({
+  value: typed<CustomValue>,
+});
+```
 
 #### `condition(when, then)`
 
 Helper to create conditional projection logic structurally, typically used inside `@if`.
 
+```ts
+import { condition } from '@bou-co/parsing';
+
+const myParser = createParser({
+  '@if': [condition(({ data }) => data.isAdmin, { adminPanelAccess: true })],
+});
+```
+
 #### `get(path, from?)`
 
 Utility to easily pick nested string properties (e.g. `get('user.address.street')`) when writing custom value resolver functions.
+
+```ts
+import { get } from '@bou-co/parsing';
+
+const myParser = createParser({
+  // Automatically resolves from the current context.data
+  city: get('user.address.city'),
+
+  // Can also be used to query arbitrary objects manually
+  externalValue: async () => {
+    const complexData = await fetchExternalData();
+    return await get('settings.theme.color', complexData);
+  },
+});
+```
 
 #### `toHash(data)`
 
 Deterministically hashes an object or primitive into a stable string. Highly useful for generating deterministic Cache/Storage keys in `initializeParser`.
 
+```ts
+import { toHash } from '@bou-co/parsing';
+
+const obj1 = { a: 1, b: 2 };
+const obj2 = { b: 2, a: 1 }; // Same content, different order
+
+console.log(toHash(obj1) === toHash(obj2)); // true
+```
+
 #### `useParserValue(data, parser)`
 
 React hook exported from `@bou-co/parsing/react`. Safely resolves async parsers inside React components, returning `{ data, loading, error }`.
+
+```tsx
+import React from 'react';
+import { useParserValue } from '@bou-co/parsing/react';
+import { myParser } from './parser';
+
+export const MyComponent = ({ rawProps }) => {
+  const { data, loading, error } = useParserValue(rawProps, myParser);
+
+  if (loading) return <div>Loading...</div>;
+  if (error) return <div>Error: {error.message}</div>;
+
+  return <div>{data?.title}</div>;
+};
+```
 
 ---
 
