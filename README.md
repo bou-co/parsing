@@ -1,10 +1,54 @@
 # Bou Parsing
 
-Bou Parsing is your ultimate sidekick for taming unruly data! Whether you're wrangling data from APIs, generating TypeScript types on the fly, or splitting complex queries into bite-sized pieces, Bou Parsing has got you covered. With its powerful yet easy-to-use functions, you can effortlessly manipulate, validate, and transform your data into exactly what you need.
+`@bou-co/parsing` is a TypeScript library for picking, validating, and transforming data from a declarative schema. Define the shape you want. Run the parser. Get back a typed result — async-native, no boilerplate, no manual type-writing.
 
-While Bou Parsing is fully isomorphic and works perfectly in the browser, **it truly shines on the server-side** (e.g., in Next.js App Router, Astro, NestJS, or Express). It allows you to fetch massive API responses or do complex mappings and calculations, parse them into exact, type-safe structures, and cache the computations to drastically reduce server, database and network load before sending data to the frontend.
+It's isomorphic and works in the browser. **The stronger case is on the server** — in Next.js App Router, Astro, NestJS, or Express — where you can fetch massive API responses, run expensive computations, parse them into exact type-safe structures, cache the result, and send the frontend only what it needs. Less database load, less network payload, cleaner components.
+
+The central concept is a **projection** — a plain object that maps input keys to output rules. Rules can be primitive type keywords (`"string"`, `"number"`, …), literal constants, plain functions, async functions, nested projections, or other parsers. The library walks the projection, resolves every rule against your raw data in parallel, and returns a strictly-typed output object whose TypeScript type is inferred automatically from the schema — no hand-written interfaces required.
+
+Key capabilities at a glance:
+
+- **Field picking** — select only the keys you need from any input shape
+- **Value transformation** — sync or async functions, static constants, derived values
+- **Nested structures** — objects, arrays, and reusable sub-parsers compose naturally
+- **Conditional fields** — `@if` blocks add or override fields based on runtime conditions
+- **Data merging** — `@combine` fetches secondary data and merges it into the output
+- **Variable interpolation** — `{{variable}}` templates with fallbacks, pipes, and async resolvers
+- **Transformers** — global hooks that auto-convert matching values (e.g. localisation objects)
+- **Lifecycle hooks** — `before`/`after` callbacks for shared context setup and post-processing
+- **Server-side caching** — pluggable storage (Redis, etc.) with deterministic cache-key generation
+- **TypeScript inference** — output types derived entirely from the projection literal, no generics to write
 
 [NPM](https://www.npmjs.com/package/@bou-co/parsing) | [GitHub](https://github.com/bou-co/parsing)
+
+## Table of Contents
+
+- [Get Started](#get-started)
+- [Basic Usage](#basic-usage)
+  - [Defining the data you want](#defining-the-data-you-want)
+  - [Adding and modifying values](#adding-and-modifying-values)
+  - [Nested data structures](#nested-data-structures)
+  - [Conditional data](#conditional-data)
+- [Advanced Usage](#advanced-usage)
+  - [Merging data](#merging-data)
+  - [Variables](#variables)
+  - [Dynamic projections](#dynamic-projections)
+  - [Extending parsers](#extending-parsers)
+  - [Context overriding](#context-overriding)
+  - [Lifecycle hooks](#lifecycle-hooks)
+  - [Transformers](#transformers)
+  - [Chaining parsers (Reparsing)](#chaining-parsers-reparsing)
+- [Examples & Use Cases](#examples--use-cases)
+  - [Next.js App Router & Server Components](#nextjs-app-router--server-components)
+  - [Server-Side Data Fetching & Caching](#server-side-data-fetching--caching)
+  - [CMS Content Templating with Variables](#cms-content-templating-with-variables)
+  - [Advanced TypeScript Generation & Utilities](#advanced-typescript-generation--utilities)
+  - [Global Localization via Transformers](#global-localization-via-transformers)
+  - [Client-Side React Integration](#client-side-react-integration)
+- [API Reference](#api-reference)
+- [Maintainers](#maintainers)
+
+---
 
 ## Get Started
 
@@ -57,33 +101,6 @@ const result = await myParser(rawDataFromApi);
 }
 */
 ```
-
-## Table of Contents
-
-- [Basic Usage](#basic-usage)
-  - [Defining the data you want](#defining-the-data-you-want)
-  - [Adding and modifying values](#adding-and-modifying-values)
-  - [Nested data structures](#nested-data-structures)
-  - [Conditional data](#conditional-data)
-- [Advanced Usage](#advanced-usage)
-  - [Merging data](#merging-data)
-  - [Variables](#variables)
-  - [Dynamic projections](#dynamic-projections)
-  - [Extending parsers](#extending-parsers)
-  - [Context overriding](#context-overriding)
-  - [Lifecycle hooks](#lifecycle-hooks)
-  - [Transformers](#transformers)
-  - [Chaining parsers (Reparsing)](#chaining-parsers-reparsing)
-- [Examples & Use Cases](#examples--use-cases)
-  - [Next.js App Router & Server Components](#nextjs-app-router--server-components)
-  - [Server-Side Data Fetching & Caching](#server-side-data-fetching--caching)
-  - [CMS Content Templating with Variables](#cms-content-templating-with-variables)
-  - [Advanced TypeScript Generation & Utilities](#advanced-typescript-generation--utilities)
-  - [Global Localization via Transformers](#global-localization-via-transformers)
-  - [Client-Side React Integration](#client-side-react-integration)
-- [API Reference](#api-reference)
-
----
 
 ## Basic Usage
 
@@ -1180,8 +1197,10 @@ export const MyComponent = ({ rawProps }) => {
 
 ---
 
-<footer>
+## Maintainers
 
-Developed by [Bou](https://bou.co/)
+Developed and maintained by the [Bou](https://bou.co/) team.
 
-</footer>
+- Teemu Lahjalahti
+- Anne Kokkonen
+- Richard Grosjean
