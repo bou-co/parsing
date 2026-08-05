@@ -821,6 +821,40 @@ const rawData = { id: 'user_123' };
 const result = await expensiveParser(rawData); // Takes 1s first time, almost instant on subsequent calls!
 ```
 
+### Value-Level Caching with `context.store`
+
+**Why:** Whole-parse caching (above) keys on the full input data — but often a single value function makes an expensive async request whose result is shared across many different parses (e.g. fetching a referenced author). `context.store` caches individual computations through the same globally configured `storage`.
+
+**Features Used:** `context.store`, `context.storage`, `initializeParser` (storage).
+
+```ts
+const articleParser = createParser({
+  title: 'string',
+  author: async ({ data, store }) => {
+    const id = `author:https://api.example.com/authors/${data.authorId}`;
+
+    const fetcher = async () => {
+      const res = await fetch(`https://api.example.com/authors/${data.authorId}`);
+      return res.json();
+    };
+
+    return store(id, fetcher, { ttl: 3600 });
+  },
+});
+```
+
+Semantics:
+
+- Caches whenever a global `storage` is configured — **independent of `cache.enabled`** (calling `store` is the opt-in).
+- With no storage configured (e.g. client-side) it simply runs the function, so value functions stay isomorphic.
+- Concurrent calls with the same key share one in-flight computation — array items parse in parallel, but the request fires once.
+- Errors are never cached; a failed computation rejects all waiters and the next call retries.
+- `null`/`undefined` from `storage.match` count as misses, so falsy values (`0`, `''`, `false`) cache correctly.
+- The optional third argument is merged into `context.cache` for the backend's `match`/`add` (e.g. a `ttl`).
+- The cache identity is your explicit key — the context passed to the backend carries no per-key information.
+
+For manual control, the configured backend is also directly available as `context.storage` (`match`/`add`/`remove`/`clear`).
+
 ### CMS Content Templating with Variables
 
 **Why:** Instead of building complex string-replacement utilities or integrating heavy templating engines like EJS, Bou Parsing allows content editors in a CMS to use double curly braces (`{{variable}}`) for dynamic injection. Coders define the variable resolvers (which can even be async DB lookups), and the parser handles replacing them safely.

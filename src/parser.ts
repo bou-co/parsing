@@ -19,10 +19,11 @@ import { toHash } from './to-hash';
 
 interface ParserCache {
   variables: Record<string, any>;
+  pending: Map<string, Promise<any>>;
 }
 
 export class Parser {
-  private static _cache: ParserCache = { variables: {} };
+  private static _cache: ParserCache = { variables: {}, pending: new Map() };
 
   static initializingGlobalContext = false;
   static parserGlobalContext: ParserGlobalContext | ParserGlobalContextFn;
@@ -38,6 +39,34 @@ export class Parser {
     this.initializingGlobalContext = false;
     return this.parserGlobalContext;
   }
+
+  private static storeValue = async <T>(context: ParserContext, key: string, fn: () => T | Promise<T>, options?: ParserCachingOptions): Promise<T> => {
+    const { storage } = context;
+    if (!storage) return fn();
+
+    const { pending } = Parser._cache;
+    const existing = pending.get(key);
+    if (existing) return existing;
+
+    const _fn = async () => {
+      const storeContext: CachingParserContext = { ...context, cache: mergeObjects(context.cache, options) };
+      const cached = await storage.match(key, storeContext);
+      if (cached !== undefined && cached !== null) return cached as T;
+      const value = await fn();
+      await storage.add(key, value, storeContext);
+      return value;
+    };
+
+    const promise = _fn();
+    pending.set(key, promise);
+
+    const cleanup = () => {
+      if (pending.get(key) === promise) pending.delete(key);
+    };
+
+    promise.then(cleanup, cleanup);
+    return promise;
+  };
 
   public objectify = (value: string) => {
     try {
@@ -183,6 +212,7 @@ export class Parser {
         data,
         cache: mergeObjects(globalContext?.cache, parserContext?.cache, instanceContext?.cache),
         parent: isRoot ? undefined : parentContext,
+        store: (key, fn, options) => Parser.storeValue(contextBase, key, fn, options),
       } satisfies Partial<ParserContext> as any;
 
       const projection = typeof project === 'function' ? await project(contextBase) : project;

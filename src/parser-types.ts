@@ -77,6 +77,7 @@ export interface ParserContext<DATA = AppObject, PARAMS = unknown[]>
   variables: AppObject;
   index?: number;
   parent?: Partial<ParserContext>;
+  store: <T>(key: string, fn: () => T | Promise<T>, options?: ParserCachingOptions) => Promise<T>;
 }
 
 export interface CachingParserContext extends ParserContext {
