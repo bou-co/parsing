@@ -157,11 +157,7 @@ export class Parser {
     parserContext?: CreateParserContext,
   ): ParserFunction<T> => {
     const parse = async (value: AppObject | string, instanceContext: ParserInstanceContext = {}, parentContext: Partial<ParserContext> = {}) => {
-      if (parentContext.isRoot === undefined) {
-        parentContext.isRoot = true;
-      } else {
-        parentContext.isRoot = false;
-      }
+      const isRoot = parentContext.isRoot === undefined;
 
       if (!value) return undefined;
       if (value instanceof Promise) value = await value;
@@ -177,15 +173,16 @@ export class Parser {
       if (Parser._cache.variables) Object.assign(variables, Parser._cache.variables);
 
       let contextBase: ParserContext = {
-        isRoot: parentContext.isRoot,
         parser: this,
         ...globalContext,
         ...parentContext,
         ...parserContext,
         ...instanceContext,
+        isRoot,
         variables,
         data,
         cache: mergeObjects(globalContext?.cache, parserContext?.cache, instanceContext?.cache),
+        parent: isRoot ? undefined : parentContext,
       } satisfies Partial<ParserContext> as any;
 
       const projection = typeof project === 'function' ? await project(contextBase) : project;
@@ -272,12 +269,12 @@ export class Parser {
           if (value instanceof Function) {
             if (value === typed) return [key, data[key]];
             if (value === optional) return [key, data[key]];
-            if ('_parser' in value) return [key, await value(data?.[key], context)];
+            if ('_parser' in value) return [key, await value(data?.[key], instanceContext, context)];
 
             const result = await value(context);
             if (result === '_inherit') return [key, data[key]];
             if (result instanceof Function && '_parser' in result) {
-              return [key, await result(data[key], context)];
+              return [key, await result(data[key], instanceContext, context)];
             }
             return [key, result];
           }

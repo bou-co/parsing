@@ -67,11 +67,7 @@ export interface ParserInstanceContext extends CommonContext, InstanceContext {
 }
 
 export interface ParserContext<DATA = AppObject, PARAMS = unknown[]>
-  extends FunctionalContext,
-    CommonContext,
-    InstanceContext,
-    ParserGlobalContext,
-    CreateParserContext {
+  extends FunctionalContext, CommonContext, InstanceContext, ParserGlobalContext, CreateParserContext {
   isRoot?: boolean;
   parser: Parser;
   data: DATA;
@@ -80,6 +76,7 @@ export interface ParserContext<DATA = AppObject, PARAMS = unknown[]>
   params?: PARAMS;
   variables: AppObject;
   index?: number;
+  parent?: Partial<ParserContext>;
 }
 
 export interface CachingParserContext extends ParserContext {
