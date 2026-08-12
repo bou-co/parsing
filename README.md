@@ -187,6 +187,21 @@ The built-in types cast conservatively — only lossless, unambiguous conversion
 
 `undefined` and `null` values always skip casting and are omitted from the output, so declared fields stay optional. When a present value cannot be cast, the parser throws a `ParserCastError` by default — see [Custom types & casting options](#custom-types--casting-options) for loose modes and defining your own types.
 
+#### Default values
+
+Every type accepts an options object with a `default`, used whenever the field would otherwise end up `undefined` — missing input (`undefined`/`null`) as well as failed casts resolved to `undefined` under `looseCasting: 'undefined'`. A field with a default is therefore never `undefined`, and its inferred output type is non-optional:
+
+```ts
+const myParser = createParser({
+  title: types.string, // → string | undefined
+  displayName: types.string({ default: 'List item' }), // → string
+  retries: types.number({ default: 0 }), // → number
+  tags: types.array(types.string)({ default: [] }), // → string[]
+});
+```
+
+The default is returned as-is (it is not cast — TypeScript already enforces it matches the output type) and also works with `defineType` via the object form: `defineType({ fn, default })`. It never masks hard failures: without `looseCasting`, a present-but-invalid value still throws, and `strict` types always do.
+
 ### Adding and modifying values
 
 You can append static values, compute synchronous/asynchronous values, or derive new properties from the raw input data.
@@ -302,6 +317,24 @@ const result = await myParser(structuredData);
 }
 */
 ```
+
+#### Flattening nested parsers with `.flat`
+
+Use `.flat` instead of nesting when a sub-parser's fields should live directly on the parent output. The parser still receives the data under its key, but the parsed fields are merged into the parent object and the key itself disappears:
+
+```ts
+const seoParser = createParser({ title: types.string, description: types.string });
+
+const pageParser = createParser({
+  name: types.string,
+  seo: seoParser.flat,
+});
+
+const result = await pageParser({ name: 'Home', seo: { title: 'T', description: 'D' } });
+// → { name: 'Home', title: 'T', description: 'D' }
+```
+
+`.flat` is the composable sibling of the `@combine` directive and behaves the same way: merged fields override same-named regular keys, they are typed as optional in the output, and a missing input value simply merges nothing. The result must be an object — using `.flat` on array data throws.
 
 ### Conditional data
 
@@ -484,6 +517,8 @@ const result = await myParser(rawDataFromApi);
 }
 */
 ```
+
+> Tip: when the data you want to merge already lives under a key and has its own parser, use [`.flat`](#flattening-nested-parsers-with-flat) instead of a `@combine` resolver — same merge behavior, composed declaratively.
 
 ### Variables
 
@@ -1300,6 +1335,7 @@ Advanced structural controls available as keys within your schema definition.
 - **`@if`**: Accepts an array of objects containing `when` (a condition function) and `then` (the projection to merge if true). Allows fully conditional object picking. See [Conditional Data](#conditional-data).
 - **`@combine`**: Accepts an async function returning an object. Merges the returned object directly into the current parsed output. Useful for fetching secondary datasets. See [Merging Data](#merging-data).
 - **`@array`**: When set to `true` at the root of a nested projection, signals the parser to iterate over the input data as an array and apply the remaining properties to each item. See [Nested Arrays](#nested-data-structures).
+- **`parser.flat`**: Not a key but a projection value — parses the data under its key with the given parser and merges the result into the parent output, dropping the key. See [Flattening nested parsers](#flattening-nested-parsers-with-flat).
 
 ### Built-in Types
 
@@ -1309,7 +1345,7 @@ The `types` object — returned by `initializeParser` and also available as indi
 - **Arrays**: `types.array` (pass-through validation) or per-item casting via `types.array(types.string)`, `types.array(types.number)`, including nesting (`types.array(types.array(types.number))`).
 - **Custom types**: created anywhere with `defineType` and used directly as projection values. See [Custom types & casting options](#custom-types--casting-options).
 
-Every type casts its value at runtime after variables and transformers have resolved; `undefined`/`null` values skip casting and are omitted. Failed casts throw a `ParserCastError` unless `looseCasting` allows them through. See [Types & casting](#types--casting) for the full casting table.
+Every type casts its value at runtime after variables and transformers have resolved; `undefined`/`null` values skip casting and are omitted — unless the type carries a `default` (`types.string({ default: 'x' })`), which fills in whenever the field would end up `undefined` and makes it non-optional. Failed casts throw a `ParserCastError` unless `looseCasting` allows them through. See [Types & casting](#types--casting) for the full casting table and [Default values](#default-values).
 
 > **Migration note:** the v2 string identifiers (`title: 'string'`, `items: 'array<string>'`, …) are no longer supported — using one as a projection value throws a migration error at runtime. Other string literals still work as constants.
 
@@ -1317,7 +1353,7 @@ Every type casts its value at runtime after variables and transformers have reso
 
 #### `defineType(definition)`
 
-Creates a standalone reusable type from a casting function or `{ fn, strict?, name? }` object, with the output type inferred from `fn`. The result is used directly as a projection value. Exported from both the package root and `@bou-co/parsing/types`.
+Creates a standalone reusable type from a casting function or `{ fn, strict?, name?, default? }` object, with the output type inferred from `fn`. The result is used directly as a projection value. Exported from both the package root and `@bou-co/parsing/types`.
 
 ```ts
 import { defineType } from '@bou-co/parsing/types';

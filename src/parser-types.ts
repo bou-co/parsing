@@ -95,6 +95,8 @@ export interface CachingParserContext extends ParserContext {
 
 export const PARSER_TYPE_OUTPUT: unique symbol = Symbol.for('@bou-co/parsing:type-output');
 
+export const PARSER_TYPE_DEFAULTED: unique symbol = Symbol.for('@bou-co/parsing:type-defaulted');
+
 export type LooseCasting = boolean | 'undefined';
 
 export type OnCastError = (error: ParserCastError, context: ParserContext) => void;
@@ -106,11 +108,18 @@ export interface ParserTypeObject<Out = unknown> {
   strict?: boolean;
   // Distinguishes types sharing a factory-made fn (closures are invisible to hashing); also shown in cast errors
   name?: string;
+  default?: Out;
 }
 
 export type ParserTypeDefinition<Out = unknown> = ParserTypeFunction<Out> | ParserTypeObject<Out>;
 
+// `default` stays required so type tokens never match this signature (keeps types.array(types.x) on the item overload)
+export interface ParserTypeOptions<Out = unknown> {
+  default: Out;
+}
+
 export interface ParserType<Out = unknown> {
+  (options: ParserTypeOptions<Out>): ParserTypeWithDefault<Out>;
   (value: unknown, context: ParserContext): Out | Promise<Out>;
   readonly _type: string;
   readonly strict?: boolean;
@@ -118,11 +127,28 @@ export interface ParserType<Out = unknown> {
   readonly [PARSER_TYPE_OUTPUT]: Out;
 }
 
+export interface ParserTypeWithDefault<Out = unknown> extends ParserType<Out> {
+  // Type-level phantom marking the field non-optional in the output — never present at runtime
+  readonly [PARSER_TYPE_DEFAULTED]: true;
+}
+
 // Brand-only view of ParserType used in ParserProjectionValue: adding a second callable
 // member to that union would break contextual typing of plain value functions
 export interface ParserTypeLike {
   readonly _type: string;
   readonly [PARSER_TYPE_OUTPUT]: unknown;
+}
+
+// Brand-only for the same reason as ParserTypeLike — callable at runtime, never at type level
+export interface ParserFlatFunction<T extends object> {
+  readonly _flat: true;
+  readonly _parser: true;
+  readonly projection: T;
+}
+
+export interface ParserFlatLike {
+  readonly _flat: true;
+  readonly projection: object;
 }
 
 export type ArrayParserType = ParserType<unknown[]> & {
@@ -198,7 +224,7 @@ type _HandleIf<T extends object> = T extends { '@if': ParserConditionalItem[] }
 type CondidionalResult<T> = T extends (...args: any[]) => any ? ParserReturnValue<T> : T extends object ? T : never;
 
 // 3. Handle @combine
-type _HandleCombine<T extends object> = _CombineKeys<T> extends never ? _HandleChildren<T> : _MergeCombine<T> & _HandleChildren<Omit<T, _CombineKeys<T>>>;
+type _HandleCombine<T extends object> = _CombineKeys<T> extends never ? _HandleFlat<T> : _MergeCombine<T> & _HandleFlat<Omit<T, _CombineKeys<T>>>;
 
 type _CombineKeys<T extends object> = {
   [K in keyof T]: K extends `@combine${string}` ? K : never;
@@ -210,10 +236,27 @@ type _MergeCombine<T extends object> = Merge<
   }[keyof T]
 >;
 
-// 4. Handle children
-type _HandleChildren<T extends object> = { -readonly [K in keyof T]?: RealValue<T[K]> };
+// 4. Handle .flat parsers — merged like @combine, so their fields stay optional
+type _FlatKeys<T extends object> = {
+  [K in keyof T]: IsAny<T[K]> extends true ? never : T[K] extends { readonly _flat: true } ? K : never;
+}[keyof T];
 
-// 5. Handle optional
+type _MergeFlat<T extends object> = Merge<
+  {
+    [K in _FlatKeys<T>]: T[K] extends { readonly projection: infer P extends object } ? _HandleProjectionObject<P> : never;
+  }[_FlatKeys<T>]
+>;
+
+type _HandleFlat<T extends object> = _FlatKeys<T> extends never ? _HandleChildren<T> : _MergeFlat<T> & _HandleChildren<Omit<T, _FlatKeys<T>>>;
+
+// 5. Handle children — fields with a default are re-added as required on top of the optional map.
+// Keep the first mapped type homomorphic ([K in keyof T]) — a non-homomorphic split (e.g. over
+// Exclude<keyof T, ...>) forces eager evaluation and collapses doubly-nested parser types to {}
+type _HandleChildren<T extends object> = { -readonly [K in keyof T]?: RealValue<T[K]> } & {
+  -readonly [K in keyof T as IsAny<T[K]> extends true ? never : T[K] extends { readonly [PARSER_TYPE_DEFAULTED]: true } ? K : never]-?: RealValue<T[K]>;
+};
+
+// 6. Handle optional
 type _HandleOptional<T extends object> = OptionalUndefined<T>;
 
 export type InstaceContext = OnlyOptionalValues<ParserInstanceContext> extends true ? ParserInstanceContext | void : ParserInstanceContext;
@@ -223,6 +266,7 @@ export type ParserFunction<T extends object> = {
   // Additional functions
   as: <TYPE extends object>(data: AppObject, instanceContext: InstaceContext, parentContext?: ParserContext) => Promise<TYPE>;
   asArray: <V = AppObject[]>(data: V, instanceContext: InstaceContext, parentContext?: ParserContext) => Promise<_HandleProjectionObject<T>[]>;
+  flat: ParserFlatFunction<T>;
   withContext: (context: Partial<ParserInstanceContext>) => ParserFunction<T>;
   extend: <X extends ParserProjection>(extendWith: X, parserContext?: CreateParserContext) => ParserFunction<T & X>;
   // Metadata
@@ -254,7 +298,14 @@ export interface ParserProjectionUtils {
   '@combine'?: ParserValueFunction;
 }
 
-export type ParserProjectionValue = undefined | ParserTypeLike | ParserProjectionTypeValues | ParserValueFunction | ParserProjection | ParserProjection[];
+export type ParserProjectionValue =
+  | undefined
+  | ParserTypeLike
+  | ParserFlatLike
+  | ParserProjectionTypeValues
+  | ParserValueFunction
+  | ParserProjection
+  | ParserProjection[];
 
 export interface ParserProjectionValues {
   [key: PropertyKey]: ParserProjectionValue;

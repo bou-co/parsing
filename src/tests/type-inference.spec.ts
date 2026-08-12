@@ -1,6 +1,6 @@
 import { initializeParser, ParserReturnValue } from '../parser';
 import { array as arrayType, defineType, number as numberType, string as stringType } from '../types';
-import { AppObject, ArrayParserType, DefaultParserTypes, ParserType } from '../parser-types';
+import { AppObject, ArrayParserType, DefaultParserTypes, ParserType, ParserTypeWithDefault } from '../parser-types';
 
 type Expect<T extends true> = T;
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
@@ -18,8 +18,15 @@ const { createParser, types } = initializeParser();
 const numberValue: number = 123;
 
 const nestedParser = createParser({ inner: types.string });
+const metaParser = createParser({ metaTitle: types.string });
+
+const label = defineType({ fn: (value) => String(value), default: 'none' });
 
 const parser = createParser({
+  displayName: types.string({ default: 'List item' }),
+  retries: types.number({ default: 0 }),
+  label,
+  flatMeta: metaParser.flat,
   title: types.string,
   priority: types.number,
   ok: types.boolean,
@@ -64,14 +71,24 @@ describe('type inference', () => {
       Expect<Equal<NonNullable<Value['nested']>['inner'], string | undefined>>,
       Expect<Equal<Value['conditional'], string | undefined>>,
       Expect<Equal<Value['combined'], number | undefined>>,
-    ] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true];
+      // Defaulted fields are non-optional; .flat fields merge in and the flat key disappears
+      Expect<Equal<Value['displayName'], string>>,
+      Expect<Equal<Value['retries'], number>>,
+      Expect<Equal<Value['label'], string>>,
+      Expect<Equal<Value['metaTitle'], string | undefined>>,
+      Expect<Equal<'flatMeta' extends keyof Value ? true : false, false>>,
+    ] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true];
     expect(checks.every(Boolean)).toBe(true);
 
-    const data = await parser({ title: 'hello', priority: '2', tags: ['a', 1], scoresFromEntryPoint: ['3', 4] });
+    const data = await parser({ title: 'hello', priority: '2', tags: ['a', 1], scoresFromEntryPoint: ['3', 4], flatMeta: { metaTitle: 'm' } });
     expect(data.title).toEqual('hello');
     expect(data.priority).toEqual(2);
     expect(data.tags).toEqual(['a', '1']);
     expect(data.scoresFromEntryPoint).toEqual([3, 4]);
+    expect(data.displayName).toEqual('List item');
+    expect(data.retries).toEqual(0);
+    expect(data.label).toEqual('none');
+    expect(data.metaTitle).toEqual('m');
   });
 
   it('defineType preserves the output type', () => {
@@ -85,6 +102,16 @@ describe('type inference', () => {
     const check: Expect<Equal<typeof single, ParserType<{ day: number }>>> = true;
     expect(check).toBe(true);
     expect(single).toBeInstanceOf(Function);
+  });
+
+  it('marks defaulted types with ParserTypeWithDefault', () => {
+    const optionsCall = types.string({ default: 'x' });
+    const defined = defineType({ fn: (value) => Number(value), default: 0 });
+    const checks: [
+      Expect<Equal<typeof optionsCall, ParserTypeWithDefault<string>>>,
+      Expect<Equal<typeof defined, ParserTypeWithDefault<number>>>,
+    ] = [true, true];
+    expect(checks.every(Boolean)).toBe(true);
   });
 
   it('returns the default types from initializeParser', () => {

@@ -156,4 +156,18 @@ describe('parsing', () => {
     const remadeOne = createParser({ value: types.string });
     expect(toHash({ nested: one })).toEqual(toHash({ nested: remadeOne }));
   });
+
+  it('generates different hashes for defaulted types and flat parsers', () => {
+    // A default is part of the token identity
+    expect(toHash({ value: types.string })).not.toEqual(toHash({ value: types.string({ default: 'x' }) }));
+    expect(toHash({ value: types.string({ default: 'x' }) })).not.toEqual(toHash({ value: types.string({ default: 'y' }) }));
+    expect(toHash({ value: types.string({ default: 'x' }) })).toEqual(toHash({ value: types.string({ default: 'x' }) }));
+    expect(toHash({ value: types.array(types.string) })).not.toEqual(toHash({ value: types.array(types.string)({ default: [] }) }));
+
+    // Using a parser flat hashes differently from nesting it
+    const nested = createParser({ value: types.string });
+    expect(toHash({ nested })).not.toEqual(toHash({ nested: nested.flat }));
+    const remade = createParser({ value: types.string });
+    expect(toHash({ nested: nested.flat })).toEqual(toHash({ nested: remade.flat }));
+  });
 });

@@ -1,5 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { DefaultParserTypes, ParserContext, ParserType, ParserTypeDefinition, ParserTypeFunction, ParserTypeObject } from './parser-types';
+import {
+  DefaultParserTypes,
+  ParserContext,
+  ParserType,
+  ParserTypeDefinition,
+  ParserTypeFunction,
+  ParserTypeObject,
+  ParserTypeWithDefault,
+} from './parser-types';
+import { toHash } from './to-hash';
 
 export interface ParserTypeToken {
   (...args: unknown[]): unknown;
@@ -8,6 +17,7 @@ export interface ParserTypeToken {
   _name?: string;
   _fn?: ParserTypeFunction;
   _typeItem?: ParserTypeToken;
+  _default?: unknown;
   strict?: boolean;
 }
 
@@ -35,25 +45,34 @@ interface TypeTokenOptions {
   itemType?: ParserTypeToken;
   strict?: boolean;
   name?: string;
+  default?: unknown;
 }
 
 const createTypeToken = (name: string, options: TypeTokenOptions): ParserTypeToken => {
   const token = ((arg?: unknown) => {
-    if (name !== 'array') throw new Error(`Parser type "${name}" does not accept arguments`);
-    if (!isTypeToken(arg)) throw new Error('types.array(...) expects a type token');
-    let derived = arrayTokenCache.get(arg);
-    if (!derived) arrayTokenCache.set(arg, (derived = createTypeToken('array', { fn: options.fn, itemType: arg })));
-    return derived;
+    if (isTypeToken(arg)) {
+      if (name !== 'array') throw new Error(`Parser type "${name}" does not accept arguments`);
+      let derived = arrayTokenCache.get(arg);
+      if (!derived) arrayTokenCache.set(arg, (derived = createTypeToken('array', { fn: options.fn, itemType: arg })));
+      return derived;
+    }
+    if (arg && typeof arg === 'object' && 'default' in arg) {
+      return createTypeToken(name, { ...options, default: (arg as { default: unknown }).default });
+    }
+    if (name === 'array') throw new Error('types.array(...) expects a type token or an options object');
+    throw new Error(`Parser type "${name}" does not accept arguments`);
   }) as ParserTypeToken;
   Object.defineProperty(token, '_type', { value: name });
   Object.defineProperty(token, '_fn', { value: options.fn });
   if (options.itemType) Object.defineProperty(token, '_typeItem', { value: options.itemType });
   if (options.strict !== undefined) Object.defineProperty(token, 'strict', { value: options.strict });
   if (options.name) Object.defineProperty(token, '_name', { value: options.name });
+  if (options.default !== undefined) Object.defineProperty(token, '_default', { value: options.default });
 
   // Content-derived identity: deterministic across restarts (persistent cache keys stay stable) and sensitive to implementation changes (edited custom types invalidate old cache entries)
   const { itemType, fn, strict } = options;
-  const id = itemType ? `array<${itemType._id}>` : name === 'custom' ? `custom:${options.name ?? ''}:${strict ? 'strict' : ''}:${fn.toString()}` : name;
+  const baseId = itemType ? `array<${itemType._id}>` : name === 'custom' ? `custom:${options.name ?? ''}:${strict ? 'strict' : ''}:${fn.toString()}` : name;
+  const id = options.default !== undefined ? `${baseId}{default:${toHash(options.default)}}` : baseId;
 
   Object.defineProperty(token, '_id', { value: id });
 
@@ -131,10 +150,12 @@ export const types: DefaultParserTypes = Object.freeze({
   unknown: createTypeToken('unknown', { fn: (value) => value }),
 }) as unknown as DefaultParserTypes;
 
-export const defineType = <Out>(definition: ParserTypeDefinition<Out>): ParserType<Out> => {
+export function defineType<Out>(definition: ParserTypeObject<Out> & { default: Out }): ParserTypeWithDefault<Out>;
+export function defineType<Out>(definition: ParserTypeDefinition<Out>): ParserType<Out>;
+export function defineType<Out>(definition: ParserTypeDefinition<Out>): ParserType<Out> {
   const def = typeof definition === 'function' ? { fn: definition } : definition;
-  return createTypeToken('custom', { fn: def.fn as ParserTypeFunction, strict: def.strict, name: def.name }) as unknown as ParserType<Out>;
-};
+  return createTypeToken('custom', { fn: def.fn as ParserTypeFunction, strict: def.strict, name: def.name, default: def.default }) as unknown as ParserType<Out>;
+}
 
 export class ParserCastError extends Error {
   readonly type: string;
@@ -162,7 +183,7 @@ const handleFailure = (error: unknown, value: unknown, token: ParserTypeToken, c
   context.onCastError?.(castError, context);
   if (strict) throw castError;
   const loose = context.looseCasting ?? false;
-  if (loose === 'undefined') return undefined;
+  if (loose === 'undefined') return token._default;
   if (loose === true) {
     if (!context.onCastError) {
       console.warn(`[@bou-co/parsing] Cast to "${describeToken(token)}" failed at "${buildKeyPath(context)}" — passing original value`, value);
@@ -181,8 +202,8 @@ const runCast = async (value: unknown, def: ParserTypeObject, token: ParserTypeT
 };
 
 export const applyCast = async (value: unknown, token: ParserTypeToken, context: ParserContext): Promise<unknown> => {
-  // Missing values skip casting so fields stay optional
-  if (value === undefined || value === null) return undefined;
+  // Missing values skip casting so fields stay optional — unless the token carries a default
+  if (value === undefined || value === null) return token._default;
 
   // Array tokens are structural: validate + optionally cast each item
   if (token._type === 'array') {

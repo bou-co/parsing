@@ -313,7 +313,16 @@ export class Parser {
               castToken = value;
               return [key, data?.[key]];
             }
-            if ('_parser' in value) return [key, await value(data?.[key], instanceContext, context)];
+            if ('_parser' in value) {
+              if ('_flat' in value) {
+                const result = await value(data?.[key], instanceContext, context);
+                if (result === undefined || result === null) return undefined;
+                if (Array.isArray(result)) throw new Error(`[@bou-co/parsing] .flat at "${String(key)}" merges object results only — got an array`);
+                conditionalEnties.push(...Object.entries(result));
+                return undefined;
+              }
+              return [key, await value(data?.[key], instanceContext, context)];
+            }
 
             const result = await value(context);
             if (result === '_inherit') return [key, data[key]];
@@ -357,7 +366,8 @@ export class Parser {
         const projectedValue = await getValue();
         if (projectedValue === undefined) return undefined;
         let [_key, _value] = projectedValue;
-        if (_value === null) return [_key, undefined];
+        // Null still skips transformers/variables, but must reach applyCast so a type default can apply
+        if (_value === null) return [_key, castToken ? await applyCast(undefined, castToken, context) : undefined];
         if (typeof _value === 'object') {
           type AlreadyParsedObject = { _parsed?: boolean };
           const alreadyParsed = (_value as AlreadyParsedObject)._parsed;
@@ -410,6 +420,24 @@ export class Parser {
     Object.defineProperty(parse, 'withContext', { value: withContext });
     Object.defineProperty(parse, '_parser', { value: true });
     Object.defineProperty(parse, 'projection', { value: project });
+
+    // Lazy so the common path pays nothing — createProjection runs per nested parse
+    let flatParser: unknown;
+    Object.defineProperty(parse, 'flat', {
+      get: () => {
+        if (!flatParser) {
+          const flat = (data: AppObject | string, instanceContext?: ParserInstanceContext, parentContext?: Partial<ParserContext>) => {
+            return parse(data, instanceContext, parentContext);
+          };
+          Object.defineProperty(flat, '_parser', { value: true });
+          Object.defineProperty(flat, '_flat', { value: true });
+          Object.defineProperty(flat, 'projection', { value: project });
+          Object.defineProperty(flat, 'toString', { value: () => `__parser-flat:${toHash(project)}__` });
+          flatParser = flat;
+        }
+        return flatParser;
+      },
+    });
 
     // toHash stringifies functions via toString — parsers must hash by their projection, not the shared parse source
     let projectionHash: string | undefined;
