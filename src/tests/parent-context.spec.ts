@@ -17,16 +17,16 @@ describe('parsing', () => {
   });
 
   it('should be able to access parent context from a child parser', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const childParser = createParser({
-      title: 'string',
+      title: types.string,
       parentValue: ({ parent }) => parent?.data?.['rootField'],
       parentKey: ({ parent }) => parent?.key,
     });
 
     const parser = createParser({
-      rootField: 'string',
+      rootField: types.string,
       child: childParser,
     });
 
@@ -42,10 +42,10 @@ describe('parsing', () => {
   });
 
   it('should be able to access parent context from a nested object projection', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const parser = createParser({
-      rootField: 'string',
+      rootField: types.string,
       child: {
         parentValue: ({ parent }: ParserContext) => parent?.data?.['rootField'],
       },
@@ -61,7 +61,7 @@ describe('parsing', () => {
   });
 
   it('should be able to walk up the parent chain until the root is reached', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const grandchildParser = createParser({
       rootValue: ({ parent }) => parent?.parent?.data?.['rootField'],
@@ -86,7 +86,7 @@ describe('parsing', () => {
     });
 
     const parser = createParser({
-      rootField: 'string',
+      rootField: types.string,
       child: childParser,
     });
 
@@ -104,18 +104,18 @@ describe('parsing', () => {
   });
 
   it('should be able to access parent context from items in an array', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const itemParser = createParser({
       '@array': true,
-      name: 'string',
+      name: types.string,
       parentIsArray: ({ parent }) => Array.isArray(parent?.data),
       parentKey: ({ parent }) => parent?.key,
       rootValue: ({ parent }) => parent?.parent?.data?.['rootField'],
     });
 
     const parser = createParser({
-      rootField: 'string',
+      rootField: types.string,
       items: itemParser,
     });
 
@@ -134,10 +134,10 @@ describe('parsing', () => {
   });
 
   it('should reach the root by walking up from items parsed with "asArray" syntax', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const itemParser = createParser({
-      name: 'string',
+      name: types.string,
       parentIsArray: ({ parent }) => Array.isArray(parent?.data),
       walkDepth: (context) => {
         let current: Partial<ParserContext> | undefined = context;
@@ -190,15 +190,15 @@ describe('parsing', () => {
   });
 
   it('should be able to access parent context from an @if child parser', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const innerParser = createParser({
-      title: 'string',
+      title: types.string,
       parentValue: ({ parent }) => parent?.data?.['rootField'],
     });
 
     const parser = createParser({
-      rootField: 'string',
+      rootField: types.string,
       '@if': [
         {
           when: () => true,

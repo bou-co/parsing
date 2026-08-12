@@ -20,14 +20,14 @@ const localize: ParserContextTransformer = {
 
 describe('parsing', () => {
   it('should be able to handle global value transformers', async () => {
-    const { createParser } = initializeParser({
+    const { createParser, types } = initializeParser({
       locales: ['en', 'fi'],
       transformers: { localize },
     });
 
     const parser = createParser({
-      title: 'string',
-      card: { body: 'string' },
+      title: types.string,
+      card: { body: types.string },
     });
 
     const rawData = {
@@ -55,14 +55,14 @@ describe('parsing', () => {
   it('should be able to handle global value transformers with variables', async () => {
     const year = new Date().getFullYear();
 
-    const { createParser } = initializeParser({
+    const { createParser, types } = initializeParser({
       locales: ['en', 'fi'],
       transformers: { localize },
       variables: { year },
     });
 
     const parser = createParser({
-      message: 'string',
+      message: types.string,
     });
 
     const rawData = {

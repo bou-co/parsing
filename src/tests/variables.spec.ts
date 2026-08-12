@@ -18,7 +18,7 @@ const variableFunctionWithContext: ContextParserValueFunction<AppObject> = (cont
   return `${variableTitle} ${random}`;
 };
 
-const { createParser } = initializeParser(async () => {
+const { createParser, types } = initializeParser(async () => {
   return { variables: { variableTitle, variableFunction, asyncVariable, asyncVariableFunction, variableFunctionWithContext, uppercase, multiply, join } };
 });
 
@@ -28,7 +28,7 @@ const lorem = 'lorem ipsum';
 describe('parsing', () => {
   it('should use global variable value in string values', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{variableTitle}}` });
     expect(data).toBeTruthy();
@@ -37,7 +37,7 @@ describe('parsing', () => {
 
   it('should use global variable function in string values', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{variableFunction}}` });
     expect(data).toBeTruthy();
@@ -46,7 +46,7 @@ describe('parsing', () => {
 
   it('should use global async variable in string values', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{asyncVariable}}` });
     expect(data).toBeTruthy();
@@ -55,7 +55,7 @@ describe('parsing', () => {
 
   it('should use global async variable function in string values', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{asyncVariableFunction}}` });
     expect(data).toBeTruthy();
@@ -64,7 +64,7 @@ describe('parsing', () => {
 
   it('should be able to use two global variable values in string values', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{variableTitle}} and {{variableTitle}}` });
     expect(data).toBeTruthy();
@@ -75,7 +75,7 @@ describe('parsing', () => {
     const projectionContext = { variables: { description: lorem } };
     const parser = createParser(
       {
-        title: 'string',
+        title: types.string,
       },
       projectionContext,
     );
@@ -86,7 +86,7 @@ describe('parsing', () => {
 
   it('should be able to use instance variable values in string values', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const instanceContext = { variables: { added: hello } };
     const data = await parser({ title: `This is: {{added}}` }, instanceContext);
@@ -114,7 +114,7 @@ describe('parsing', () => {
   });
 
   it('should be able to project variable object from instance context', async () => {
-    const parser = createParser({ contextual: 'object', another: 'object' });
+    const parser = createParser({ contextual: types.object, another: types.object });
 
     const custom = { nested: lorem, deep: { value: hello } };
     const instanceContext = { variables: { custom } };
@@ -125,7 +125,7 @@ describe('parsing', () => {
   });
 
   it('should be able use global variable function with context in string values', async () => {
-    const parser = createParser({ title: 'string' });
+    const parser = createParser({ title: types.string });
     const random = Math.floor(Math.random() * 100);
     const data = await parser({ random, title: `This is: {{variableFunctionWithContext}}` });
     expect(data).toBeTruthy();
@@ -134,7 +134,7 @@ describe('parsing', () => {
 
   it('should be able handle string "or" fallbacks for variable values', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{notFound || "fallback"}}` });
     expect(data).toBeTruthy();
@@ -143,7 +143,7 @@ describe('parsing', () => {
 
   it('should be able handle dynamic "or" fallbacks for variable values', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{notFound || variableTitle}}` });
     expect(data).toBeTruthy();
@@ -152,7 +152,7 @@ describe('parsing', () => {
 
   it('should be able handle multiple possible dynamic "or" fallbacks but then result to a string', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{notFound || secondNotFound || "fallback"}}` });
     expect(data).toBeTruthy();
@@ -161,7 +161,7 @@ describe('parsing', () => {
 
   it('should be able handle multiple possible dynamic "or" fallbacks but then result to a found variable', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{notFound || secondNotFound || variableTitle}}` });
     expect(data).toBeTruthy();
@@ -170,7 +170,7 @@ describe('parsing', () => {
 
   it('should be able handle multiple possible dynamic "or" fallbacks but then result to a undefined', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{notFound || secondNotFound}}` });
     expect(data).toBeTruthy();
@@ -178,7 +178,7 @@ describe('parsing', () => {
   });
 
   it('should be able handle multiple possible dynamic "or" fallbacks that are deeply nested until finds a match', async () => {
-    const parser = createParser({ deepCheck: 'object', deeperCheck: 'string' });
+    const parser = createParser({ deepCheck: types.object, deeperCheck: types.string });
     const custom = { deep: { value: hello } };
     const data = await parser(
       { deepCheck: '{{custom.deep.not.found || custom.deep.stillNo || custom.deep}}', deeperCheck: '{{custom.deep.notFound || custom.deep.value}}' },
@@ -191,8 +191,8 @@ describe('parsing', () => {
 
   it('should be able handle number "or" fallbacks for variable values', async () => {
     const parser = createParser({
-      title: 'string',
-      amount: 'number',
+      title: types.string,
+      amount: types.number,
     });
     const data = await parser({ title: `This is: {{notFound || 42}}`, amount: `{{notFound || 42}}` });
     expect(data).toBeTruthy();
@@ -202,9 +202,9 @@ describe('parsing', () => {
 
   it('should be able handle boolean "or" fallbacks for variable values', async () => {
     const parser = createParser({
-      title: 'string',
-      truthy: 'boolean',
-      falsy: 'boolean',
+      title: types.string,
+      truthy: types.boolean,
+      falsy: types.boolean,
     });
     const data = await parser({ title: `This is: {{notFound || true}}`, truthy: `{{notFound || true}}`, falsy: `{{notFound || false}}` });
     expect(data).toBeTruthy();
@@ -215,7 +215,7 @@ describe('parsing', () => {
 
   it('should be able handle pipes in variable values', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{variableTitle | uppercase}}` });
     expect(data).toBeTruthy();
@@ -224,9 +224,9 @@ describe('parsing', () => {
 
   it('should be able handle pipes with params in variable values', async () => {
     const parser = createParser({
-      amount: 'number',
-      another: 'number',
-      withDefault: 'number',
+      amount: types.number,
+      another: types.number,
+      withDefault: types.number,
     });
     const data = await parser(
       {
@@ -245,7 +245,7 @@ describe('parsing', () => {
 
   it('should be able handle pipes with multiple params in variable values', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{variableTitle | join:"and":"lorem":"ipsum"}}` });
     expect(data).toBeTruthy();
@@ -254,7 +254,7 @@ describe('parsing', () => {
 
   it('should be able handle pipes with multiple params that are also variables in variable values', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{variableTitle | join:"from":firstName:lastName}}` }, { variables: { firstName: 'John', lastName: 'Doe' } });
     expect(data).toBeTruthy();
@@ -264,10 +264,10 @@ describe('parsing', () => {
   it('should be able handle variables that need to be resolved from context', async () => {
     const parser = createParser(
       {
-        href: 'string',
-        host: 'string',
-        pathname: 'string',
-        campaign: 'string',
+        href: types.string,
+        host: types.string,
+        pathname: types.string,
+        campaign: types.string,
       },
       {
         variables: {
@@ -293,8 +293,8 @@ describe('parsing', () => {
   it('should be able handle pipes for values that are undefined if configured so in the context', async () => {
     const parser = createParser(
       {
-        exists: 'string',
-        undefined: 'string',
+        exists: types.string,
+        undefined: types.string,
       },
       {
         variables: {

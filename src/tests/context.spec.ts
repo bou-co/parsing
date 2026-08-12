@@ -9,6 +9,8 @@ declare module '../expandable-types' {
   }
 }
 
+const { types } = initializeParser();
+
 describe('parsing', () => {
   it('should be able to handle context variables and other values', async () => {
     const globalContext: ParserGlobalContext = {
@@ -28,8 +30,8 @@ describe('parsing', () => {
 
     const parser = createParser(
       {
-        value: 'string',
-        info: 'string',
+        value: types.string,
+        info: types.string,
         customContextValue: (context) => {
           const { customContext } = context;
           return customContext;
@@ -67,10 +69,10 @@ describe('parsing', () => {
   });
 
   it('should be pass the context variables and other values to child parsers', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const innerParser = createParser({
-      title: 'string',
+      title: types.string,
       contextValue: (context) => {
         const { customContext } = context;
         return customContext;
@@ -78,7 +80,7 @@ describe('parsing', () => {
     });
 
     const parser = createParser({
-      value: 'string',
+      value: types.string,
       innerValue: innerParser,
     });
 
@@ -103,10 +105,10 @@ describe('parsing', () => {
   });
 
   it('should be pass the context variables and other values to @if child parsers', async () => {
-    const { createParser } = initializeParser({ globalValue: 'global-works' });
+    const { createParser, types } = initializeParser({ globalValue: 'global-works' });
 
     const innerParser = createParser({
-      title: 'string',
+      title: types.string,
       contextValue: (context) => {
         const { customContext } = context;
         return customContext;

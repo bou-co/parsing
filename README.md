@@ -4,11 +4,13 @@
 
 It's isomorphic and works in the browser. **The stronger case is on the server** — in Next.js App Router, Astro, NestJS, or Express — where you can fetch massive API responses, run expensive computations, parse them into exact type-safe structures, cache the result, and send the frontend only what it needs. Less database load, less network payload, cleaner components.
 
-The central concept is a **projection** — a plain object that maps input keys to output rules. Rules can be primitive type keywords (`"string"`, `"number"`, …), literal constants, plain functions, async functions, nested projections, or other parsers. The library walks the projection, resolves every rule against your raw data in parallel, and returns a strictly-typed output object whose TypeScript type is inferred automatically from the schema — no hand-written interfaces required.
+The central concept is a **projection** — a plain object that maps input keys to output rules. Rules can be casting types (`types.string`, `types.number`, …), literal constants, plain functions, async functions, nested projections, or other parsers. The library walks the projection, resolves every rule against your raw data in parallel, and returns a strictly-typed output object whose TypeScript type is inferred automatically from the schema — no hand-written interfaces required.
 
 Key capabilities at a glance:
 
 - **Field picking** — select only the keys you need from any input shape
+- **Type casting** — declared types are enforced at runtime: `types.number` turns `'21'` into `21`, with strict or loose failure handling
+- **Custom types** — define reusable validation/casting types (emails, slugs, date shapes) once, use them like built-ins
 - **Value transformation** — sync or async functions, static constants, derived values
 - **Nested structures** — objects, arrays, and reusable sub-parsers compose naturally
 - **Conditional fields** — `@if` blocks add or override fields based on runtime conditions
@@ -26,10 +28,13 @@ Key capabilities at a glance:
 - [Get Started](#get-started)
 - [Basic Usage](#basic-usage)
   - [Defining the data you want](#defining-the-data-you-want)
+  - [Types & casting](#types--casting)
   - [Adding and modifying values](#adding-and-modifying-values)
   - [Nested data structures](#nested-data-structures)
   - [Conditional data](#conditional-data)
 - [Advanced Usage](#advanced-usage)
+  - [Custom types & casting options](#custom-types--casting-options)
+  - [Multiple parser configurations](#multiple-parser-configurations)
   - [Merging data](#merging-data)
   - [Variables](#variables)
   - [Dynamic projections](#dynamic-projections)
@@ -62,13 +67,13 @@ npm i @bou-co/parsing
 
 ### 2 - Initialize the parser
 
-In the root level of your code, run the `initializeParser` function to export your tailored `createParser` function. This allows you to set up global configurations like caching and variables once.
+In the root level of your code, run the `initializeParser` function to export your tailored `createParser` function and `types` object. This allows you to set up global configurations like caching and variables once.
 
 ```ts
 // parser-config.ts
 import { initializeParser } from '@bou-co/parsing';
 
-export const { createParser } = initializeParser(/** Global configurations comes here **/);
+export const { createParser, types } = initializeParser(/** Global configurations comes here **/);
 ```
 
 ### 3 - Start using the parser
@@ -76,7 +81,7 @@ export const { createParser } = initializeParser(/** Global configurations comes
 Use your customized `createParser` anywhere in your app's data flow to safely pick, validate, and type your data.
 
 ```ts
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 const rawDataFromApi = {
   _id: 'abc-123',
@@ -86,9 +91,9 @@ const rawDataFromApi = {
 };
 
 const myParser = createParser({
-  title: 'string',
-  description: 'string',
-  priority: 'number',
+  title: types.string,
+  description: types.string,
+  priority: types.number,
 });
 
 const result = await myParser(rawDataFromApi);
@@ -109,7 +114,7 @@ const result = await myParser(rawDataFromApi);
 When querying data with an API that returns more than you need, you can use the parser to pick only the exact fields you want, omitting the rest.
 
 ```ts
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 const rawDataFromApi = {
   _id: 'abc-123',
@@ -119,9 +124,9 @@ const rawDataFromApi = {
 };
 
 const myParser = createParser({
-  title: 'string',
-  description: 'string',
-  priority: 'number',
+  title: types.string,
+  description: types.string,
+  priority: types.number,
 });
 
 const result = await myParser(rawDataFromApi);
@@ -135,12 +140,59 @@ const result = await myParser(rawDataFromApi);
 */
 ```
 
+### Types & casting
+
+Every `types.*` entry both **types** the output and **casts** the value at runtime — the declared type is guaranteed in the result, not just suggested to TypeScript.
+
+The `types` object with all built-ins is returned by `initializeParser` — re-export it from your parser config alongside `createParser` (as shown in [Get Started](#get-started)). The same built-ins are also individually importable from the tree-shakeable `@bou-co/parsing/types` entry point, which is ideal for standalone type files. Custom types are created with `defineType` and used directly in projections — no registration involved. See [Custom types & casting options](#custom-types--casting-options).
+
+```ts
+import { createParser, types } from '../path-to/parser-config';
+
+const myParser = createParser({
+  age: types.number,
+  active: types.boolean,
+  published: types.date,
+  tags: types.array(types.string),
+});
+
+const result = await myParser({
+  age: '21', // numeric string
+  active: 'true', // boolean-like string
+  published: '2026-01-01', // date string
+  tags: ['ts', 42], // mixed array
+});
+
+/* Result:
+{
+  "age": 21,
+  "active": true,
+  "published": Date('2026-01-01T00:00:00.000Z'),
+  "tags": ["ts", "42"]
+}
+*/
+```
+
+The built-in types cast conservatively — only lossless, unambiguous conversions are performed:
+
+| Type                          | Accepted inputs                                                                             | Fails on                          |
+| ----------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------- |
+| `types.string`                | strings; finite numbers, booleans (`String(value)`); valid dates (ISO string)               | objects, arrays, `NaN`/`Infinity` |
+| `types.number`                | numbers; booleans (`1`/`0`); dates (`getTime()`); whole numeric strings (`'12.5'`, `'1e3'`) | `''`, `'12px'`, objects           |
+| `types.boolean`               | booleans; `1`/`0`; `'true'`/`'false'` (case-insensitive)                                    | other numbers/strings             |
+| `types.date`                  | `Date` instances; parseable date strings and epoch numbers                                  | unparseable values                |
+| `types.object`                | plain objects (validated, passed through)                                                   | arrays, primitives                |
+| `types.array`                 | arrays (passed through); `types.array(types.x)` also casts each item                        | non-arrays                        |
+| `types.any` / `types.unknown` | anything — pure pass-through, never fails                                                   | —                                 |
+
+`undefined` and `null` values always skip casting and are omitted from the output, so declared fields stay optional. When a present value cannot be cast, the parser throws a `ParserCastError` by default — see [Custom types & casting options](#custom-types--casting-options) for loose modes and defining your own types.
+
 ### Adding and modifying values
 
 You can append static values, compute synchronous/asynchronous values, or derive new properties from the raw input data.
 
 ```ts
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 const rawDataFromApi = {
   title: 'Test',
@@ -148,7 +200,7 @@ const rawDataFromApi = {
 };
 
 const myParser = createParser({
-  title: 'string',
+  title: types.string,
 
   // 1. Static value added as is
   postType: 'blogPost',
@@ -190,7 +242,7 @@ const result = await myParser(rawDataFromApi);
 Parsers seamlessly handle nested objects, arrays, and even other parsers as property definitions.
 
 ```ts
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 const rawDataFromApi = {
   title: 'Nested Test',
@@ -199,23 +251,23 @@ const rawDataFromApi = {
 };
 
 const tagParser = createParser({
-  name: 'string',
+  name: types.string,
   isAwesome: () => true,
 });
 
 const myParser = createParser({
-  title: 'string',
+  title: types.string,
 
   // Nested Object
   nestedDataObject: {
-    desc: 'string',
-    level: 'number',
+    desc: types.string,
+    level: types.number,
   },
 
   // Nested Array
   nestedDataArray: {
     '@array': true,
-    name: 'string',
+    name: types.string,
     indexLabel: ({ index }) => `Item ${index}`, // Arrays expose 'index' in context
   },
 
@@ -256,7 +308,7 @@ const result = await myParser(structuredData);
 Support for fully conditional data picking and addition using `@if`.
 
 ```ts
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 const rawDataFromApi = {
   title: 'Test',
@@ -264,8 +316,8 @@ const rawDataFromApi = {
 };
 
 const myParser = createParser({
-  title: 'string',
-  priority: 'number',
+  title: types.string,
+  priority: types.number,
   '@if': [
     {
       // Adds 'highPriority' if priority is above 1
@@ -295,21 +347,127 @@ const result = await myParser(rawDataFromApi);
 
 ## Advanced Usage
 
+### Custom types & casting options
+
+Create your own types with `defineType` — a casting function `(value, context) => output` (sync or async) that returns the cast value or throws when the input is invalid. The result is a type token used **directly** in projections; there is no registration step, and one-off types are perfectly fine:
+
+```ts
+// my-types.ts — a standalone types file, no parser needed
+import { array, number, defineType } from '@bou-co/parsing/types';
+
+export const email = defineType(async (value, context) => {
+  if (typeof value !== 'string') throw new Error('Invalid email (not a string)');
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(value)) throw new Error('Invalid email (not a valid email format)');
+
+  return value;
+});
+
+export const dmy = defineType(async (value, context) => {
+  const date = value instanceof Date ? value : new Date(value as string | number);
+  if (isNaN(date.getTime())) throw new Error('Invalid date (not a valid date format)');
+  return { day: date.getDate(), month: date.getMonth() + 1, year: date.getFullYear() };
+});
+
+// reusable combinations are just values too
+export const numbers = array(number); // → number[]
+```
+
+```ts
+import { createParser } from '../path-to/parser-config';
+import { email, dmy, numbers } from '../path-to/my-types';
+
+const myParser = createParser({
+  email, // → string
+  date: dmy, // → { day: number; month: number; year: number }
+  scores: numbers, // → number[]
+});
+```
+
+The `@bou-co/parsing/types` entry point exports every built-in token individually (`string`, `number`, `boolean`, `date`, `object`, `array`, `any`, `unknown`) plus `defineType`, is tree-shakeable, and never pulls in the parser engine — so shared type files stay lightweight and work with any parser configuration.
+
+#### Loose casting
+
+By default a failed cast throws a `ParserCastError` (with the failing key path, target type, and received value). Set `looseCasting` to relax this globally — or per parser / per call, since it is a regular context option:
+
+```ts
+export const { createParser, types } = initializeParser({
+  looseCasting: true, // default is false — pass the original value through and log a warning
+});
+```
+
+```ts
+export const { createParser, types } = initializeParser({
+  looseCasting: 'undefined', // return undefined instead (the key is omitted from the output)
+});
+```
+
+> Note: with `looseCasting: true` the declared output types become best-effort — the runtime may pass through an uncast original value that TypeScript still types as the declared type. Use `'undefined'` if the output types should stay fully honest (the fields are optional in the inferred type anyway).
+
+To observe cast failures (e.g. for telemetry) instead of relying on the console warning, register an `onCastError` callback. It receives the `ParserCastError` (with `path`, `type`, and `received`) before the failure policy is applied, and replaces the default warning when set. Like `looseCasting`, it can be set globally, per parser, or per call.
+
+```ts
+export const { createParser, types } = initializeParser({
+  looseCasting: true,
+  onCastError: (error) => telemetry.report('parser-cast-error', { path: error.path, type: error.type }),
+});
+```
+
+#### Strict types
+
+A type marked `strict` always throws on failure, even when `looseCasting` is enabled — for values where silently passing bad data through is never acceptable. Pass an object definition `{ fn, strict }` to `defineType`:
+
+```ts
+import { defineType } from '@bou-co/parsing/types';
+
+export const hexColor = defineType({
+  fn: (value) => {
+    if (typeof value !== 'string' || !/^#[0-9a-f]{6}$/i.test(value)) throw new Error('Invalid hex color');
+    return value;
+  },
+  strict: true,
+});
+
+// createParser({ brandColor: hexColor }) throws on bad input even under looseCasting: true
+```
+
+### Multiple parser configurations
+
+Each `initializeParser` call creates a fully isolated parser engine — its own variables, casting options (`looseCasting`/`onCastError`), transformers, lifecycle hooks, and caches/storage. This makes it possible to run separate configurations in one app, for example a strict server setup with Redis-backed caching next to a lenient client setup:
+
+```ts
+// server-config.ts
+export const { createParser, types } = initializeParser({
+  storage: redisStorage,
+  cache: { enabled: true },
+});
+```
+
+```ts
+// client-config.ts
+export const { createParser, types } = initializeParser({
+  looseCasting: 'undefined', // render what we can, drop what we can't
+});
+```
+
+Parsers stay permanently bound to the engine that created them — nesting a parser from one configuration inside another keeps its own transformers, storage, and variables for the nested parse, while parent context values still merge down. Since type tokens carry their casting implementation, projections and type files are freely shareable across configurations.
+
 ### Merging data
 
 Use `@combine` to fetch or compute large external datasets and merge them directly into the current parser projection.
 
 ```ts
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 const rawDataFromApi = { _id: '123', title: 'Test' };
 
 const additionalDataParser = createParser({
-  readCount: 'number',
+  readCount: types.number,
 });
 
 const myParser = createParser({
-  title: 'string',
+  title: types.string,
   '@combine': async (context) => {
     // Imagine an API call here based on context.data._id
     const externalData = { readCount: 42 };
@@ -343,7 +501,7 @@ Variables support:
 // 1. Global Setup (in parser-config.ts)
 import { initializeParser } from '@bou-co/parsing';
 
-export const { createParser } = initializeParser(() => ({
+export const { createParser, types } = initializeParser(() => ({
   variables: {
     currentYear: () => new Date().getFullYear(),
     uppercase: ({ data }) => String(data).toUpperCase(),
@@ -351,7 +509,7 @@ export const { createParser } = initializeParser(() => ({
 }));
 
 // 2. Usage
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 // Imagine this string comes directly from database or CMS
 const rawDataFromApi = {
@@ -360,8 +518,8 @@ const rawDataFromApi = {
 };
 
 const myParser = createParser({
-  title: 'string',
-  user: 'string',
+  title: types.string,
+  user: types.string,
 });
 
 // Provide instance variables overriding or supplementing global ones
@@ -388,7 +546,7 @@ Instead of defining every possible variable upfront, `variableResolver` allows y
 ```ts
 import { initializeParser } from '@bou-co/parsing';
 
-export const { createParser } = initializeParser(() => ({
+export const { createParser, types } = initializeParser(() => ({
   variableResolver: async (variableName, context) => {
     // Dynamically catch variables named 'userName'
     if (variableName === 'userName') {
@@ -404,7 +562,7 @@ export const { createParser } = initializeParser(() => ({
   },
 }));
 
-const dynamicParser = createParser({ message: 'string' });
+const dynamicParser = createParser({ message: types.string });
 
 const result = await dynamicParser({ message: 'Welcome back, {{userName}}!', userId: 123 });
 
@@ -420,13 +578,13 @@ const result = await dynamicParser({ message: 'Welcome back, {{userName}}!', use
 Pass a function instead of a static object to return a different projection structure based on the input data dynamically.
 
 ```ts
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 const dynamicParser = createParser(({ data }) => {
   if (data.type === 'detailed') {
-    return { value: 'number', metadata: 'string' };
+    return { value: types.number, metadata: types.string };
   }
-  return { value: 'number' };
+  return { value: types.number };
 });
 
 const result = await dynamicParser({ type: 'detailed', value: 10, metadata: 'extra info' });
@@ -444,10 +602,10 @@ const result = await dynamicParser({ type: 'detailed', value: 10, metadata: 'ext
 Merge a new projection onto an existing parser securely without mutating the original definition.
 
 ```ts
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
-const original = createParser({ value: 'number' });
-const extended = original.extend({ additional: 'string' });
+const original = createParser({ value: types.number });
+const extended = original.extend({ additional: types.string });
 
 const result = await extended({ value: 456, additional: 'test' });
 
@@ -464,9 +622,9 @@ const result = await extended({ value: 456, additional: 'test' });
 Inject new context properties (like variables) into a pre-existing parser by calling `.withContext()`.
 
 ```ts
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
-const parser = createParser({ value: 'string' }, { variables: { first: 1 } });
+const parser = createParser({ value: types.string }, { variables: { first: 1 } });
 const overriddenParser = parser.withContext({ variables: { second: 2 } });
 
 // overriddenParser now has both { first: 1, second: 2 } available in variables context.
@@ -477,7 +635,7 @@ const overriddenParser = parser.withContext({ variables: { second: 2 } });
 Register `before` and `after` hooks. `before` hooks inject shared context values prior to parsing, which trickle down to nested/extended parsers.
 
 ```ts
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 const productParser = createParser(
   {
@@ -515,12 +673,12 @@ const localize = {
   then: ({ data, currentLocale = 'en' }) => data[currentLocale],
 };
 
-export const { createParser } = initializeParser({ transformers: { localize } });
+export const { createParser, types } = initializeParser({ transformers: { localize } });
 
 // 2. Usage
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
-const myParser = createParser({ greeting: 'string' });
+const myParser = createParser({ greeting: types.string });
 
 const rawData = { greeting: { en: 'Hello', fi: 'Hei' } };
 const result = await myParser(rawData);
@@ -533,9 +691,9 @@ const result = await myParser(rawData);
 The data output by one parser can be safely passed into another parser for multi-pass executions.
 
 ```ts
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
-const stepOne = createParser({ value: 'number' });
+const stepOne = createParser({ value: types.number });
 const stepTwo = createParser({ value: ({ data }) => data.value * 2 });
 
 const initialData = await stepOne({ value: 123 });
@@ -560,11 +718,11 @@ In this approach, the component receives a loosely typed object (e.g., a dynamic
 
 ```ts
 // components/hero-block/parser.ts
-import { createParser } from '../../path-to/parser-config';
+import { createParser, types } from '../../path-to/parser-config';
 
 export const heroBlockParser = createParser({
-  title: 'string',
-  description: 'string',
+  title: types.string,
+  description: types.string,
   imageUrl: ({ data }) => `https://example.com/images/${data.imageId}`,
 });
 ```
@@ -629,7 +787,7 @@ When you need excellent developer experience for hardcoding components manually,
 
 ```ts
 // components/user-card/parser.ts
-import { createParser } from '../../path-to/parser-config';
+import { createParser, types } from '../../path-to/parser-config';
 
 // Define the strict input interface
 export interface UserCardInitialProps {
@@ -692,8 +850,8 @@ import { createParser, ParserReturnValue } from '../../path-to/parser-config';
 
 // 1. Define the child parser in its own generic folder
 export const authorBadgeParser = createParser({
-  name: 'string',
-  role: 'string',
+  name: types.string,
+  role: types.string,
 });
 
 // 2. Export its inferred type for use in static components
@@ -718,13 +876,13 @@ export const AuthorBadge = (props: AuthorBadgeProps) => {
 
 ```ts
 // components/article-block/parser.ts
-import { createParser } from '../../path-to/parser-config';
+import { createParser, types } from '../../path-to/parser-config';
 import { authorBadgeParser } from '../author-badge/parser';
 
 // 3. Nest the generic author parser inside the parent parser
 export const articleBlockParser = createParser({
-  title: 'string',
-  content: 'string',
+  title: types.string,
+  content: types.string,
   author: authorBadgeParser, // Nests the parser directly
 });
 ```
@@ -787,7 +945,7 @@ declare module '@bou-co/parsing' {
   }
 }
 
-export const { createParser } = initializeParser({
+export const { createParser, types } = initializeParser({
   storage: {
     generateKey: (context) => {
       if (!context.cache.name) throw new Error('Caching options must include a name');
@@ -801,7 +959,7 @@ export const { createParser } = initializeParser({
 });
 
 // 2. Create the parser with caching enabled
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 const expensiveParser = createParser(
   {
@@ -829,7 +987,7 @@ const result = await expensiveParser(rawData); // Takes 1s first time, almost in
 
 ```ts
 const articleParser = createParser({
-  title: 'string',
+  title: types.string,
   author: async ({ data, store }) => {
     const id = `author:https://api.example.com/authors/${data.authorId}`;
 
@@ -866,7 +1024,7 @@ For manual control, the configured backend is also directly available as `contex
 import { initializeParser } from '@bou-co/parsing';
 import { db } from '../database';
 
-export const { createParser } = initializeParser(() => ({
+export const { createParser, types } = initializeParser(() => ({
   variables: {
     // Basic function resolver
     currentYear: () => new Date().getFullYear(),
@@ -883,11 +1041,11 @@ export const { createParser } = initializeParser(() => ({
 }));
 
 // 2. Parser definition
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 const cmsBlockParser = createParser({
-  heading: 'string',
-  body: 'string',
+  heading: types.string,
+  body: types.string,
 });
 
 // 3. Execution (e.g., inside an API route fetching CMS data)
@@ -924,7 +1082,7 @@ const result = await cmsBlockParser(rawDataFromCMS, instanceContext);
 // 1. Global Setup in parser-config.ts
 import { initializeParser } from '@bou-co/parsing';
 
-export const { createParser } = initializeParser(() => ({
+export const { createParser, types } = initializeParser(() => ({
   variableResolver: async (variableName, context) => {
     // Intercept any variable starting with 'snippets/'
     if (variableName.startsWith('snippets/')) {
@@ -948,10 +1106,10 @@ export const { createParser } = initializeParser(() => ({
 }));
 
 // 2. Parser definition
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 const pageParser = createParser({
-  content: 'string',
+  content: types.string,
 });
 
 // 3. Execution
@@ -977,7 +1135,7 @@ const result = await pageParser(rawDataFromCMS);
 
 ```ts
 import { ParserReturnValue, typed, optional } from '@bou-co/parsing';
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 // 1. Extend global context for strict type safety inside functions
 declare module '@bou-co/parsing' {
@@ -994,8 +1152,8 @@ interface Author {
 
 // 3. Create the Parser
 const articleParser = createParser({
-  title: 'string',
-  category: typed<'blog' | 'news'>, // Forces union type instead of generic 'string'
+  title: types.string,
+  category: typed<'blog' | 'news'>, // Forces union type instead of generic types.string
   author: optional<Author>, // Custom complex interface, explicitly optional
   canEdit: ({ userRole }) => userRole === 'admin', // userRole is typed!
 });
@@ -1036,16 +1194,16 @@ const localize = {
   then: ({ data, locale = 'en' }) => data[locale] || data['en'], // Fallback to en
 };
 
-export const { createParser } = initializeParser({
+export const { createParser, types } = initializeParser({
   transformers: { localize },
 });
 
 // 2. Create the Parser
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 const pageParser = createParser({
-  heading: 'string',
-  body: 'string',
+  heading: types.string,
+  body: types.string,
 });
 
 // 3. Execution
@@ -1072,10 +1230,10 @@ const resultEs = await pageParser(rawDataFromCMS, { locale: 'es' });
 ```tsx
 import React from 'react';
 import { useParserValue } from '@bou-co/parsing/react';
-import { createParser } from '../path-to/parser-config';
+import { createParser, types } from '../path-to/parser-config';
 
 const userParser = createParser({
-  name: 'string',
+  name: types.string,
   profileUrl: async ({ data }) => `https://img.com/${data.id}`,
 });
 
@@ -1102,9 +1260,9 @@ export const UserProfile = ({ rawData }) => {
 
 #### `initializeParser(config?)`
 
-Initializes the parsing engine with global settings (transformers, storage caching, variables, lifecycle hooks).
+Initializes an isolated parsing engine with global settings (loose casting, transformers, storage caching, variables, lifecycle hooks).
 
-- **Returns:** `{ createParser, resolveVariables, getVariableValue }`
+- **Returns:** `{ createParser, types }` — `types` contains the built-in casting types.
 
 #### `createParser(projection, options?)`
 
@@ -1131,7 +1289,7 @@ The `context` object is passed to all dynamic resolver functions in your project
 
 Context can be configured at three distinct levels, allowing you to scope variables, caching, and hooks appropriately.
 
-1. **Global Level (`initializeParser`)**: Settings applied here affect all parsers created from the returned `createParser` instance. Ideal for `storage`, global `transformers`, and global `variables`.
+1. **Global Level (`initializeParser`)**: Each call creates an isolated parser engine; settings applied here affect all parsers created from the returned `createParser`. Ideal for `storage`, global `transformers`, and global `variables`. See [Multiple parser configurations](#multiple-parser-configurations).
 2. **Schema Level (`createParser`)**: Settings applied here affect all executions of this specific parser schema. Ideal for schema-specific `variables`, `cache` definitions, or `before`/`after` hooks.
 3. **Instance Level (`myParser(data, context)`)**: Settings applied during execution. Ideal for request-specific `variables` (e.g., currently logged-in user, active locale).
 
@@ -1143,14 +1301,38 @@ Advanced structural controls available as keys within your schema definition.
 - **`@combine`**: Accepts an async function returning an object. Merges the returned object directly into the current parsed output. Useful for fetching secondary datasets. See [Merging Data](#merging-data).
 - **`@array`**: When set to `true` at the root of a nested projection, signals the parser to iterate over the input data as an array and apply the remaining properties to each item. See [Nested Arrays](#nested-data-structures).
 
-### Built-in Types & Keywords
+### Built-in Types
 
-When defining standard properties in your projection schema, you can use the following string identifiers and keywords:
+The `types` object — returned by `initializeParser` and also available as individual named exports from the tree-shakeable `@bou-co/parsing/types` entry point — provides casting types for standard properties:
 
-- **Primitive Identifiers**: `"string"`, `"number"`, `"boolean"`, `"object"`, `"date"`, `"any"`, `"unknown"`, `"undefined"`.
-- **Array Identifiers**: `"array"` or strict typed arrays like `"array<string>"`, `"array<number>"`.
+- **Primitives**: `types.string`, `types.number`, `types.boolean`, `types.date`, `types.object`, `types.any`, `types.unknown`.
+- **Arrays**: `types.array` (pass-through validation) or per-item casting via `types.array(types.string)`, `types.array(types.number)`, including nesting (`types.array(types.array(types.number))`).
+- **Custom types**: created anywhere with `defineType` and used directly as projection values. See [Custom types & casting options](#custom-types--casting-options).
+
+Every type casts its value at runtime after variables and transformers have resolved; `undefined`/`null` values skip casting and are omitted. Failed casts throw a `ParserCastError` unless `looseCasting` allows them through. See [Types & casting](#types--casting) for the full casting table.
+
+> **Migration note:** the v2 string identifiers (`title: 'string'`, `items: 'array<string>'`, …) are no longer supported — using one as a projection value throws a migration error at runtime. Other string literals still work as constants.
 
 ### Utility Functions
+
+#### `defineType(definition)`
+
+Creates a standalone reusable type from a casting function or `{ fn, strict?, name? }` object, with the output type inferred from `fn`. The result is used directly as a projection value. Exported from both the package root and `@bou-co/parsing/types`.
+
+```ts
+import { defineType } from '@bou-co/parsing/types';
+
+const slug = defineType((value) => {
+  if (typeof value !== 'string') throw new Error('Invalid slug');
+  return value.toLowerCase().replace(/\s+/g, '-');
+});
+```
+
+Types hash into cache keys by their implementation source, so caching stays correct when a type changes. When a **factory** creates several types from one function (closures are invisible to hashing), give each a `name` to keep their cache identities apart — the name also shows up in `ParserCastError.type`:
+
+```ts
+const scaled = (factor: number) => defineType({ fn: (value) => Number(value) * factor, name: `scaled-${factor}` });
+```
 
 #### `typed<T>`
 

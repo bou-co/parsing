@@ -20,6 +20,7 @@ export default defineConfig({
       name: 'bou-co-parser',
       entry: {
         index: 'src/index.ts',
+        types: 'src/types.ts',
         'react/index': 'src/react/index.ts',
         'templates/localize': 'src/templates/localize.ts',
       },

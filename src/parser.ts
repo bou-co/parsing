@@ -4,7 +4,6 @@ import { getFromObject } from './internal';
 import {
   ParserFunction,
   ParserContext,
-  valueKeys,
   ParserConditionalItems,
   ParserProjection,
   ParserGlobalContextFn,
@@ -14,7 +13,8 @@ import {
   ParserGlobalContext,
   CachingParserContext,
 } from './parser-types';
-import { asDate, asyncMapObject, filterNill, filterUndefinedEntries, mergeObjects, optional, typed } from './parser-util';
+import { applyCast, assertNotLegacyTypeKey, isTypeToken, ParserTypeToken, types } from './parser-casting';
+import { asyncMapObject, filterNill, filterUndefinedEntries, mergeObjects, optional, typed } from './parser-util';
 import { toHash } from './to-hash';
 
 interface ParserCache {
@@ -23,28 +23,37 @@ interface ParserCache {
 }
 
 export class Parser {
-  private static _cache: ParserCache = { variables: {}, pending: new Map() };
+  private cache: ParserCache = { variables: {}, pending: new Map() };
 
-  static initializingGlobalContext = false;
-  static parserGlobalContext: ParserGlobalContext | ParserGlobalContextFn;
+  private initializingGlobalContext = false;
+  private globalContext: ParserGlobalContext | ParserGlobalContextFn;
 
-  private static async getGlobalContext() {
+  constructor(globalContext: ParserGlobalContext | ParserGlobalContextFn = {} as ParserGlobalContext) {
+    this.globalContext = globalContext;
+  }
+
+  private async getGlobalContext() {
     while (this.initializingGlobalContext) {
       await new Promise((resolve) => setTimeout(resolve, 1));
     }
-    if (typeof this.parserGlobalContext === 'function') {
+    if (typeof this.globalContext === 'function') {
       this.initializingGlobalContext = true;
-      this.parserGlobalContext = await this.parserGlobalContext();
+      this.globalContext = await this.globalContext();
     }
     this.initializingGlobalContext = false;
-    return this.parserGlobalContext;
+    return this.globalContext;
   }
 
-  private static storeValue = async <T>(context: ParserContext, key: string, fn: () => T | Promise<T>, options?: ParserCachingOptions): Promise<T> => {
+  public cacheVariable = <T>(path: string, value: T): T => {
+    Object.assign(this.cache.variables, { [path]: value });
+    return value;
+  };
+
+  private storeValue = async <T>(context: ParserContext, key: string, fn: () => T | Promise<T>, options?: ParserCachingOptions): Promise<T> => {
     const { storage } = context;
     if (!storage) return fn();
 
-    const { pending } = Parser._cache;
+    const { pending } = this.cache;
     const existing = pending.get(key);
     if (existing) return existing;
 
@@ -126,8 +135,8 @@ export class Parser {
 
       const resolveVariableValue = async (path: string): Promise<unknown> => {
         const cacheVariable = <T>(value: T): T => {
-          Object.assign(Parser._cache.variables, { [path]: value });
-          return value;
+          if (!context.parser) return value;
+          return context.parser.cacheVariable(path, value);
         };
 
         let value: unknown = await getFromObject(variables, path, context);
@@ -194,12 +203,12 @@ export class Parser {
 
       const variables = { current: data };
 
-      const globalContext = await Parser.getGlobalContext();
+      const globalContext = await this.getGlobalContext();
       if (globalContext) Object.assign(variables, globalContext.variables);
       if (parentContext) Object.assign(variables, parentContext.variables);
       if (parserContext) Object.assign(variables, parserContext.variables);
       if (instanceContext) Object.assign(variables, instanceContext.variables);
-      if (Parser._cache.variables) Object.assign(variables, Parser._cache.variables);
+      if (this.cache.variables) Object.assign(variables, this.cache.variables);
 
       let contextBase: ParserContext = {
         parser: this,
@@ -212,7 +221,7 @@ export class Parser {
         data,
         cache: mergeObjects(globalContext?.cache, parserContext?.cache, instanceContext?.cache),
         parent: isRoot ? undefined : parentContext,
-        store: (key, fn, options) => Parser.storeValue(contextBase, key, fn, options),
+        store: (key, fn, options) => this.storeValue(contextBase, key, fn, options),
       } satisfies Partial<ParserContext> as any;
 
       const projection = typeof project === 'function' ? await project(contextBase) : project;
@@ -253,6 +262,7 @@ export class Parser {
 
       const promises = entries.map(async ([key, value]): Promise<undefined | [string, unknown]> => {
         const context: ParserContext = { ...contextBase, key };
+        let castToken: ParserTypeToken | undefined;
 
         const getValue = async (): Promise<undefined | [string, unknown]> => {
           if (key.startsWith('@')) {
@@ -294,17 +304,25 @@ export class Parser {
 
             return undefined;
           }
-          if (value === 'date') return [key, asDate(data[key])];
+          if (typeof value === 'string') assertNotLegacyTypeKey(value, context);
 
           if (value instanceof Function) {
             if (value === typed) return [key, data[key]];
             if (value === optional) return [key, data[key]];
+            if (isTypeToken(value)) {
+              castToken = value;
+              return [key, data?.[key]];
+            }
             if ('_parser' in value) return [key, await value(data?.[key], instanceContext, context)];
 
             const result = await value(context);
             if (result === '_inherit') return [key, data[key]];
             if (result instanceof Function && '_parser' in result) {
               return [key, await result(data[key], instanceContext, context)];
+            }
+            if (isTypeToken(result)) {
+              castToken = result;
+              return [key, data?.[key]];
             }
             return [key, result];
           }
@@ -332,8 +350,6 @@ export class Parser {
               if (variable instanceof Object) return [key, await parserFn(variable, instanceContext, context)];
             }
           }
-          if (valueKeys.includes(value)) return [key, data[key]];
-          if (/^array<.+>/gi.test(value)) return [key, data[key]];
           if (value) return [key, value];
           return [key, undefined];
         };
@@ -345,7 +361,10 @@ export class Parser {
         if (typeof _value === 'object') {
           type AlreadyParsedObject = { _parsed?: boolean };
           const alreadyParsed = (_value as AlreadyParsedObject)._parsed;
-          if (alreadyParsed) return [_key, _value];
+          if (alreadyParsed) {
+            if (castToken) return [_key, await applyCast(_value, castToken, context)];
+            return [_key, _value];
+          }
         }
 
         // Apply global transformers if they exist
@@ -357,7 +376,9 @@ export class Parser {
           }
         }
 
+        // Casting is the final step so variables and transformers resolve first
         const processedValue = await Parser.resolveVariables(_value, context);
+        if (castToken) return [_key, await applyCast(processedValue, castToken, context)];
         return [_key, processedValue];
       });
 
@@ -390,6 +411,10 @@ export class Parser {
     Object.defineProperty(parse, '_parser', { value: true });
     Object.defineProperty(parse, 'projection', { value: project });
 
+    // toHash stringifies functions via toString — parsers must hash by their projection, not the shared parse source
+    let projectionHash: string | undefined;
+    Object.defineProperty(parse, 'toString', { value: () => (projectionHash ??= `__parser:${toHash(project)}__`) });
+
     Object.defineProperty(parse, 'extend', {
       value: <X extends ParserProjection>(extendProject: X, extendContext?: CreateParserContext): ParserFunction<T & X> => {
         if (typeof project === 'function') throw new Error('Cannot extend a projection that is a function');
@@ -402,15 +427,14 @@ export class Parser {
     return parse as unknown as ParserFunction<T>;
   };
 
-  public static createParser = <const T extends ParserProjection>(
+  public createParser = <const T extends ParserProjection>(
     project: T | ((context: ParserContext) => T | Promise<T>),
     parserContext?: CreateParserContext,
   ): ParserFunction<T> => {
-    const parser = new Parser();
-    const projectionFn = parser.createProjection(project, parserContext);
+    const projectionFn = this.createProjection(project, parserContext);
 
     const proxyFn = new Proxy(projectionFn, {
-      apply: async (target: any, thisArg: Parser, args: [any, ParserInstanceContext]) => {
+      apply: async (target: any, _thisArg: unknown, args: [any, ParserInstanceContext]) => {
         const globalContext = await this.getGlobalContext();
         if (!globalContext.storage) return await target(...args);
         const [data, instanceContext] = args;
@@ -424,7 +448,7 @@ export class Parser {
         if (instanceContext) Object.assign(variables, instanceContext.variables);
 
         const context: CachingParserContext = {
-          parser: thisArg,
+          parser: this,
           ...globalContext,
           ...parserContext,
           ...instanceContext,
@@ -450,9 +474,9 @@ export class Parser {
 }
 
 export const initializeParser = (addGlobalContext?: ParserGlobalContext | ParserGlobalContextFn) => {
-  Parser.parserGlobalContext = addGlobalContext || ({} as ParserGlobalContext);
-  const { createParser } = Parser;
-  return { createParser };
+  const engine = new Parser(addGlobalContext || ({} as ParserGlobalContext));
+  const { createParser } = engine;
+  return { createParser, types };
 };
 
 export const resolveVariables = async <T>(current: T, context: ParserContext): Promise<T> => {

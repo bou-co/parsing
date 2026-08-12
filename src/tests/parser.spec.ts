@@ -3,7 +3,7 @@ import { condition, optional } from '../parser-util';
 
 const variableTitle = 'variable title';
 
-const { createParser } = initializeParser(async () => {
+const { createParser, types } = initializeParser(async () => {
   return { variables: { variableTitle } };
 });
 
@@ -12,10 +12,10 @@ const lorem = 'lorem ipsum';
 
 describe('parsing', () => {
   it('should work', async () => {
-    const parser = createParser({ added: 'string', custom: lorem, missing: 'string' });
+    const parser = createParser({ added: types.string, custom: lorem, missing: types.string });
 
     expect(parser).toBeTruthy();
-    expect(parser.projection).toEqual({ added: 'string', custom: lorem, missing: 'string' });
+    expect(parser.projection).toEqual({ added: types.string, custom: lorem, missing: types.string });
     expect(typeof parser).toEqual('function');
 
     const promise = parser({ added: hello });
@@ -30,11 +30,11 @@ describe('parsing', () => {
 
   it('nested projection should work', async () => {
     const parser = createParser({
-      added: 'string',
-      nested: { child: 'string' },
+      added: types.string,
+      nested: { child: types.string },
     });
 
-    expect(parser.projection.nested.child).toEqual('string');
+    expect(parser.projection.nested.child).toEqual(types.string);
 
     const data = await parser({ added: hello, nested: { child: lorem } });
 
@@ -45,7 +45,7 @@ describe('parsing', () => {
 
   it('should work with async functions', async () => {
     const parser = createParser({
-      added: 'string',
+      added: types.string,
       custom: async () => lorem,
     });
 
@@ -58,8 +58,8 @@ describe('parsing', () => {
 
   it('should work with nested parsers', async () => {
     const parser = createParser({
-      added: 'string',
-      custom: createParser({ nested: 'string' }),
+      added: types.string,
+      custom: createParser({ nested: types.string }),
     });
 
     const data = await parser({ added: hello, custom: { nested: lorem } });
@@ -71,8 +71,8 @@ describe('parsing', () => {
 
   it('should work with nested parsers when value is an array', async () => {
     const parser = createParser({
-      added: 'string',
-      items: createParser({ title: 'string' }),
+      added: types.string,
+      items: createParser({ title: types.string }),
     });
 
     const data = await parser({ added: hello, items: [{ title: hello }, { title: lorem }] });
@@ -86,7 +86,7 @@ describe('parsing', () => {
 
   it('should work turn null into undefined', async () => {
     const parser = createParser({
-      hello: 'string',
+      hello: types.string,
       notDefined: () => null,
     });
 
@@ -99,7 +99,7 @@ describe('parsing', () => {
 
   it('should be able to override parsed values', async () => {
     const parser = createParser({
-      hello: 'string',
+      hello: types.string,
     });
 
     const data = await parser({ hello });
@@ -112,7 +112,7 @@ describe('parsing', () => {
 
   it('should be able to do optional values', async () => {
     const parser = createParser({
-      lorem: 'string',
+      lorem: types.string,
       notDefined: optional<string>,
       defined: optional<string>,
     });
@@ -129,18 +129,18 @@ describe('parsing', () => {
 
   it('should be able to do "any" or "unknown" value', async () => {
     const deepParser = createParser({
-      hello: 'any',
+      hello: types.any,
     });
 
     const nestedParser = createParser({
-      lorem: 'unknown',
-      hello: 'any',
+      lorem: types.unknown,
+      hello: types.any,
       nested: deepParser,
     });
 
     const parser = createParser({
-      lorem: 'string',
-      hello: 'string',
+      lorem: types.string,
+      hello: types.string,
       nested: nestedParser,
     });
 
@@ -158,8 +158,8 @@ describe('parsing', () => {
 
   it('should be able to do "date" value', async () => {
     const parser = createParser({
-      timeStamp: 'date',
-      endof1970: 'date',
+      timeStamp: types.date,
+      endof1970: types.date,
     });
 
     const value = { timeStamp: new Date(), endof1970: '1970-12-31T23:59:59.999Z' };
@@ -179,8 +179,8 @@ describe('parsing', () => {
 
   it('should turn nested object into array when "@array": true is used', async () => {
     const parser = createParser({
-      added: 'string',
-      custom: { '@array': true, nested: 'string' },
+      added: types.string,
+      custom: { '@array': true, nested: types.string },
     });
 
     const data = await parser({ added: hello, custom: [{ nested: lorem }, { nested: lorem }] });
@@ -195,18 +195,18 @@ describe('parsing', () => {
   it('should turn nested parsers into array when "@array": true is used', async () => {
     const deeperParser = createParser({
       '@array': true,
-      deep: 'boolean',
+      deep: types.boolean,
       fn: async () => true,
     });
 
     const innerParser = createParser({
       '@array': true,
-      nested: 'string',
+      nested: types.string,
       custom: deeperParser,
     });
 
     const parser = createParser({
-      added: 'string',
+      added: types.string,
       custom: innerParser,
     });
 
@@ -223,13 +223,13 @@ describe('parsing', () => {
 
   it('should append values conditionally when "@if" is used', async () => {
     const parser = createParser({
-      added: 'string',
+      added: types.string,
       '@if': [
         {
           when: () => true,
           then: { custom: lorem },
         },
-        condition(() => false, { another: 'string' }),
+        condition(() => false, { another: types.string }),
       ],
     });
 
@@ -244,15 +244,15 @@ describe('parsing', () => {
   it('should append values conditionally when "@if" is used with inner projections', async () => {
     const innerParser = createParser({
       '@array': true,
-      nested: 'string',
+      nested: types.string,
     });
 
     const parser = createParser({
-      added: 'string',
+      added: types.string,
       '@if': [
         {
           when: () => true,
-          then: { custom: 'string', lorem, inner: innerParser },
+          then: { custom: types.string, lorem, inner: innerParser },
         },
       ],
     });
@@ -272,11 +272,11 @@ describe('parsing', () => {
       '@if': [
         {
           when: () => true,
-          then: { level3Additional1: 'string' },
+          then: { level3Additional1: types.string },
         },
         {
           when: () => true,
-          then: { level3Additional2: 'string' },
+          then: { level3Additional2: types.string },
         },
       ],
     });
@@ -290,7 +290,7 @@ describe('parsing', () => {
         },
         {
           when: () => true,
-          then: { level2Additional1: 'string' },
+          then: { level2Additional1: types.string },
         },
       ],
     });
@@ -310,7 +310,7 @@ describe('parsing', () => {
       '@if': [
         {
           when: () => true,
-          then: { level1Additional1: 'string' },
+          then: { level1Additional1: types.string },
         },
         {
           when: () => true,
@@ -375,7 +375,7 @@ describe('parsing', () => {
 
   it('should append values when "@combine" is used', async () => {
     const parser = createParser({
-      added: 'string',
+      added: types.string,
       '@combine': async () => ({ custom: lorem }),
     });
 
@@ -388,7 +388,7 @@ describe('parsing', () => {
 
   it('should append values when multiple "@combine"s are used', async () => {
     const parser = createParser({
-      added: 'string',
+      added: types.string,
       '@combine:custom': async () => {
         const truthy = false;
         if (truthy) return undefined;
@@ -419,10 +419,10 @@ describe('parsing', () => {
     const nestedInstanceContext = { variables: { baseValue: hello, nested: { value: lorem, async }, deep: { 1: { 2: { 3: { value: deepValue } } } } } };
 
     const parser = createParser({
-      baseValue: 'string',
-      nestedValue: 'string',
-      asyncValue: 'string',
-      deepValue: 'string',
+      baseValue: types.string,
+      nestedValue: types.string,
+      asyncValue: types.string,
+      deepValue: types.string,
       title: async ({ variables }) => {
         const _baseValue = variables['baseValue'];
         expect(_baseValue).toEqual(hello);
@@ -455,7 +455,7 @@ describe('parsing', () => {
   });
 
   it('should be able to project full instance context variables as a value', async () => {
-    const parser = createParser({ contextual: 'object' });
+    const parser = createParser({ contextual: types.object });
 
     const instanceContext = { variables: { added: hello, custom: lorem } };
     const data = await parser({ contextual: '{{...}}' }, instanceContext);
@@ -466,7 +466,7 @@ describe('parsing', () => {
   });
 
   it('should be able to handle frozen objects', async () => {
-    const parser = createParser({ nested: 'any', deep: 'object' });
+    const parser = createParser({ nested: types.any, deep: types.object });
     const deep = Object.freeze({ value: hello });
     const rawData = { nested: lorem, deep };
     const data = await parser(rawData);
@@ -476,7 +476,7 @@ describe('parsing', () => {
   });
 
   it('should be able to handle frozen arrays', async () => {
-    const parser = createParser({ nested: 'any', deep: 'object' });
+    const parser = createParser({ nested: types.any, deep: types.array });
     const deep = Object.freeze([hello, lorem]);
     const rawData = { nested: lorem, deep };
     const data = await parser(rawData);
@@ -488,7 +488,7 @@ describe('parsing', () => {
   // Extra type testing
 
   it('should work', async () => {
-    const parser = createParser({ title: 'string' });
+    const parser = createParser({ title: types.string });
 
     const data = await parser({ title: 'Hello' });
     expect(data.title).toEqual('Hello');
@@ -506,7 +506,7 @@ describe('parsing', () => {
   });
 
   it('should discard undefined values correctly', async () => {
-    const parser = createParser({ title: 'string', description: 'string', year: 'number' });
+    const parser = createParser({ title: types.string, description: types.string, year: types.number });
     const data = await parser({ title: 'Hello' });
     expect(data.title).toEqual('Hello');
     expect(data.description).toBeUndefined();

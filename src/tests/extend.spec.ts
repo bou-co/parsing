@@ -2,9 +2,9 @@ import { initializeParser } from '../parser';
 
 describe('parsing', () => {
   it('should be able to extend a parser projection', async () => {
-    const { createParser } = initializeParser();
-    const original = createParser({ value: 'number' });
-    const extended = original.extend({ additional: 'string' });
+    const { createParser, types } = initializeParser();
+    const original = createParser({ value: types.number });
+    const extended = original.extend({ additional: types.string });
     expect(original).toBeTruthy();
     expect(extended).toBeTruthy();
 
@@ -18,17 +18,17 @@ describe('parsing', () => {
   });
 
   it('should throw error when extending a function projection', async () => {
-    const { createParser } = initializeParser();
-    const original = createParser(() => ({ value: 'number' }));
+    const { createParser, types } = initializeParser();
+    const original = createParser(() => ({ value: types.number }));
 
     expect(() => {
-      original.extend({ additional: 'string' });
+      original.extend({ additional: types.string });
     }).toThrow('Cannot extend a projection that is a function');
   });
 
   it('should allow extending a parser projection with projction that overrides existing keys', async () => {
-    const { createParser } = initializeParser();
-    const original = createParser({ value: 'number', metadata: 'original' });
+    const { createParser, types } = initializeParser();
+    const original = createParser({ value: types.number, metadata: 'original' });
     const extended = original.extend({ metadata: 'extended' });
     expect(original).toBeTruthy();
     expect(extended).toBeTruthy();

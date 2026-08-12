@@ -3,7 +3,7 @@ import { localize } from './localize';
 
 describe('parsing', () => {
   it('should be able to handle localize transformer', async () => {
-    const { createParser } = initializeParser({
+    const { createParser, types } = initializeParser({
       locales: ['en', 'fi'],
       defaultLocale: 'en',
       resolveCurrentLocale: (context) => context.currentLocale || context.defaultLocale,
@@ -11,8 +11,8 @@ describe('parsing', () => {
     });
 
     const parser = createParser({
-      title: 'string',
-      card: { body: 'string' },
+      title: types.string,
+      card: { body: types.string },
     });
 
     const rawData = {
@@ -38,7 +38,7 @@ describe('parsing', () => {
   });
 
   it('should be able to handle localize transformer with only some keys', async () => {
-    const { createParser } = initializeParser({
+    const { createParser, types } = initializeParser({
       locales: ['en', 'fi'],
       defaultLocale: 'en',
       resolveCurrentLocale: (context) => context.currentLocale || context.defaultLocale,
@@ -46,8 +46,8 @@ describe('parsing', () => {
     });
 
     const parser = createParser({
-      title: 'string',
-      card: { body: 'string' },
+      title: types.string,
+      card: { body: types.string },
     });
 
     const rawData = {
@@ -72,7 +72,7 @@ describe('parsing', () => {
   });
 
   it('should be able to handle localize transformer with custom matching function', async () => {
-    const { createParser } = initializeParser({
+    const { createParser, types } = initializeParser({
       locales: ['en', 'fi'],
       defaultLocale: 'en',
       resolveCurrentLocale: (context) => context.currentLocale || context.defaultLocale,
@@ -82,8 +82,8 @@ describe('parsing', () => {
     });
 
     const parser = createParser({
-      title: 'string',
-      card: { body: 'string' },
+      title: types.string,
+      card: { body: types.any },
     });
 
     const rawData = {
@@ -108,7 +108,7 @@ describe('parsing', () => {
   });
 
   it('should be able to handle localize transformer with some keys and omit fallback', async () => {
-    const { createParser } = initializeParser({
+    const { createParser, types } = initializeParser({
       locales: ['en', 'fi'],
       defaultLocale: 'en',
       resolveCurrentLocale: (context) => context.currentLocale || context.defaultLocale,
@@ -116,8 +116,8 @@ describe('parsing', () => {
     });
 
     const parser = createParser({
-      title: 'string',
-      card: { body: 'string' },
+      title: types.string,
+      card: { body: types.string },
     });
 
     const rawData = {
@@ -142,7 +142,7 @@ describe('parsing', () => {
   });
 
   it('should be able to handle localize transformer with some keys and run custom fallback function', async () => {
-    const { createParser } = initializeParser({
+    const { createParser, types } = initializeParser({
       locales: ['en', 'fi'],
       defaultLocale: 'en',
       resolveCurrentLocale: (context) => context.currentLocale || context.defaultLocale,
@@ -150,8 +150,8 @@ describe('parsing', () => {
     });
 
     const parser = createParser({
-      title: 'string',
-      card: { body: 'string' },
+      title: types.string,
+      card: { body: types.string },
     });
 
     const rawData = {

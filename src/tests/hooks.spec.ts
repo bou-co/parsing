@@ -9,9 +9,9 @@ declare module '../expandable-types' {
 
 describe('parsing', () => {
   it('should be able to add before hook to modify data in context', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
     const parser = createParser(
-      { value: 'number', always: 'boolean', override: 'string' },
+      { value: types.number, always: types.boolean, override: types.string },
       {
         before: (context) => {
           context.data['value'] += 1; // Increment value by 1
@@ -119,9 +119,9 @@ describe('parsing', () => {
   });
 
   it('should be able to add after hook to modify data returned from parser', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
     const parser = createParser(
-      { value: 'number', always: 'boolean' },
+      { value: types.number, always: types.boolean },
       {
         after: (context) => {
           context.data['value'] *= 2; // Double the value
@@ -179,14 +179,14 @@ describe('parsing', () => {
   });
 
   it('should be able to run global after for all parsers while instance after should only run for the instance', async () => {
-    const { createParser } = initializeParser({
+    const { createParser, types } = initializeParser({
       after: (context) => {
         context.data['global'] = 'This is global'; // Add a global property
         return context;
       },
     });
 
-    const parser = createParser({ value: 'number', global: 'string', instance: 'string' });
+    const parser = createParser({ value: types.number, global: types.string, instance: types.string });
 
     const results1 = await parser({ value: 5 });
     expect(results1).toBeTruthy();

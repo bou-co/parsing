@@ -1,4 +1,5 @@
 import type { Parser } from './parser';
+import type { ParserCastError } from './parser-casting';
 import { CommonContext, CreateContext, FunctionalContext, GlobalContext, InstanceContext, ParserCachingOptions } from './expandable-types';
 
 // Util types
@@ -52,6 +53,8 @@ export interface ParserGlobalContext extends CommonContext, GlobalContext {
   transformers?: ParserContextTransformers;
   variableResolver?: (variableName: string, context: ParserContext, cache: CacheValueFn) => Promise<unknown> | unknown;
   cache?: ParserCachingOptions;
+  looseCasting?: LooseCasting;
+  onCastError?: OnCastError;
 }
 
 export type ParserGlobalContextFn = () => ParserGlobalContext | Promise<ParserGlobalContext>;
@@ -59,11 +62,15 @@ export type ParserGlobalContextFn = () => ParserGlobalContext | Promise<ParserGl
 export interface CreateParserContext extends CommonContext, CreateContext {
   variables?: ParserContextVariables;
   cache?: ParserCachingOptions;
+  looseCasting?: LooseCasting;
+  onCastError?: OnCastError;
 }
 
 export interface ParserInstanceContext extends CommonContext, InstanceContext {
   variables?: ParserContextVariables;
   cache?: ParserCachingOptions;
+  looseCasting?: LooseCasting;
+  onCastError?: OnCastError;
 }
 
 export interface ParserContext<DATA = AppObject, PARAMS = unknown[]>
@@ -84,7 +91,54 @@ export interface CachingParserContext extends ParserContext {
   cache: ParserCachingOptions;
 }
 
-export const valueKeys = ['string', 'object', 'number', 'boolean', 'array', 'undefined', 'any', 'unknown', 'date'] as const;
+// Parser type casting
+
+export const PARSER_TYPE_OUTPUT: unique symbol = Symbol.for('@bou-co/parsing:type-output');
+
+export type LooseCasting = boolean | 'undefined';
+
+export type OnCastError = (error: ParserCastError, context: ParserContext) => void;
+
+export type ParserTypeFunction<Out = unknown> = (value: unknown, context: ParserContext) => Out | Promise<Out>;
+
+export interface ParserTypeObject<Out = unknown> {
+  fn: ParserTypeFunction<Out>;
+  strict?: boolean;
+  // Distinguishes types sharing a factory-made fn (closures are invisible to hashing); also shown in cast errors
+  name?: string;
+}
+
+export type ParserTypeDefinition<Out = unknown> = ParserTypeFunction<Out> | ParserTypeObject<Out>;
+
+export interface ParserType<Out = unknown> {
+  (value: unknown, context: ParserContext): Out | Promise<Out>;
+  readonly _type: string;
+  readonly strict?: boolean;
+  // Type-level phantom carrying the output type — never present at runtime
+  readonly [PARSER_TYPE_OUTPUT]: Out;
+}
+
+// Brand-only view of ParserType used in ParserProjectionValue: adding a second callable
+// member to that union would break contextual typing of plain value functions
+export interface ParserTypeLike {
+  readonly _type: string;
+  readonly [PARSER_TYPE_OUTPUT]: unknown;
+}
+
+export type ArrayParserType = ParserType<unknown[]> & {
+  <Item>(item: ParserType<Item>): ParserType<Item[]>;
+};
+
+export interface DefaultParserTypes {
+  readonly string: ParserType<string>;
+  readonly number: ParserType<number>;
+  readonly boolean: ParserType<boolean>;
+  readonly date: ParserType<Date>;
+  readonly object: ParserType<AppObject>;
+  readonly array: ArrayParserType;
+  readonly any: ParserType<any>;
+  readonly unknown: ParserType<unknown>;
+}
 
 // Utility types
 
@@ -115,37 +169,21 @@ type OptionalUndefined<T> = Optional<T> & Required<T>;
 // type ObjectIncludesKey<T extends object, K> = K extends keyof T ? true : false;
 
 type RealValue<T> = //
-  T extends 'any'
-    ? any
-    : T extends 'unknown'
-      ? unknown
-      : T extends 'undefined'
-        ? undefined
-        : T extends 'object'
-          ? AppObject
-          : T extends 'string'
-            ? string
-            : T extends 'number'
-              ? number
-              : T extends 'boolean'
-                ? boolean
-                : T extends 'date'
-                  ? Date
-                  : T extends Date
-                    ? Date
-                    : T extends 'array'
-                      ? any[]
-                      : T extends `array<${infer ArrayType}>`
-                        ? RealValue<ArrayType>[]
-                        : T extends Promise<infer R>
-                          ? RealValue<R>
-                          : T extends (...args: any) => infer R
-                            ? RealValue<R>
-                            : T extends any[]
-                              ? RealValue<T[number]>[]
-                              : T extends object
-                                ? _HandleProjectionObject<T>
-                                : T;
+  T extends { readonly [PARSER_TYPE_OUTPUT]: infer Out }
+    ? Out extends Promise<unknown>
+      ? Awaited<Out>
+      : Out
+    : T extends Date
+      ? Date
+      : T extends Promise<infer R>
+        ? RealValue<R>
+        : T extends (...args: any) => infer R
+          ? RealValue<R>
+          : T extends any[]
+            ? RealValue<T[number]>[]
+            : T extends object
+              ? _HandleProjectionObject<T>
+              : T;
 
 export type _HandleProjectionObject<T extends object> = Prettify<_HandleArray<T>>;
 
@@ -208,8 +246,6 @@ export type ParserConditionalItem = { when: ParserCondition; then: ParserConditi
 
 export type ParserConditionalItems = ParserConditionalItem[];
 
-type BasicParserProjectionTypeKeys = 'any' | 'unknown' | 'undefined' | 'string' | 'number' | 'boolean' | 'object' | 'date';
-type ParserProjectionTypeKeys = BasicParserProjectionTypeKeys | `array<${BasicParserProjectionTypeKeys | 'nested-array'}>`;
 type ParserProjectionTypeValues = OrString | OrNumber | OrBoolean;
 
 export interface ParserProjectionUtils {
@@ -218,13 +254,7 @@ export interface ParserProjectionUtils {
   '@combine'?: ParserValueFunction;
 }
 
-export type ParserProjectionValue =
-  | undefined
-  | ParserProjectionTypeKeys
-  | ParserProjectionTypeValues
-  | ParserValueFunction
-  | ParserProjection
-  | ParserProjection[];
+export type ParserProjectionValue = undefined | ParserTypeLike | ParserProjectionTypeValues | ParserValueFunction | ParserProjection | ParserProjection[];
 
 export interface ParserProjectionValues {
   [key: PropertyKey]: ParserProjectionValue;

@@ -1,4 +1,5 @@
 import { StorageLike, CachingParserContext, initializeParser, ParserContext } from '../parser';
+import { defineType } from '../parser-casting';
 import { toHash } from '../to-hash';
 
 declare module '../expandable-types' {
@@ -26,7 +27,7 @@ class TestCache implements StorageLike {
   };
 }
 
-const { createParser } = initializeParser({
+const { createParser, types } = initializeParser({
   storage: new TestCache(),
   cache: {
     enabled: true,
@@ -42,7 +43,7 @@ describe('parsing', () => {
           await new Promise((resolve) => setTimeout(resolve, 100));
           return 'Hello World';
         },
-        description: 'string',
+        description: types.string,
       },
       {
         cache: { name: 'test-cache' },
@@ -70,7 +71,7 @@ describe('parsing', () => {
 
   it('should fail if caching options are not defined', async () => {
     const parser = createParser({
-      description: 'string',
+      description: types.string,
     });
 
     await expect(parser({ description: 'Lorem ipsum' })).rejects.toThrow('Caching options must have a name defined');
@@ -83,7 +84,7 @@ describe('parsing', () => {
           await new Promise((resolve) => setTimeout(resolve, 100));
           return 'Hello World';
         },
-        description: 'string',
+        description: types.string,
       },
       {
         cache: { enabled: false, name: 'test-cache' },
@@ -117,5 +118,42 @@ describe('parsing', () => {
     expect(thirdData).toBeTruthy();
     expect(thirdData.title).toEqual('Hello World');
     expect(thirdData.description).toEqual('Lorem ipsum');
+  });
+
+  it('generates different hashes for different type tokens', () => {
+    expect(toHash({ value: types.string })).not.toEqual(toHash({ value: types.number }));
+    expect(toHash({ value: types.array(types.string) })).not.toEqual(toHash({ value: types.array(types.number) }));
+  });
+
+  it('generates different hashes for custom and modified types', () => {
+    const emailA = defineType((value) => String(value).toLowerCase());
+    const emailB = defineType((value) => String(value).toUpperCase());
+    expect(toHash({ value: emailA })).not.toEqual(toHash({ value: emailB }));
+
+    // Identical source is stable across re-creation (and process restarts)
+    const remadeA = defineType((value) => String(value).toLowerCase());
+    expect(toHash({ value: emailA })).toEqual(toHash({ value: remadeA }));
+
+    // Parameterized arrays include the item implementation identity
+    expect(toHash({ value: types.array(emailA) })).not.toEqual(toHash({ value: types.array(emailB) }));
+    expect(toHash({ value: types.array })).not.toEqual(toHash({ value: types.array(emailA) }));
+
+    // Strict is part of the identity
+    const fn = (value: unknown) => Number(value);
+    expect(toHash({ value: defineType({ fn }) })).not.toEqual(toHash({ value: defineType({ fn, strict: true }) }));
+
+    // Factory-made types share their source — a name disambiguates the closures
+    const factory = (multiplier: number, name?: string) => defineType({ fn: (value) => Number(value) * multiplier, name });
+    expect(toHash({ value: factory(2) })).toEqual(toHash({ value: factory(3) }));
+    expect(toHash({ value: factory(2, 'double') })).not.toEqual(toHash({ value: factory(3, 'triple') }));
+  });
+
+  it('generates different hashes for projections embedding different parsers', () => {
+    const one = createParser({ value: types.string });
+    const two = createParser({ value: types.number });
+    expect(toHash({ nested: one })).not.toEqual(toHash({ nested: two }));
+
+    const remadeOne = createParser({ value: types.string });
+    expect(toHash({ nested: one })).toEqual(toHash({ nested: remadeOne }));
   });
 });

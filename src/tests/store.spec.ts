@@ -20,7 +20,7 @@ class TestStorage implements StorageLike {
 const storage = new TestStorage();
 
 // Whole-parse caching is disabled globally on purpose: store() must work independently of cache.enabled
-const { createParser } = initializeParser({ storage, cache: { enabled: false } });
+const { createParser, types } = initializeParser({ storage, cache: { enabled: false } });
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -181,7 +181,7 @@ describe('context.store', () => {
             seen.when = typeof context.store;
             return false;
           },
-          then: { extra: 'string' },
+          then: { extra: types.string },
         },
       ],
       '@combine': (context: ParserContext) => {
