@@ -101,6 +101,42 @@ describe('casting', () => {
     expect(data.active).toEqual(true);
   });
 
+  it('casts dot-path variables resolving to non-string values', async () => {
+    const parser = createParser({ age: types.number, active: types.boolean, joined: types.date });
+    const joined = new Date('2020-01-01T00:00:00.000Z');
+    const data = await parser(
+      { age: '{{user.age}}', active: '{{user.active}}', joined: '{{user.joined}}' },
+      { variables: { user: { age: 42, active: true, joined } } },
+    );
+    expect(data.age).toEqual(42);
+    expect(data.active).toEqual(true);
+    expect(data.joined?.getTime()).toEqual(joined.getTime());
+  });
+
+  it('casts interpolated strings after variable replacement', async () => {
+    const parser = createParser({ price: types.number });
+    const data = await parser({ price: '{{euros}}.50' }, { variables: { euros: 12 } });
+    expect(data.price).toEqual(12.5);
+  });
+
+  it('skips casting when a variable resolves to undefined', async () => {
+    const parser = createParser({ age: types.number });
+    const data = await parser({ age: '{{user.age}}' }, { variables: { user: {} } });
+    expect(data.age).toBeUndefined();
+    expect(Object.keys(data)).toHaveLength(0);
+  });
+
+  it('applies the type default when a variable resolves to undefined', async () => {
+    const parser = createParser({ age: types.number({ default: 18 }) });
+    const data = await parser({ age: '{{user.age}}' }, { variables: { user: {} } });
+    expect(data.age).toEqual(18);
+  });
+
+  it('still fails when a variable resolves to an uncastable value', async () => {
+    const parser = createParser({ age: types.number });
+    await expect(parser({ age: '{{user.age}}' }, { variables: { user: { age: 'not-a-number' } } })).rejects.toThrow(ParserCastError);
+  });
+
   it('casts after transformers have been applied', async () => {
     const unwrap: ParserContextTransformer = {
       when: ({ data }) => !!data && typeof data === 'object' && 'raw' in (data as object),
