@@ -75,15 +75,29 @@ export interface ParserInstanceContext extends CommonContext, InstanceContext {
 
 export interface ParserContext<DATA = AppObject, PARAMS = unknown[]>
   extends FunctionalContext, CommonContext, InstanceContext, ParserGlobalContext, CreateParserContext {
+  /** True when this is the top-level execution of the parser */
   isRoot?: boolean;
+  /** Reference to the parser engine handling the execution */
   parser: Parser;
+  /** The input data at the currently executing nested level */
   data: DATA;
+  /** Key of the property currently being evaluated */
   key?: PropertyKey;
+  /** The active projection for the current level */
   projection?: ParserProjection;
+  /** Parameters passed to a variable pipe function */
   params?: PARAMS;
+  /** Merged dictionary of global, schema and instance variables */
   variables: AppObject;
+  /** Index of the current item when parsing an array */
   index?: number;
+  /** Context of the parent level, forming a chain up to the root */
   parent?: Partial<ParserContext>;
+  /** Projection references from the root to the current level */
+  path?: object[];
+  /** Projection references accumulated during projection-driven (data-less) resolution. Present only when the current parse has no matching input data. */
+  datalessPath?: object[];
+  /** Get or compute a value through the global storage */
   store: <T>(key: string, fn: () => T | Promise<T>, options?: ParserCachingOptions) => Promise<T>;
 }
 

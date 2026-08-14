@@ -25,6 +25,11 @@ describe('legacy type keys', () => {
     await expect(parser({ nested: { value: 'anything' } })).rejects.toThrow("Legacy type string 'string'");
   });
 
+  it('throws for legacy keys inside nested projections even without data', async () => {
+    const parser = createParser({ nested: { value: 'string' } });
+    await expect(parser({})).rejects.toThrow("Legacy type string 'string'");
+  });
+
   it('still supports other string constants', async () => {
     const parser = createParser({ value: 'hello world' });
     const data = await parser({ anything: true });

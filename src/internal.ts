@@ -1,3 +1,20 @@
+// Check if a projection is marked as an array via the @array directive
+export const hasArrayDirective = (projection: unknown): boolean =>
+  typeof projection === 'object' && projection !== null && !Array.isArray(projection) && '@array' in projection;
+
+// Check if an input value is unable to feed an object projection
+export const isDatalessInput = (input: unknown): boolean => {
+  // Objects and arrays stay data-driven
+  if (input !== null && typeof input === 'object') return false;
+  // Non-empty strings keep their own handling (stringified objects, variables)
+  if (typeof input === 'string' && input !== '') return false;
+  return true;
+};
+
+// Check if a parser can resolve without data (array-shaped output always requires data)
+export const canResolveDataless = (parser: object, projection: unknown): boolean =>
+  !('_array' in parser) && !Array.isArray(projection) && !hasArrayDirective(projection);
+
 export const getFromObject = async (from: object, path: string, context?: unknown) => {
   type VariablesObj = Record<any, any> | undefined;
   try {

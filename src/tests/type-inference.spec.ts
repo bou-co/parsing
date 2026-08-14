@@ -107,10 +107,10 @@ describe('type inference', () => {
   it('marks defaulted types with ParserTypeWithDefault', () => {
     const optionsCall = types.string({ default: 'x' });
     const defined = defineType({ fn: (value) => Number(value), default: 0 });
-    const checks: [
-      Expect<Equal<typeof optionsCall, ParserTypeWithDefault<string>>>,
-      Expect<Equal<typeof defined, ParserTypeWithDefault<number>>>,
-    ] = [true, true];
+    const checks: [Expect<Equal<typeof optionsCall, ParserTypeWithDefault<string>>>, Expect<Equal<typeof defined, ParserTypeWithDefault<number>>>] = [
+      true,
+      true,
+    ];
     expect(checks.every(Boolean)).toBe(true);
   });
 

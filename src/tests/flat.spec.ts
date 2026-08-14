@@ -25,10 +25,18 @@ describe('flat parsers', () => {
     expect(data.title).toEqual('From seo');
   });
 
+  // seoParser is tokens-only, so its projection-driven resolution is empty and dropped
   it('merges nothing when the data for the key is missing', async () => {
     const parser = createParser({ name: types.string, seo: seoParser.flat });
     const data = await parser({ name: 'A' });
     expect(data).toEqual({ name: 'A' });
+  });
+
+  it('merges data-independent fields even when the data for the key is missing', async () => {
+    const brandParser = createParser({ brand: 'bou', locale: types.string });
+    const parser = createParser({ name: types.string, branding: brandParser.flat });
+    const data = await parser({ name: 'A' });
+    expect(data).toEqual({ name: 'A', brand: 'bou' });
   });
 
   it('throws when the flat result is an array', async () => {

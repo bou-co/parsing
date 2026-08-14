@@ -44,7 +44,22 @@ Define your own types with `defineType` — pass a casting function or a `{ fn, 
 
 Each `initializeParser` call now creates an isolated engine with its own global context (variables, transformers, storage, casting options) and caches — previously the last call replaced the global state for every parser in the process. Parsers stay permanently bound to the engine that created them, which enables e.g. separate server and client configurations. The `Parser` statics (`Parser.parserGlobalContext`, `Parser.createParser`) are gone; `new Parser(globalContext)` is the advanced equivalent. Cast failures can be observed via the new `onCastError` context option.
 
-### 5. Smaller breaking details
+### 5. The projection is the point of truth
+
+Nested projections resolve from the schema instead of following the incoming data. Previously a nested object, nested parser, or `.flat` parser was silently skipped whenever the input lacked (or held a scalar at) its key — even when the projection inside contained constants, defaults, or value functions that never needed the data. Most users considered this a bug; parsing `{}` at the root already resolved those, only nested levels short-circuited.
+
+What this means in practice:
+
+- **Nested constants, type-token defaults, `@combine`, and `@if` now appear in the output without matching input.** Nested projections whose fields all depend on the missing data resolve to nothing and stay omitted, exactly as before.
+- **Side effects now run for missing keys.** Value functions, `@combine` resolvers, `context.store` fetches, and `variableResolver` calls inside a nested projection execute even when the input lacks the key. If a nested parser wraps an expensive fetch that should only happen when data exists, opt out with a value function: `child: ({ data }) => (data['child'] ? childParser : undefined)`.
+- **Arrays still require data.** `'@array': true` projections, array literals, and `parser.asArray` values keep their data-driven skip.
+- **Recursive schemas terminate.** Self-referencing (or mutually referencing) parsers resolve the cycle once more with their data-independent fields, then stop — instead of relying on the data running out. Note that recursive schemas built as _literal object cycles_ cannot be hashed for caching; reference parsers through value functions instead.
+- **Scalar-under-object no longer leaks the projection.** A truthy scalar at an object-projection key previously returned the raw projection object (live functions included); it now resolves the projection, with the scalar reachable at `context.parent.data`.
+- **Legacy type keys fail fast.** A leftover v2 string identifier inside a nested projection now throws even when the input lacks that key.
+- **Custom `generateKey` caveat.** Projection-driven parses always receive `{}` as data, so cache keys built only from projection + data collide across different parents. The default key (which hashes the full call) is unaffected.
+- **Empty-result detection counts keys, not values.** An `after` hook or `@combine` that unconditionally injects keys makes every projection-driven resolution non-empty — hook output is output.
+
+### 6. Smaller breaking details
 
 - The `valueKeys` export (the V2 list of string type identifiers) is removed.
 - If your `storage` relies on the **default** cache key (no custom `generateKey`), expect a one-time cache invalidation: projection hashes changed when type identifiers became tokens. Storages with their own `generateKey` are unaffected unless they hash the projection. Going forward, token hashes are content-derived — editing a custom type's implementation (or its `strict`/`name`) intentionally invalidates entries that used it, and nested parsers hash by their own projection.

@@ -154,7 +154,12 @@ export function defineType<Out>(definition: ParserTypeObject<Out> & { default: O
 export function defineType<Out>(definition: ParserTypeDefinition<Out>): ParserType<Out>;
 export function defineType<Out>(definition: ParserTypeDefinition<Out>): ParserType<Out> {
   const def = typeof definition === 'function' ? { fn: definition } : definition;
-  return createTypeToken('custom', { fn: def.fn as ParserTypeFunction, strict: def.strict, name: def.name, default: def.default }) as unknown as ParserType<Out>;
+  return createTypeToken('custom', {
+    fn: def.fn as ParserTypeFunction,
+    strict: def.strict,
+    name: def.name,
+    default: def.default,
+  }) as unknown as ParserType<Out>;
 }
 
 export class ParserCastError extends Error {

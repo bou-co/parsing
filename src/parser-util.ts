@@ -4,16 +4,12 @@ import { AppObject, ParserCondition, ParserContext, ParserFunction, ParserProjec
 
 export const asyncMapObject = async <T>(object: T, callback: (value: any) => any): Promise<T> => {
   if (!object || typeof object !== 'object') return object;
-  return Object.entries(object).reduce(
-    async (acc, [key, value]) => {
-      const awaited = await acc;
-      const copy: Record<any, any> = Array.isArray(awaited) ? [...awaited] : { ...awaited };
-      const result = await callback(value);
-      copy[key] = result;
-      return copy;
-    },
-    Promise.resolve(object) as Promise<Record<any, any>>,
-  );
+  const entries = Object.entries(object);
+  if (!entries.length) return object;
+  // Map all entries in parallel and build the result in a single pass
+  const results = await Promise.all(entries.map(async ([key, value]) => [key, await callback(value)] as [string, any]));
+  if (Array.isArray(object)) return results.map(([, value]) => value) as T;
+  return Object.fromEntries(results) as T;
 };
 
 export const asDate = (value: string | number): undefined | Date => {

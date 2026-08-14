@@ -22,15 +22,9 @@ describe('parsing', () => {
 
     for (let i = 0; i < levels; i++) {
       const previousParser = parsers[i - 1] || basicParser;
+      // Note: only one parser key per level since every parser key resolves regardless of data
       const newParser = createParser({
         childValue: previousParser,
-        anotherChildValue: previousParser,
-        andAnotherChildValue: previousParser,
-        evenMoreChildValue: previousParser,
-        yetAnotherChildValue: previousParser,
-        andYetAnotherChildValue: previousParser,
-        andAnotherOne: previousParser,
-        andAnotherOneMore: previousParser,
         asyncTest: async () => {
           await new Promise((resolve) => setTimeout(resolve, 10)); // Simulate async operation
           asyncCount++;
@@ -69,29 +63,30 @@ describe('parsing', () => {
     expect(basicEndTime - basicStartTime).toBeGreaterThanOrEqual(0);
     expect(basicEndTime - basicStartTime).toBeLessThan(50);
 
+    // The projection is the point of truth so every level resolves regardless of input depth
     expect(asyncCount).toBe(0); // Ensure async function hasn't been called yet
-    console.time('Parse no data (10-11ms)');
+    console.time('Parse no data (~100ms)');
     await rootParser({});
-    console.timeEnd('Parse no data (10-11ms)');
-    expect(asyncCount).toBe(1); // Ensure async function to be called once for the root parser
+    console.timeEnd('Parse no data (~100ms)');
+    expect(asyncCount).toBe(levels); // Ensure async function to be called for each level
 
     asyncCount = 0; // Reset async count
-    console.time('Parse ten levels data');
+    console.time('Parse ten levels data (~100ms)');
     await rootParser(tenLevelsData);
-    console.timeEnd('Parse ten levels data');
-    expect(asyncCount).toBe(11); // Ensure async function to be called for each level
+    console.timeEnd('Parse ten levels data (~100ms)');
+    expect(asyncCount).toBe(levels); // Ensure async function to be called for each level
 
     asyncCount = 0; // Reset async count
-    console.time('Parse half data');
+    console.time('Parse half data (~100ms)');
     await rootParser(halfData);
-    console.timeEnd('Parse half data');
-    expect(asyncCount).toBe(levels / 2 + 1); // Ensure async function to be called for each level up to half
+    console.timeEnd('Parse half data (~100ms)');
+    expect(asyncCount).toBe(levels); // Ensure async function to be called for each level
 
     const fullStartTime = Date.now();
     asyncCount = 0; // Reset async count
-    console.time('Parse full data');
+    console.time('Parse full data (~100ms)');
     const fullResult = await rootParser(fullData);
-    console.timeEnd('Parse full data');
+    console.timeEnd('Parse full data (~100ms)');
     expect(asyncCount).toBe(levels); // Ensure async function to be called for each level
     const fullEndTime = Date.now();
 
@@ -201,5 +196,140 @@ describe('parsing', () => {
     expect(result[5]).toBeDefined();
 
     expect(initializeCount).toBe(1); // Ensure parser is initialized only once
+  });
+
+  it('terminates self-referential parsers via the cycle guard', async () => {
+    const nodeParser: ParserFunction<any> = createParser({ name: 'node', child: () => nodeParser });
+
+    const startTime = Date.now();
+    const result = await nodeParser({});
+    const duration = Date.now() - startTime;
+
+    // One extra level of constants, then the cycle guard stops the recursion
+    expect(result).toEqual({ name: 'node', child: { name: 'node' } });
+    expect(duration).toBeLessThan(100);
+
+    // With real data the chain follows the data, plus the one constant tail
+    const deep = await nodeParser({ child: { child: {} } });
+    expect(deep).toEqual({ name: 'node', child: { name: 'node', child: { name: 'node', child: { name: 'node' } } } });
+  });
+
+  it('should not use excessive memory for deeply nested objects', async () => {
+    const basicParser = createParser({ value: types.string });
+    const levels = 1000;
+    const parsers: ParserFunction<any>[] = [];
+    let fullData: AppObject = {};
+
+    for (let i = 0; i < levels; i++) {
+      const previousParser = parsers[i - 1] || basicParser;
+      const newParser = createParser({
+        childValue: previousParser,
+        staticValue: 'constant',
+      });
+      fullData = i === 0 ? { childValue: { value: '{{variableTitle}}' } } : { childValue: { ...fullData } };
+      parsers.push(newParser);
+    }
+    const rootParser = parsers[parsers.length - 1];
+
+    const heapBefore = process.memoryUsage().heapUsed;
+    const result = await rootParser(fullData);
+    const heapAfter = process.memoryUsage().heapUsed;
+
+    const heapDelta = heapAfter - heapBefore;
+    console.log(`Heap usage delta for ${levels} levels: ${Math.round(heapDelta / 1024 / 1024)}MB (expected: <100MB)`);
+    // Context paths hold references to the projections instead of copies so the delta stays small
+    expect(heapDelta).toBeLessThan(100 * 1024 * 1024);
+    expect(JSON.stringify(result)).toContain(variableTitle);
+  });
+
+  it('should be able to validate and return heavy data driven objects in reasonable time', async () => {
+    const items = Array.from({ length: 1000 }, (_, i) => ({
+      id: `item-${i}`,
+      title: `Title for item ${i}`,
+      meta: {
+        slug: `item-${i}`,
+        published: true,
+        priority: i,
+        author: { name: `Author ${i % 20}`, email: `author-${i % 20}@example.com` },
+      },
+      tags: [`tag-${i % 10}`, `tag-${i % 7}`, `tag-${i % 3}`],
+      content: Array.from({ length: 10 }, (_, p) => ({ type: 'paragraph', text: `Paragraph ${p} of item ${i} with some longer text content` })),
+    }));
+    const heavyData = { id: 'heavy-root', settings: { locale: 'en', theme: 'dark', flags: { a: true, b: false } }, items };
+
+    // The projection stays vague and only validates the heavy input before returning it
+    const parser = createParser({
+      id: types.string,
+      isValid: ({ data }) => Array.isArray(data['items']) && data['items'].length > 0,
+      settings: types.object,
+      items: types.array,
+    });
+
+    const fullStartTime = Date.now();
+    console.time('Parse heavy data driven object (~15ms)');
+    const result = await parser(heavyData);
+    console.timeEnd('Parse heavy data driven object (~15ms)');
+    const fullEndTime = Date.now();
+    const duration = fullEndTime - fullStartTime;
+    console.log(`Total parsing time for heavy data driven object: ${duration} ms`);
+    expect(duration).toBeLessThan(100);
+
+    expect(result.id).toEqual('heavy-root');
+    expect(result.isValid).toBe(true);
+    expect(result.settings).toEqual(heavyData.settings);
+    expect(result.items).toHaveLength(1000);
+    expect(result.items?.[999]).toEqual(items[999]);
+  });
+
+  it('should be able to resolve projection driven output in reasonable time', async () => {
+    const seoParser = createParser({
+      title: types.string({ default: 'Untitled' }),
+      description: types.string,
+      index: true,
+    });
+    const brandParser = createParser({ brand: 'bou', locale: types.string({ default: 'en' }) });
+
+    const pageParser = createParser({
+      title: types.string({ default: 'Untitled page' }),
+      slug: types.string,
+      seo: seoParser,
+      branding: brandParser.flat,
+      hero: {
+        heading: types.string({ default: 'Welcome' }),
+        cta: { label: 'Read more', url: types.string },
+        background: types.string,
+      },
+      footer: {
+        copyright: () => '© Bou',
+        columns: types.array,
+      },
+      '@if': [{ when: () => true, then: { generated: true } }],
+      '@combine': () => ({ combinedValue: 'combined' }),
+    });
+
+    const iterations = 100;
+    const fullStartTime = Date.now();
+    console.time(`Resolve projection driven output ${iterations} times (~15ms)`);
+    const results = [];
+    for (let i = 0; i < iterations; i++) {
+      results.push(await pageParser({}));
+    }
+    console.timeEnd(`Resolve projection driven output ${iterations} times (~15ms)`);
+    const fullEndTime = Date.now();
+    const duration = fullEndTime - fullStartTime;
+    console.log(`Total parsing time for ${iterations} projection driven parses: ${duration} ms`);
+    expect(duration).toBeLessThan(100);
+
+    expect(results).toHaveLength(iterations);
+    expect(results[iterations - 1]).toEqual({
+      title: 'Untitled page',
+      seo: { title: 'Untitled', index: true },
+      brand: 'bou',
+      locale: 'en',
+      hero: { heading: 'Welcome', cta: { label: 'Read more' } },
+      footer: { copyright: '© Bou' },
+      generated: true,
+      combinedValue: 'combined',
+    });
   });
 });

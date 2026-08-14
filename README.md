@@ -318,6 +318,34 @@ const result = await myParser(structuredData);
 */
 ```
 
+#### The projection is the point of truth
+
+Nested projections resolve from the schema, not from the shape of the incoming data. When the input lacks a key (or holds a scalar that cannot feed an object projection — `null`, `0`, `''`, `false`, `5`), the nested projection still resolves: constants, value functions, type-token defaults, `@combine`, and `@if` inside it all produce output as usual.
+
+```ts
+const myParser = createParser({
+  title: types.string,
+  meta: {
+    version: 3, // constant — always present
+    theme: types.string({ default: 'light' }), // default — always present
+    description: types.string, // needs data — omitted without it
+  },
+});
+
+const result = await myParser({ title: 'Hello' });
+// → { title: 'Hello', meta: { version: 3, theme: 'light' } }
+```
+
+The rules that keep this predictable:
+
+- **Empty results are omitted.** If everything inside a nested projection depended on the missing data, the resolved object has no keys and the key is dropped entirely — purely data-mapping projections keep their omit behavior. This cascades naturally through deep nesting.
+- **Arrays are never conjured without data.** Projections marked `'@array': true`, array literals, and `parser.asArray` values keep requiring array input.
+- **The incoming value stays reachable.** During projection-driven resolution `context.data` is an empty object, and the original value (if any) is available through `context.parent.data`.
+- **Recursive schemas terminate.** A parser that references itself (directly or mutually) stops at the first repeat: the cycle is resolved once more with its data-independent fields, then cut.
+- **Opting out is a one-liner.** A value function can make any nested parser data-driven again: `child: ({ data }) => (data['child'] ? childParser : undefined)`.
+
+Note that value functions and `@combine` resolvers inside nested projections now run even when the key is absent from the data — including any API fetches or `context.store` calls they make.
+
 #### Flattening nested parsers with `.flat`
 
 Use `.flat` instead of nesting when a sub-parser's fields should live directly on the parent output. The parser still receives the data under its key, but the parsed fields are merged into the parent object and the key itself disappears:
@@ -334,7 +362,7 @@ const result = await pageParser({ name: 'Home', seo: { title: 'T', description: 
 // → { name: 'Home', title: 'T', description: 'D' }
 ```
 
-`.flat` is the composable sibling of the `@combine` directive and behaves the same way: merged fields override same-named regular keys, they are typed as optional in the output, and a missing input value simply merges nothing. The result must be an object — using `.flat` on array data throws.
+`.flat` is the composable sibling of the `@combine` directive and behaves the same way: merged fields override same-named regular keys and they are typed as optional in the output. With missing input the sub-parser resolves projection-driven — data-independent fields (constants, defaults) still merge; if nothing resolves, nothing is merged. The result must be an object — using `.flat` on array data throws.
 
 ### Conditional data
 
@@ -1310,7 +1338,7 @@ Creates an executable parser function based on the provided schema projection.
 
 The `context` object is passed to all dynamic resolver functions in your projection. It contains the raw data, some info about current execution and custom properties.
 
-- **`data`**: The raw input data at the currently executing nested level.
+- **`data`**: The raw input data at the currently executing nested level. During projection-driven resolution (no matching input for a nested projection) this is an empty object; the parent's value remains available via `context.parent.data`.
 - **`variables`**: A merged dictionary of global, schema, and instance variables, including a `current` reference to the input data. Used automatically in string template replacement. See [Variables](#variables).
 - **`key`**: The string key of the property currently being evaluated.
 - **`index`**: The numeric index if the current data is being evaluated inside an array. See [Nested Arrays](#nested-data-structures).
@@ -1318,6 +1346,8 @@ The `context` object is passed to all dynamic resolver functions in your project
 - **`projection`**: The active projection schema definition for the current level.
 - **`cache`**: The merged caching options. See [Caching](#server-side-data-fetching--caching).
 - **`parser`**: A reference to the underlying `Parser` instance handling the execution.
+- **`path`**: The chain of projection references from the root to the current level, present in every parse.
+- **`datalessPath`**: The chain of projection references accumulated during projection-driven resolution. Present only when the current parse has no matching input data — its presence tells a value function it is running data-lessly. See [The projection is the point of truth](#the-projection-is-the-point-of-truth).
 - **Custom Properties**: Any additional properties passed via context overriding or lifecycle hooks. To enable strong typing for custom properties, use TypeScript module augmentation. See [Advanced TypeScript Generation](#advanced-typescript-generation--utilities) and [Context Overriding](#context-overriding).
 
 ### Context Configuration & Modifiers
@@ -1332,7 +1362,7 @@ Context can be configured at three distinct levels, allowing you to scope variab
 
 Advanced structural controls available as keys within your schema definition.
 
-- **`@if`**: Accepts an array of objects containing `when` (a condition function) and `then` (the projection to merge if true). Allows fully conditional object picking. See [Conditional Data](#conditional-data).
+- **`@if`**: Accepts an array of objects containing `when` (a condition function) and `then` (the projection to merge if true). Allows fully conditional object picking. Inside projection-driven resolution the condition runs against an empty data object. See [Conditional Data](#conditional-data).
 - **`@combine`**: Accepts an async function returning an object. Merges the returned object directly into the current parsed output. Useful for fetching secondary datasets. See [Merging Data](#merging-data).
 - **`@array`**: When set to `true` at the root of a nested projection, signals the parser to iterate over the input data as an array and apply the remaining properties to each item. See [Nested Arrays](#nested-data-structures).
 - **`parser.flat`**: Not a key but a projection value — parses the data under its key with the given parser and merges the result into the parent output, dropping the key. See [Flattening nested parsers](#flattening-nested-parsers-with-flat).
