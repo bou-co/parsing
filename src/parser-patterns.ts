@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getFromObject } from './internal';
+import { buildKeyPath } from './parser-casting';
 import { ParserContext, ParserPattern, ParserPatternCacheMode, ParserPatternsConfig, PatternResolveInput } from './parser-types';
 
 export const PATTERN_REGISTRY = Symbol('@bou-co/parsing:pattern-registry');
@@ -215,8 +216,17 @@ const evaluateExpression = async (pattern: CompiledPattern, expression: string, 
       if (!pipeConfig) return value;
       const [pipeName, ...pipeParams] = pipeConfig.split(':').map((item) => item.trim());
       const pipe = await getFromObject(context.pipes ?? {}, pipeName);
-      if (!pipe) throw new Error(`Pipe "${pipeName}" not found`);
-      if (typeof pipe !== 'function') throw new Error(`Pipe "${pipeName}" is not a function`);
+      if (!pipe) {
+        // TODO(v4): remove migration catch
+        const legacy = await getFromObject(context.variables ?? {}, pipeName);
+        if (typeof legacy === 'function') {
+          throw new Error(
+            `[@bou-co/parsing] Pipe "${pipeName}" at "${buildKeyPath(context)}" is defined in \`variables\` — v3 looks pipes up from the \`pipes\` config only. Move the function into \`pipes\`.`,
+          );
+        }
+        throw new Error(`[@bou-co/parsing] Pipe "${pipeName}" not found at "${buildKeyPath(context)}"`);
+      }
+      if (typeof pipe !== 'function') throw new Error(`[@bou-co/parsing] Pipe "${pipeName}" at "${buildKeyPath(context)}" is not a function`);
       const params = await Promise.all(
         pipeParams.map(async (param) => {
           if (LITERAL_STRING.test(param)) return param.slice(1, -1);

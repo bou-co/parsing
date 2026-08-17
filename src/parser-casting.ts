@@ -81,7 +81,7 @@ const createTypeToken = (name: string, options: TypeTokenOptions): ParserTypeTok
   return token;
 };
 
-export const types: DefaultParserTypes = Object.freeze({
+const builtInTypes = {
   string: createTypeToken('string', {
     fn: (value) => {
       if (typeof value === 'string') return value;
@@ -148,7 +148,17 @@ export const types: DefaultParserTypes = Object.freeze({
   }),
   any: createTypeToken('any', { fn: (value) => value }),
   unknown: createTypeToken('unknown', { fn: (value) => value }),
-}) as unknown as DefaultParserTypes;
+};
+
+// TODO(v4): remove migration catch — non-enumerable so spreads and enumeration never trigger it
+Object.defineProperty(builtInTypes, 'undefined', {
+  enumerable: false,
+  get: () => {
+    throw new Error('[@bou-co/parsing] There is no types.undefined in v3 — use the `optional` util or omit the key');
+  },
+});
+
+export const types: DefaultParserTypes = Object.freeze(builtInTypes) as unknown as DefaultParserTypes;
 
 export function defineType<Out>(definition: ParserTypeObject<Out> & { default: Out }): ParserTypeWithDefault<Out>;
 export function defineType<Out>(definition: ParserTypeDefinition<Out>): ParserType<Out>;
@@ -222,6 +232,7 @@ export const applyCast = async (value: unknown, token: ParserTypeToken, context:
   return runCast(value, { fn: token._fn, strict: token.strict }, token, context);
 };
 
+// TODO(v4): remove migration catch (and its call site in parser.ts)
 export const legacyTypeKeys = ['string', 'number', 'boolean', 'date', 'object', 'array', 'any', 'unknown', 'undefined'] as const;
 
 export const assertNotLegacyTypeKey = (value: string, context: ParserContext): void => {

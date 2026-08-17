@@ -34,6 +34,10 @@ interface ParserCache {
   pending: Map<string, Promise<any>>;
 }
 
+// TODO(v4): remove with the migration catches
+const parserGlobalContextRemoved =
+  '[@bou-co/parsing] Parser.parserGlobalContext was removed in v3 — engines are isolated; pass the global context to initializeParser(...) or new Parser(...)';
+
 export class Parser {
   private cache: ParserCache = { variables: {}, pending: new Map() };
 
@@ -44,6 +48,19 @@ export class Parser {
   constructor(globalContext: ParserGlobalContext | ParserGlobalContextFn = {} as ParserGlobalContext) {
     this.globalContext = globalContext;
   }
+
+  // TODO(v4): remove migration catches — assigning the removed v2 statics would otherwise silently no-op
+  static get parserGlobalContext(): never {
+    throw new Error(parserGlobalContextRemoved);
+  }
+  static set parserGlobalContext(_value: unknown) {
+    throw new Error(parserGlobalContextRemoved);
+  }
+  static createParser = (): never => {
+    throw new Error(
+      '[@bou-co/parsing] Parser.createParser was removed in v3 — use the createParser returned by initializeParser(...) or new Parser(config).createParser',
+    );
+  };
 
   private async getGlobalContext() {
     while (this.initializingGlobalContext) {
@@ -261,6 +278,12 @@ export class Parser {
     parserContext?: CreateParserContext,
   ): ParserFunction<T> => {
     const parse = async (value: AppObject | string, instanceContext: ParserInstanceContext = {}, parentContext: Partial<ParserContext> = {}) => {
+      // TODO(v4): remove migration catch
+      if (instanceContext && 'parser' in instanceContext) {
+        throw new Error(
+          '[@bou-co/parsing] A full parser context was passed as the second argument — in v3 the parent context is the third argument: parser(input, instanceContext, parentContext)',
+        );
+      }
       const isRoot = parentContext.isRoot === undefined;
 
       if (!value) return undefined;
@@ -399,6 +422,7 @@ export class Parser {
 
             return undefined;
           }
+          // TODO(v4): remove migration catch
           if (typeof value === 'string') assertNotLegacyTypeKey(value, context);
 
           if (value instanceof Function) {

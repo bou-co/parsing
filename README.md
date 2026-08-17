@@ -1594,7 +1594,7 @@ const userParser = createParser({
 
 export const UserProfile = ({ rawData }) => {
   // Hook handles async resolution natively
-  const { data: user, loading } = useParserValue(rawData, userParser);
+  const { result: user, loading } = useParserValue(rawData, userParser);
 
   if (loading) return <div>Loading profile...</div>;
 
@@ -1643,8 +1643,12 @@ The `context` object is passed to all dynamic resolver functions in your project
 - **`key`**: The string key of the property currently being evaluated.
 - **`index`**: The numeric index if the current data is being evaluated inside an array. See [Nested Arrays](#nested-data-structures).
 - **`isRoot`**: A boolean indicating if this is the top-level execution of the parser.
+- **`parent`**: The enclosing level's context, chaining all the way up to the root (`undefined` at the root). During nested or projection-driven resolution, `context.parent.data` reaches the surrounding input.
 - **`projection`**: The active projection schema definition for the current level.
 - **`cache`**: The merged caching options. See [Caching](#server-side-data-fetching--caching).
+- **`store`**: `store(key, fn, options?)` — get-or-compute caching for a single async value through the global `storage`, with in-flight dedupe, independent of `cache.enabled`. See [Value-Level Caching with `context.store`](#value-level-caching-with-contextstore).
+- **`storage`**: Direct access to the configured storage backend.
+- **`params`**: Inside a pipe function, the resolved parameters given after the pipe name (`{{x | pipe:param1:param2}}`); `undefined` when none were passed.
 - **`resolve`**: A contextual version of [`resolve`](#resolveinput-contextoverride) that inherits the active context (variables, transformers, locale) with optional per-call overrides. Called with **no arguments** it lazily resolves the current `context.value`, memoized per context so repeated calls resolve once. See [Function values & the contextual resolve](#function-values--the-contextual-resolve).
 - **`parser`**: A reference to the underlying `Parser` instance handling the execution.
 - **`path`**: The chain of projection references from the root to the current level, present in every parse.
@@ -1761,7 +1765,7 @@ console.log(toHash(obj1) === toHash(obj2)); // true
 
 #### `useParserValue(data, parser)`
 
-React hook exported from `@bou-co/parsing/react`. Safely resolves async parsers inside React components, returning `{ data, loading, error }`.
+React hook exported from `@bou-co/parsing/react`. Safely resolves async parsers inside React components, returning `{ result, loading, error, revalidate }`. `revalidate(updatedData?)` re-runs the parse on demand — with the latest data by default, or with new data when passed (also bypassing the hook's change detection, e.g. after a mutation you know changed the output).
 
 ```tsx
 import React from 'react';
@@ -1769,12 +1773,12 @@ import { useParserValue } from '@bou-co/parsing/react';
 import { myParser } from './parser';
 
 export const MyComponent = ({ rawProps }) => {
-  const { data, loading, error } = useParserValue(rawProps, myParser);
+  const { result, loading, error, revalidate } = useParserValue(rawProps, myParser);
 
   if (loading) return <div>Loading...</div>;
   if (error) return <div>Error: {error.message}</div>;
 
-  return <div>{data?.title}</div>;
+  return <div onClick={() => revalidate()}>{result?.title}</div>;
 };
 ```
 

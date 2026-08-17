@@ -30,7 +30,7 @@ describe('pipes', () => {
   it('should not find pipes defined in variables anymore', async () => {
     const { createParser, types } = initializeParser({ variables: { name: 'bob', legacy: up } });
     const parser = createParser({ title: types.string });
-    await expect(parser({ title: '{{name | legacy}}' })).rejects.toThrow('Pipe "legacy" not found');
+    await expect(parser({ title: '{{name | legacy}}' })).rejects.toThrow('Pipe "legacy" at "title" is defined in `variables`');
   });
 
   it('should make pipes available to custom patterns with expressions enabled', async () => {
