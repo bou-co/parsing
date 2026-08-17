@@ -22,6 +22,7 @@ export const toHash = (value: unknown): string => {
   if (!value) return toHash('undefined');
   const asString = JSON.stringify(value, (key, value) => {
     if (value instanceof Function) return value.toString();
+    if (value instanceof RegExp) return value.toString();
     return value;
   });
   const numericHash = toPhash(5381, JSON.stringify(asString)) >>> 0;

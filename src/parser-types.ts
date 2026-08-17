@@ -32,6 +32,42 @@ export interface ParserContextTransformers {
   [key: string]: ParserContextTransformer;
 }
 
+export type ParserPatternCacheMode = 'run' | 'none' | 'storage';
+
+export interface PatternResolveInput {
+  /** The expression after grammar parsing, e.g. "user.name" (the raw capture for patterns with expressions: false) */
+  path: string;
+  /** The full matched text, e.g. '{{user.name || "Guest" | uppercase}}' */
+  raw: string;
+  /** Raw regex capture groups */
+  groups: RegExpExecArray;
+  context: ParserContext;
+}
+
+export interface ParserPattern {
+  /** Start and end strings bounding a match, e.g. ['{{', '}}']. The engine builds the match regex from these when `match` is absent. Required for expressions */
+  delimiters?: [string, string];
+  /** Regex detecting the pattern inside strings. First capture group is the expression. Optional when `delimiters` is set (overrides the built regex) */
+  match?: RegExp;
+  /** Called once per unique match in a string, never per occurrence */
+  resolve: (input: PatternResolveInput) => unknown | Promise<unknown>;
+  /** Engine parses ||, | pipes and literals before calling resolve. Defaults to true for patterns with `delimiters`; unavailable (throws if set) without them */
+  expressions?: boolean;
+  /** Re-scan resolved string output for patterns. Default: true */
+  rescan?: boolean;
+  /** 'run' (memoized per parse, default), 'none', or 'storage' (uses the configured storage) */
+  cache?: ParserPatternCacheMode;
+}
+
+/** Per-key: a pattern to register, a partial merged onto the same-named existing pattern, or false to disable it */
+export type ParserPatternsConfig = Record<string, ParserPattern | Partial<ParserPattern> | false>;
+
+export type ParserPipeFunction<DATA = any, PARAMS = any> = ContextParserValueFunction<DATA, PARAMS>;
+
+export interface ParserContextPipes {
+  [key: string]: ParserPipeFunction;
+}
+
 export type CacheValueFn = <T>(value: T) => T;
 
 export interface StorageLike {
@@ -51,6 +87,8 @@ export interface ParserGlobalContext extends CommonContext, GlobalContext {
   storage?: StorageLike;
   variables?: ParserContextVariables;
   transformers?: ParserContextTransformers;
+  patterns?: ParserPatternsConfig;
+  pipes?: ParserContextPipes;
   variableResolver?: (variableName: string, context: ParserContext, cache: CacheValueFn) => Promise<unknown> | unknown;
   cache?: ParserCachingOptions;
   looseCasting?: LooseCasting;
@@ -61,6 +99,7 @@ export type ParserGlobalContextFn = () => ParserGlobalContext | Promise<ParserGl
 
 export interface CreateParserContext extends CommonContext, CreateContext {
   variables?: ParserContextVariables;
+  pipes?: ParserContextPipes;
   cache?: ParserCachingOptions;
   looseCasting?: LooseCasting;
   onCastError?: OnCastError;
@@ -68,6 +107,7 @@ export interface CreateParserContext extends CommonContext, CreateContext {
 
 export interface ParserInstanceContext extends CommonContext, InstanceContext {
   variables?: ParserContextVariables;
+  pipes?: ParserContextPipes;
   cache?: ParserCachingOptions;
   looseCasting?: LooseCasting;
   onCastError?: OnCastError;
@@ -91,6 +131,8 @@ export interface ParserContext<DATA = AppObject, PARAMS = unknown[]>
   params?: PARAMS;
   /** Merged dictionary of global, schema and instance variables */
   variables: AppObject;
+  /** Merged dictionary of global, schema and instance pipe functions */
+  pipes?: ParserContextPipes;
   /** Index of the current item when parsing an array */
   index?: number;
   /** Context of the parent level, forming a chain up to the root */

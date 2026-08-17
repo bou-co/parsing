@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ParserCachingOptions } from './expandable-types';
-import { canResolveDataless, getFromObject, hasArrayDirective, isDatalessInput } from './internal';
+import { canResolveDataless, hasArrayDirective, isDatalessInput } from './internal';
 import {
   ParserFunction,
   ParserContext,
@@ -16,6 +16,16 @@ import {
   ContextResolveFunction,
 } from './parser-types';
 import { applyCast, assertNotLegacyTypeKey, isTypeToken, ParserTypeToken, types } from './parser-casting';
+import {
+  CompiledPatternRegistry,
+  compilePatternRegistry,
+  evaluateVariableExpression,
+  matchFullPattern,
+  PATTERN_REGISTRY,
+  PATTERN_RUN_CACHE,
+  resolvePatternMatch,
+  resolvePatternsInText,
+} from './parser-patterns';
 import { filterNill, filterUndefinedEntries, mergeObjects, optional, typed } from './parser-util';
 import { toHash } from './to-hash';
 
@@ -29,6 +39,7 @@ export class Parser {
 
   private initializingGlobalContext = false;
   private globalContext: ParserGlobalContext | ParserGlobalContextFn;
+  private patternRegistry?: CompiledPatternRegistry;
 
   constructor(globalContext: ParserGlobalContext | ParserGlobalContextFn = {} as ParserGlobalContext) {
     this.globalContext = globalContext;
@@ -49,6 +60,11 @@ export class Parser {
   public cacheVariable = <T>(path: string, value: T): T => {
     Object.assign(this.cache.variables, { [path]: value });
     return value;
+  };
+
+  // Only safe to call once the global context has resolved (patterns are global-only)
+  private getPatternRegistry = (): CompiledPatternRegistry => {
+    return (this.patternRegistry ??= compilePatternRegistry((this.globalContext as ParserGlobalContext).patterns));
   };
 
   private storeValue = async <T>(context: ParserContext, key: string, fn: () => T | Promise<T>, options?: ParserCachingOptions): Promise<T> => {
@@ -105,80 +121,22 @@ export class Parser {
   };
 
   /**
-   * Retrieves the value of a variable from the context based on the provided match string.
-   * The match string should be in the format `{{variableName}}` or `{{variableName|pipeConfig}}`.
-   * If the variable is not found, it will try to resolve it using the variable resolver function from the context.
-   * If the variable is an object, it will apply the specified pipe configuration to the value.
-   * If the variable is a string, it will return the string without any processing.
-   * If the variable is a number, it will return the number as is.
-   * If the variable is a boolean, it will return the boolean as is.
-   * If the variable is an array, it will return the array as is.
-   * @param match The match string containing the variable name and optional pipe configuration.
-   * @param context The context containing variable definitions and a variable resolver function.
-   * @returns A promise that resolves to the value of the variable, processed according to the pipe configuration if applicable.
-   * @throws Will throw an error if the pipe is not found or if the pipe is not a function.
+   * Resolves a variable expression through the active variables pattern.
+   * Accepts the pattern's own syntax (`{{variableName}}` by default), the legacy `{{path}}` form, or a bare path.
+   * Expression grammar (`||` fallbacks, literals, `| pipe:params`) is applied unless the pattern opts out.
+   * @throws Will throw an error if a referenced pipe is not found or is not a function.
    */
   public static getVariableValue = async <T = unknown>(match: string, context: ParserContext): Promise<T> => {
-    const { variables, variableResolver } = context;
-    if (match === '{{...}}') return variables as T;
-
-    const parts = match
-      .slice(2, -2)
-      .split('||')
-      .map((item) => item.trim());
-
-    for (const part of parts) {
-      const [variable, pipeConfig] = part.split('|').map((item) => item.trim());
-      const handlePipe = async <T>(value: T) => {
-        if (!pipeConfig) return value;
-        const [pipeName, ...pipeParams] = pipeConfig.split(':').map((item) => item.trim());
-        const pipe = await getFromObject(variables, pipeName);
-        if (!pipe) throw new Error(`Pipe "${pipeName}" not found`);
-        if (typeof pipe !== 'function') throw new Error(`Pipe "${pipeName}" is not a function`);
-        const params = await Promise.all(
-          pipeParams.map(async (param) => {
-            if (/^".+"$/.test(param)) return param.slice(1, -1) as T;
-            if (/^\d+$/.test(param)) return parseInt(param, 10) as T;
-            if (/^false$|^true$/.test(param)) return param === 'true' ? (true as T) : (false as T);
-            const paramValue = await getFromObject(variables, param, context);
-            if (typeof paramValue === 'function') return await paramValue(context);
-            return paramValue;
-          }),
-        );
-        return await pipe({ ...context, data: value, value, params: params.length ? params : undefined });
-      };
-
-      if (/^".+"$/.test(variable)) return variable.slice(1, -1) as T;
-      if (/^\d+$/.test(variable)) return parseInt(variable, 10) as T;
-      if (/^false$|^true$/.test(variable)) return variable === 'true' ? (true as T) : (false as T);
-
-      const resolveVariableValue = async (path: string): Promise<unknown> => {
-        const cacheVariable = <T>(value: T): T => {
-          if (!context.parser) return value;
-          return context.parser.cacheVariable(path, value);
-        };
-
-        let value: unknown = await getFromObject(variables, path, context);
-        if (value === undefined && variableResolver) value = await variableResolver(path, context, cacheVariable);
-        if (typeof value === 'function') value = await value(context);
-        return value;
-      };
-
-      const [key, ...rest] = variable.split('.');
-      let value = await resolveVariableValue(key);
-      if (value && typeof value === 'object' && rest.length) value = await getFromObject(value, rest.join('.'), context);
-      if (value !== undefined || context.pipeUndefined) return handlePipe(value);
-    }
-    return undefined as T;
+    return evaluateVariableExpression(match, context) as Promise<T>;
   };
 
   /**
-   * Resolves variables in the current value based on the context.
+   * Resolves patterns (variables by default) in the current value based on the context.
    * If the current value is an object, it recursively resolves its properties.
-   * If the current value is a string, it checks for variables wrapped in `{{}}` and replaces them with their values.
-   * @param current The value to resolve variables in.
+   * If the current value is a string, registered patterns are matched and replaced with their resolved values.
+   * @param current The value to resolve patterns in.
    * @param context The context containing variable definitions and other information.
-   * @returns A promise that resolves to the value with variables resolved.
+   * @returns A promise that resolves to the value with patterns resolved.
    */
   public static resolveVariables = async <T>(current: T, context: ParserContext): Promise<T> => {
     return this.resolveValue(current, context) as T | Promise<T>;
@@ -208,17 +166,8 @@ export class Parser {
       return result;
     }
 
-    // If the current value is a string, check if it contains a variable
-    if (typeof current === 'string') {
-      const variables = current.match(/\{\{[^}]+\}\}/g);
-      if (!variables) return current;
-      const isVariable = current.match(/^\{\{[^}]+\}\}$/);
-      if (isVariable) return this.getVariableValue(current, context);
-
-      // Resolve all variables in parallel and apply the replacements in order
-      const values = Promise.all(variables.map((variableName) => this.getVariableValue<string>(variableName, context)));
-      return values.then((resolved) => variables.reduce((acc, variableName, index) => acc.replace(variableName, resolved[index]), current));
-    }
+    // If the current value is a string, resolve any patterns it contains (returns the string as-is when there are none)
+    if (typeof current === 'string') return resolvePatternsInText(current, context);
     return current;
   };
 
@@ -231,18 +180,24 @@ export class Parser {
     if (instanceContext) Object.assign(variables, instanceContext.variables);
     if (this.cache.variables) Object.assign(variables, this.cache.variables);
 
+    const pipes = {};
+    if (globalContext) Object.assign(pipes, globalContext.pipes);
+    if (instanceContext) Object.assign(pipes, instanceContext.pipes);
+
     const context: ParserContext = {
       parser: this,
       ...globalContext,
       ...instanceContext,
       isRoot: true,
       variables,
+      pipes,
       data: input,
       value: input,
       cache: mergeObjects(globalContext?.cache, instanceContext?.cache),
       store: (key, fn, options) => this.storeValue(context, key, fn, options),
     } satisfies Partial<ParserContext<unknown>> as any;
     context.resolve = this.createContextResolve(context);
+    Object.assign(context, { [PATTERN_REGISTRY]: this.getPatternRegistry(), [PATTERN_RUN_CACHE]: new Map() });
 
     return this.resolveNode(input, context);
   }) as ParserResolveFunction;
@@ -250,7 +205,8 @@ export class Parser {
   // Backs context.resolve — same resolution as the public resolve but inheriting the calling context
   private resolveWithParentContext = (input: unknown, parentContext: ParserContext, instanceContext?: ParserInstanceContext): Promise<unknown> => {
     const variables = { ...parentContext.variables, ...instanceContext?.variables, current: input };
-    const context: ParserContext = { ...parentContext, ...instanceContext, variables, data: input, value: input } satisfies Partial<
+    const pipes = { ...parentContext.pipes, ...instanceContext?.pipes };
+    const context: ParserContext = { ...parentContext, ...instanceContext, variables, pipes, data: input, value: input } satisfies Partial<
       ParserContext<unknown>
     > as any;
     context.store = (key, fn, options) => this.storeValue(context, key, fn, options);
@@ -321,6 +277,12 @@ export class Parser {
       if (instanceContext) Object.assign(variables, instanceContext.variables);
       if (this.cache.variables) Object.assign(variables, this.cache.variables);
 
+      const pipes = {};
+      if (globalContext) Object.assign(pipes, globalContext.pipes);
+      if (parentContext) Object.assign(pipes, parentContext.pipes);
+      if (parserContext) Object.assign(pipes, parserContext.pipes);
+      if (instanceContext) Object.assign(pipes, instanceContext.pipes);
+
       let contextBase: ParserContext = {
         parser: this,
         ...globalContext,
@@ -329,6 +291,7 @@ export class Parser {
         ...instanceContext,
         isRoot,
         variables,
+        pipes,
         data,
         // Explicit so a per-key value from parentContext never leaks into this level
         value: data,
@@ -337,6 +300,9 @@ export class Parser {
         store: (key, fn, options) => this.storeValue(contextBase, key, fn, options),
       } satisfies Partial<ParserContext> as any;
       contextBase.resolve = this.createContextResolve(contextBase);
+      // The registry always belongs to this engine; the run cache is shared down from the root parse
+      const patternRunCache = (contextBase as AppObject)[PATTERN_RUN_CACHE] ?? new Map();
+      Object.assign(contextBase, { [PATTERN_REGISTRY]: this.getPatternRegistry(), [PATTERN_RUN_CACHE]: patternRunCache });
 
       const projection = typeof project === 'function' ? await project(contextBase) : project;
       Object.assign(contextBase, { projection, path: [...(parentContext.path ?? []), projection] });
@@ -372,6 +338,7 @@ export class Parser {
       }
       // Before hooks may replace contextBase; re-wire so resolve targets the active context
       contextBase.resolve = this.createContextResolve(contextBase);
+      Object.assign(contextBase, { [PATTERN_REGISTRY]: this.getPatternRegistry(), [PATTERN_RUN_CACHE]: patternRunCache });
 
       const entries = Object.entries(projection);
       const conditionalEnties = [] as [string, unknown][];
@@ -491,11 +458,11 @@ export class Parser {
               const isStringObject = input.match(/^\{[^}]+\}$/);
               if (isStringObject) return [key, await parserFn(input, instanceContext, context)];
 
-              // Match variables that are wrapped in double curly braces
-              const isVariable = input.match(/^\{\{[^}]+\}\}$/);
-              if (isVariable) {
-                const variable = await Parser.getVariableValue(input, context);
-                if (variable instanceof Object) return [key, await parserFn(variable as AppObject, instanceContext, context)];
+              // Match a full-string pattern (a variable by default) that may resolve to an object
+              const fullPattern = matchFullPattern(input, context);
+              if (fullPattern) {
+                const resolved = await resolvePatternMatch(fullPattern, context);
+                if (resolved instanceof Object) return [key, await parserFn(resolved as AppObject, instanceContext, context)];
               }
             }
             // Array projections always require data
@@ -619,12 +586,18 @@ export class Parser {
         if (parserContext) Object.assign(variables, parserContext.variables);
         if (instanceContext) Object.assign(variables, instanceContext.variables);
 
+        const pipes = {};
+        if (globalContext) Object.assign(pipes, globalContext.pipes);
+        if (parserContext) Object.assign(pipes, parserContext.pipes);
+        if (instanceContext) Object.assign(pipes, instanceContext.pipes);
+
         const context: CachingParserContext = {
           parser: this,
           ...globalContext,
           ...parserContext,
           ...instanceContext,
           variables,
+          pipes,
           data,
           projection: projectionFn.projection,
           cache,
@@ -656,7 +629,6 @@ export const resolveVariables = async <T>(current: T, context: ParserContext): P
 };
 
 export const getVariableValue = async <T = unknown>(variable: string, context: ParserContext): Promise<T> => {
-  if (!/^\{\{[^}]+\}\}$/.test(variable)) variable = `{{${variable}}}`;
   return Parser.getVariableValue(variable, context);
 };
 

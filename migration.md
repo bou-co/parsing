@@ -64,6 +64,48 @@ What this means in practice:
 - The `valueKeys` export (the V2 list of string type identifiers) is removed.
 - If your `storage` relies on the **default** cache key (no custom `generateKey`), expect a one-time cache invalidation: projection hashes changed when type identifiers became tokens. Storages with their own `generateKey` are unaffected unless they hash the projection. Going forward, token hashes are content-derived — editing a custom type's implementation (or its `strict`/`name`) intentionally invalidates entries that used it, and nested parsers hash by their own projection.
 
+### 7. Pipes move out of `variables` into `pipes`
+
+Pipe functions are engine-level machinery, not data — they no longer live in the `variables` namespace (which V2 §1 originally introduced). A pipe referenced in a `{{value | pipe}}` expression is now looked up from the new `pipes` config only; a pipe left in `variables` throws `Pipe "name" not found`. Migration is moving the function definitions — the pipe code and the `{{x | pipe}}` usage strings stay identical:
+
+**V2:**
+
+```ts
+initializeParser(() => ({
+  variables: {
+    currentYear: () => new Date().getFullYear(),
+    uppercase: ({ data }) => String(data).toUpperCase(),
+  },
+}));
+```
+
+**V3:**
+
+```ts
+initializeParser(() => ({
+  variables: {
+    currentYear: () => new Date().getFullYear(),
+  },
+  pipes: {
+    uppercase: ({ data }) => String(data).toUpperCase(),
+  },
+}));
+```
+
+`pipes` is configurable at all three levels like `variables` (global, `createParser`, per-call) and lands merged on `context.pipes`. Pipe _params_ that reference variables (`{{x | join:firstName}}`) still resolve from `variables` — they are data references. As a side effect, `{{...}}` no longer leaks pipe functions into the spread.
+
+### 8. Variables are now a pattern (new `patterns` API)
+
+`{{variable}}` interpolation is now implemented as a built-in **pattern** — a user-definable primitive that detects a regex match inside string values and resolves it. Existing `{{ }}` syntax, fallbacks, pipes, dot paths and `variableResolver` behave as before, with these deltas:
+
+- **Resolved output is re-scanned by default** — a variable resolving to a string containing `{{other}}` now resolves that too (previously left literal). Opt out with `patterns: { variables: { rescan: false } }`. Cycles throw `ParserPatternCycleError` instead of hanging.
+- **Escaping now exists**: a backslash directly before a match suppresses it and is consumed (`\{{foo}}` outputs `{{foo}}`); `\\` before a match is a literal backslash. Existing content containing `\` immediately before `{{` will change output.
+- **Matches are deduped per string** — the same `{{expression}}` occurring N times in one string resolves once (visible only with nondeterministic resolvers).
+- **`$`-sequences in resolved values are now inserted literally** — previously `$&`, `$1` and `$$` in a resolved value were mangled by the string splice.
+- **Cache lifetime**: user-defined patterns default to per-parse memoization (`cache: 'run'`), with `'none'` and `'storage'` (reuses the configured `storage`) as options. The `variableResolver` `cache()` callback keeps its engine-lifetime store — be aware that values cached there are served for the life of the engine, across requests and tenants; prefer a pattern with `cache: 'run'` or `'storage'` for per-request data.
+
+See the README's Patterns section for the full API.
+
 ### Migrating a live site
 
 Casting means values that silently passed through with a wrong shape in V2 now throw a `ParserCastError`. For a low-risk rollout, migrate with `looseCasting: 'undefined'` plus an `onCastError` reporter to surface those fields first, fix or retype them (`types.any` for intentional raw passthroughs), then remove `looseCasting` to return to the default throwing mode.

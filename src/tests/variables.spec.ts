@@ -19,7 +19,10 @@ const variableFunctionWithContext: ContextParserValueFunction<AppObject> = (cont
 };
 
 const { createParser, types } = initializeParser(async () => {
-  return { variables: { variableTitle, variableFunction, asyncVariable, asyncVariableFunction, variableFunctionWithContext, uppercase, multiply, join } };
+  return {
+    variables: { variableTitle, variableFunction, asyncVariable, asyncVariableFunction, variableFunctionWithContext },
+    pipes: { uppercase, multiply, join },
+  };
 });
 
 const hello = 'hello world';

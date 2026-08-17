@@ -16,6 +16,7 @@ Key capabilities at a glance:
 - **Conditional fields** — `@if` blocks add or override fields based on runtime conditions
 - **Data merging** — `@combine` fetches secondary data and merges it into the output
 - **Variable interpolation** — `{{variable}}` templates with fallbacks, pipes, and async resolvers
+- **Patterns** — define your own inline syntaxes (e.g. `$products.count`) resolved from any string; variables are just the built-in one
 - **Transformers** — global hooks that auto-convert matching values (e.g. localisation objects)
 - **Lifecycle hooks** — `before`/`after` callbacks for shared context setup and post-processing
 - **Server-side caching** — pluggable storage (Redis, etc.) with deterministic cache-key generation
@@ -32,17 +33,22 @@ Key capabilities at a glance:
   - [Adding and modifying values](#adding-and-modifying-values)
   - [Nested data structures](#nested-data-structures)
   - [Conditional data](#conditional-data)
+- [Fundamentals](#fundamentals)
+  - [The value resolution pipeline](#the-value-resolution-pipeline)
+  - [Transformers vs patterns](#transformers-vs-patterns)
 - [Advanced Usage](#advanced-usage)
   - [Custom types & casting options](#custom-types--casting-options)
   - [Multiple parser configurations](#multiple-parser-configurations)
   - [Merging data](#merging-data)
   - [Variables](#variables)
+  - [Expressions & pipes](#expressions--pipes)
   - [Resolving values without parsing](#resolving-values-without-parsing)
   - [Dynamic projections](#dynamic-projections)
   - [Extending parsers](#extending-parsers)
   - [Context overriding](#context-overriding)
   - [Lifecycle hooks](#lifecycle-hooks)
   - [Transformers](#transformers)
+  - [Patterns](#patterns)
   - [Chaining parsers (Reparsing)](#chaining-parsers-reparsing)
 - [Examples & Use Cases](#examples--use-cases)
   - [Next.js App Router & Server Components](#nextjs-app-router--server-components)
@@ -407,6 +413,48 @@ const result = await myParser(rawDataFromApi);
 
 ---
 
+## Fundamentals
+
+A few concepts pay off across everything else in this document. Values flow through a fixed resolution pipeline, and the library offers extension points at different levels of ambition: [variables](#variables) are the everyday tool most projects never outgrow, [transformers](#transformers) are the mid tier for reshaping whole values, and custom [patterns](#patterns) are the expert tier for defining your own inline syntaxes.
+
+### The value resolution pipeline
+
+Every projected key resolves its value through the same stages, in order:
+
+1. **Pick** — the raw value is read from the input data, or produced by a value function or nested parser in the projection.
+2. **Transformers** — every global transformer whose `when` condition matches may replace the whole value. See [Transformers](#transformers).
+3. **Patterns** — string values are scanned for pattern matches (`{{variable}}` interpolation by default); each match is resolved and spliced back into the text. See [Variables](#variables) and [Patterns](#patterns).
+4. **Casting** — the declared `types.*` token casts the final value at the very end. See [Types & casting](#types--casting).
+
+The standalone [`resolve`](#resolving-values-without-parsing) function runs the same middle stages without a projection: transformers apply at every nesting level and patterns resolve in every string, but nothing is picked or cast. Output that comes from a nested parser is already fully resolved and is not re-processed by the parent.
+
+### Transformers vs patterns
+
+[Transformers](#transformers) and [patterns](#patterns) are the two value-level extension points, and they never overlap:
+
+**Transformers operate on values. Patterns operate on text inside values.**
+
+|                | Transformers                               | Patterns                                                                                          |
+| -------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Detects        | the shape/type of a whole property value   | a regex match inside a string                                                                     |
+| Granularity    | one value in, one value out                | many matches per string, each resolved independently                                              |
+| Typical `when` | `typeof data === 'object' && 'en' in data` | `/\{\{([^}]+)\}\}/g`                                                                              |
+| Output         | replaces the entire value                  | spliced back into the surrounding text (or replaces the value if the string was _only_ the match) |
+| Runs           | once per projected key                     | on every string the parser touches, at any depth                                                  |
+
+The one-line rule: **if you're reacting to what the value _is_, use a transformer; if you're reacting to something written _inside_ the value, use a pattern.**
+
+- CMS returns `{ en: 'Hello', fi: 'Hei' }` and you want the current locale → **transformer**. You're keying off the value's shape.
+- Editor typed `Copyright {{currentYear}}` → **pattern**. It's text inside a string, and there could be five of them.
+- Editor typed `{{snippets/sale-banner}}` and you want to fetch on demand → **pattern**.
+- You want every `Date` string coerced to a `Date` object → **transformer**.
+- You want `$products.count` anywhere in any string to become a live DB count → **pattern**.
+- You want to strip HTML from every string value → **transformer** (you're rewriting the whole value, not a token in it).
+
+**Ordering guarantee:** patterns resolve **after** transformers. A transformer's output is still scanned for patterns, so "rewrite my legacy `[[token]]` syntax into `{{token}}`" is a legitimate one-line transformer. The reverse is not true — pattern output is re-scanned by patterns, not by transformers.
+
+Remember that for the common case you rarely define either: the built-in variables pattern with its [expressions](#expressions--pipes) covers everyday templating out of the box.
+
 ## Advanced Usage
 
 ### Custom types & casting options
@@ -551,15 +599,17 @@ const result = await myParser(rawDataFromApi);
 
 ### Variables
 
-Variables provide advanced template logic for string values coming from raw data. They allow content editors (e.g., in a CMS) to use dynamic data without requiring coders to build an entire EJS or templating engine.
+Variables provide template logic for string values coming from raw data — the everyday tool for dynamic content, and for most projects all you ever need. They allow content editors (e.g., in a CMS) to use dynamic data without requiring coders to build an entire EJS or templating engine.
 
 Variables support:
 
 - **Functions:** Resolve dynamic data (e.g., `currentYear: () => new Date().getFullYear()`).
 - **Async Execution:** Fetch variable values from a DB or CMS dynamically.
 - **Deep object resolution:** Access nested properties using dot notation (e.g., `{{user.address.city}}`).
-- **Fallbacks:** Chain variable checks (e.g., `{{user.name || "Guest"}}` or `{{score || 0}}`).
-- **Pipes:** Transform output values inline (e.g., `{{date | toDateString}}` or `{{title | uppercase}}`).
+- **Fallbacks & literals:** Chain checks like `{{user.name || "Guest"}}` — see [Expressions & pipes](#expressions--pipes).
+- **Pipes:** Transform output inline like `{{title | uppercase}}` — see [Expressions & pipes](#expressions--pipes).
+
+Under the hood, variables are the built-in [pattern](#patterns) — that only matters once you want to re-delimit them, disable them, or register your own syntaxes alongside them, which is the expert tier of the same machinery.
 
 ```ts
 // 1. Global Setup (in parser-config.ts)
@@ -568,7 +618,6 @@ import { initializeParser } from '@bou-co/parsing';
 export const { createParser, types } = initializeParser(() => ({
   variables: {
     currentYear: () => new Date().getFullYear(),
-    uppercase: ({ data }) => String(data).toUpperCase(),
   },
 }));
 
@@ -578,7 +627,7 @@ import { createParser, types } from '../path-to/parser-config';
 // Imagine this string comes directly from database or CMS
 const rawDataFromApi = {
   title: 'Copyright {{currentYear}}',
-  user: 'Hello {{user.firstName || "Guest" | uppercase}}!',
+  user: 'Hello {{user.firstName}}!',
 };
 
 const myParser = createParser({
@@ -589,7 +638,7 @@ const myParser = createParser({
 // Provide instance variables overriding or supplementing global ones
 const instanceData = {
   variables: {
-    user: { firstName: 'john' },
+    user: { firstName: 'John' },
   },
 };
 
@@ -598,7 +647,7 @@ const result = await myParser(rawDataFromApi, instanceData);
 /* Result:
 {
   "title": "Copyright 2026",
-  "user": "Hello JOHN!"
+  "user": "Hello John!"
 }
 */
 ```
@@ -637,11 +686,70 @@ const result = await dynamicParser({ message: 'Welcome back, {{userName}}!', use
 */
 ```
 
+### Expressions & pipes
+
+Everything between the delimiters of a variable — `{{ here }}` — is an **expression**, and the same grammar is shared by any custom [pattern](#patterns) that declares its own delimiters. Expressions stay deliberately small: fallback chains, literals, and a single pipe. No loops, no conditionals, no arbitrary code.
+
+#### Fallbacks & literals
+
+Chain candidates with `||`; they evaluate left to right and the first **defined** value wins. Only `undefined` falls through — `false`, `0`, and `''` are valid results and stop the chain.
+
+Literals can appear as fallback candidates or as pipe parameters:
+
+- **Strings** in double quotes: `"Guest"`
+- **Numbers** (integers): `42`
+- **Booleans**: `true` / `false`
+
+A literal in the value position is returned exactly as written — a pipe after a literal does not apply.
+
+```ts
+const rawDataFromCMS = {
+  greeting: 'Hello {{user.name || "Guest"}}!',
+  discount: '{{campaign.discount || 0}}% off',
+  banner: '{{flags.showBanner || false}}',
+};
+```
+
+#### Pipes
+
+A pipe transforms the resolved value inline: `{{value | pipe}}`, or with parameters, `{{value | pipe:param1:param2}}`. One pipe per expression. Parameters may be literals or variable names (resolved from `variables`).
+
+Pipe functions are plain value functions registered under the `pipes` config — at the global, schema, or instance level, exactly like variables, with the more specific level winning on a name collision. Each pipe is called with the parser context, where `data` (and `value`) is the resolved value being piped and `params` holds the parsed parameters:
+
+```ts
+import { initializeParser } from '@bou-co/parsing';
+
+export const { createParser, types } = initializeParser({
+  variables: {
+    user: { firstName: 'john' },
+  },
+  pipes: {
+    uppercase: ({ data }) => String(data).toUpperCase(),
+    truncate: ({ data, params: [length = 50] = [] }) => String(data).slice(0, length),
+  },
+});
+
+const parser = createParser({ user: types.string, teaser: types.string });
+
+const result = await parser({
+  user: 'Hello {{user.firstName || "Guest" | uppercase}}!',
+  teaser: '{{article.teaser | truncate:120}}',
+});
+
+/* result.user === 'Hello JOHN!' */
+```
+
+When a value resolves to `undefined`, its pipe is skipped and the fallback chain moves on; set `pipeUndefined: true` in the context to run pipes on `undefined` values anyway.
+
+#### Escaping
+
+To output pattern syntax literally, prefix the match with a backslash: `\{{name}}` renders as `{{name}}` (the backslash is consumed, and `\\` directly before a match produces a literal backslash). This works uniformly across all patterns.
+
 ### Resolving values without parsing
 
 The `resolve` function returned by `initializeParser` runs the engine's value resolution — [variable](#variables) interpolation and global [transformers](#transformers) — directly on hard-coded input, without a projection, casting, or hooks. This is useful for state management and other situations where the data is already in its final shape.
 
-`resolve` walks the input recursively: transformers apply at every nesting level, functions are invoked with the parser context and their results resolved further, `{{variable}}` strings are interpolated, and other values pass through unchanged (branded type tokens and parsers included). Both objects and plain strings are accepted, and an optional instance context can supply call-specific variables (or e.g. `currentLocale` for a localize transformer).
+`resolve` walks the input recursively: transformers apply at every nesting level, functions are invoked with the parser context and their results resolved further, `{{variable}}` strings (and any registered [patterns](#patterns)) are interpolated, and other values pass through unchanged (branded type tokens and parsers included). Both objects and plain strings are accepted, and an optional instance context can supply call-specific variables (or e.g. `currentLocale` for a localize transformer).
 
 ```ts
 import { resolve } from '../path-to/parser-config';
@@ -811,7 +919,7 @@ const result = await productParser({ price: 25 });
 
 ### Transformers
 
-Transformers run conditionally globally against properties. Helpful for automatic data morphing based on context.
+Transformers run conditionally globally against properties. Helpful for automatic data morphing based on context — the mid-tier extension point: they reshape whole values, while [patterns](#patterns) rewrite text inside them. For the ordering guarantee and how to choose between the two, see [Transformers vs patterns](#transformers-vs-patterns).
 
 ```ts
 // 1. Setup in parser-config.ts
@@ -836,6 +944,101 @@ const result = await myParser(rawData);
 
 /* Result: { "greeting": "Hello" } */
 ```
+
+### Patterns
+
+A **pattern** detects a substring inside string data and resolves it to something else. `{{variable}}` interpolation is simply the pattern that ships with the library — you can register your own syntaxes next to it, replace its delimiters, or disable it.
+
+This is the expert tier: if you just want `{{name}}` templating, [Variables](#variables) already covers you. Reach for the pattern API when you need a new inline syntax (like `$products.count` hitting a database) or need to change how the built-in one behaves. For choosing between a pattern and a transformer, see [Transformers vs patterns](#transformers-vs-patterns).
+
+There are two kinds of patterns, and the difference decides whether [expressions](#expressions--pipes) work:
+
+- **Delimited patterns** declare `delimiters: [start, end]`. The engine builds the match regex from them, and the full expression grammar — `||` fallbacks, literals, pipes — works inside the delimiters automatically.
+- **Token patterns** declare a raw `match` regex with no end marker (like `$products.count`). Each match resolves independently, and expressions are off — there is no boundary that could contain a fallback chain.
+
+```ts
+import { initializeParser } from '@bou-co/parsing';
+
+export const { createParser, types } = initializeParser({
+  patterns: {
+    // Delimited: expressions work — '<<snippets/sale || "50% off" | uppercase>>'
+    snippet: {
+      delimiters: ['<<', '>>'],
+      resolve: async ({ path }) => await cms.getSnippet(path),
+    },
+    // Token: bare '$products.count' anywhere in text — no expressions
+    db: {
+      match: /\$([a-zA-Z0-9_.]+)/g,
+      resolve: async ({ path }) => await db.get(path),
+    },
+  },
+
+  // Pipes are shared by every pattern with expressions enabled
+  pipes: {
+    uppercase: ({ data }) => String(data).toUpperCase(),
+    truncate: ({ data, params: [len = 50] = [] }) => String(data).slice(0, len),
+  },
+
+  // Unchanged — this is just the data the built-in variables pattern reads from
+  variables: {
+    currentYear: () => new Date().getFullYear(),
+  },
+});
+```
+
+The pattern interface:
+
+```ts
+interface ParserPattern {
+  /** Start and end strings bounding a match, e.g. ['{{', '}}']. Required for expressions */
+  delimiters?: [string, string];
+  /** Match regex — built from delimiters when omitted. First capture group is the expression */
+  match?: RegExp;
+  /** Called once per unique match in a string, never per occurrence */
+  resolve: (input: PatternResolveInput) => unknown | Promise<unknown>;
+  /** The ||/literal/pipe grammar. Defaults to true for delimited patterns; unavailable without delimiters */
+  expressions?: boolean;
+  /** Re-scan resolved string output for patterns. Default: true */
+  rescan?: boolean;
+  /** 'run' (memoized per parse, default), 'none', or 'storage' (uses the configured storage) */
+  cache?: 'run' | 'none' | 'storage';
+}
+
+interface PatternResolveInput {
+  /** The expression after grammar parsing, e.g. "user.name" */
+  path: string;
+  /** The full matched text, e.g. '{{user.name || "Guest" | uppercase}}' */
+  raw: string;
+  /** Raw regex capture groups, for patterns without expressions */
+  groups: RegExpExecArray;
+  context: ParserContext;
+}
+```
+
+**Expressions require delimiters.** The grammar only works when the engine can capture the _whole_ expression, and only a start + end pair bounds one reliably — an open-ended token like `$animals.cat` has no end marker, so a `||` after it is just surrounding text, never a fallback. Compare:
+
+```
+Input:     'Favorite: $animals.cat.title || animals.dog.title'
+Token:     'Favorite: Cat || animals.dog.title'    // the $-token resolves; " || …" is literal text
+
+Input:     'Favorite: <<animals.cat.title || animals.dog.title>>'
+Delimited: 'Favorite: Cat'                         // the whole fallback chain is the expression
+```
+
+Because a half-working grammar would be worse than none, setting `expressions: true` on a token pattern **throws at setup** with guidance instead of silently misbehaving. Delimited patterns can opt out with `expressions: false` (the raw captured text then arrives as `path`, untouched). Declaring both `delimiters` and a custom `match` is allowed for fine-tuning — your regex wins (first capture group is the expression) while the delimiters vouch that its capture is bounded; this is exactly how the built-in variables pattern is defined.
+
+Beyond that, the engine owns everything that isn't the lookup itself: scanning, deduplication, splicing, parallel resolution, re-scanning, and cycle protection. Your `resolve` only turns a path into a value.
+
+Rules worth knowing:
+
+- **Full-string matches return the raw value.** When a string consists solely of one match, the resolved value is returned untouched — objects, numbers, and arrays survive, and an object result can feed a nested projection.
+- **Precedence:** overlapping matches resolve longest-first, then by registration order (the built-in `variables` pattern registers first).
+- **Escaping:** a backslash directly before a match suppresses it and is consumed — `\{{foo}}` outputs `{{foo}}`; `\\{{foo}}` outputs a literal backslash followed by the resolved value. Uniform across all patterns.
+- **Re-scanning & cycles:** resolved string output is scanned again by all patterns (opt out per pattern with `rescan: false`). Cycles throw `ParserPatternCycleError` instead of hanging.
+- **Caching:** user patterns default to `cache: 'run'` (memoized per parse — safe for per-request data). `'storage'` persists results through the configured [storage](#server-side-data-fetching--caching) under `pattern:<name>:<path>` keys. The built-in variables pattern uses `'none'` because variable lookups are context-sensitive.
+- **Customizing variables:** existing keys merge partially, so `patterns: { variables: { delimiters: ['${', '}'] } }` re-delimits `{{ }}` to `${ }` while keeping lookups, fallbacks, pipes, and the spread intact (a custom `match` regex works too); `patterns: { variables: false }` disables interpolation entirely.
+- **Caveat:** a string that looks like a stringified object (`{...}`) under a nested projection is parsed as an object before patterns are consulted.
+- **Type inference is unaffected** — a pattern that resolves a `types.string` field into an object makes the inferred type inaccurate, exactly as transformers already can.
 
 ### Chaining parsers (Reparsing)
 
@@ -1168,7 +1371,7 @@ For manual control, the configured backend is also directly available as `contex
 
 **Why:** Instead of building complex string-replacement utilities or integrating heavy templating engines like EJS, Bou Parsing allows content editors in a CMS to use double curly braces (`{{variable}}`) for dynamic injection. Coders define the variable resolvers (which can even be async DB lookups), and the parser handles replacing them safely.
 
-**Features Used:** `variables` (Global & Instance), Async resolvers, Fallbacks (`||`), Pipes (`|`), Deep object resolution.
+**Features Used:** `variables` (Global & Instance), `pipes`, Async resolvers, Fallbacks (`||`), Pipes (`|`), Deep object resolution.
 
 ```ts
 // 1. Global Setup in parser-config.ts
@@ -1185,7 +1388,8 @@ export const { createParser, types } = initializeParser(() => ({
       const release = await db.query('SELECT version FROM releases ORDER BY date DESC LIMIT 1');
       return release.version;
     },
-
+  },
+  pipes: {
     // Pipe for transformation
     capitalize: ({ data }) => String(data).charAt(0).toUpperCase() + String(data).slice(1),
   },
@@ -1411,7 +1615,7 @@ export const UserProfile = ({ rawData }) => {
 
 #### `initializeParser(config?)`
 
-Initializes an isolated parsing engine with global settings (loose casting, transformers, storage caching, variables, lifecycle hooks).
+Initializes an isolated parsing engine with global settings (loose casting, transformers, patterns, pipes, storage caching, variables, lifecycle hooks).
 
 - **Returns:** `{ createParser, resolve, types }` — `types` contains the built-in casting types.
 
@@ -1435,6 +1639,7 @@ The `context` object is passed to all dynamic resolver functions in your project
 - **`data`**: The raw input data at the currently executing nested level. During projection-driven resolution (no matching input for a nested projection) this is an empty object; the parent's value remains available via `context.parent.data`.
 - **`value`**: The raw incoming data value at the current key (`data?.[key]`), so `({ value }) => value * 5` replaces `({ data, key }) => data[key] * 5`. Never resolved eagerly — a `"{{variable}}"` string arrives as-is; call `resolve()` with no arguments to resolve it on demand. `undefined` during projection-driven resolution. Inside transformers and pipes, `value` mirrors `data` (the candidate value being processed).
 - **`variables`**: A merged dictionary of global, schema, and instance variables, including a `current` reference to the input data. Used automatically in string template replacement. See [Variables](#variables).
+- **`pipes`**: A merged dictionary of global, schema, and instance pipe functions, available to every pattern with expressions enabled. See [Patterns](#patterns).
 - **`key`**: The string key of the property currently being evaluated.
 - **`index`**: The numeric index if the current data is being evaluated inside an array. See [Nested Arrays](#nested-data-structures).
 - **`isRoot`**: A boolean indicating if this is the top-level execution of the parser.
@@ -1450,9 +1655,9 @@ The `context` object is passed to all dynamic resolver functions in your project
 
 Context can be configured at three distinct levels, allowing you to scope variables, caching, and hooks appropriately.
 
-1. **Global Level (`initializeParser`)**: Each call creates an isolated parser engine; settings applied here affect all parsers created from the returned `createParser`. Ideal for `storage`, global `transformers`, and global `variables`. See [Multiple parser configurations](#multiple-parser-configurations).
-2. **Schema Level (`createParser`)**: Settings applied here affect all executions of this specific parser schema. Ideal for schema-specific `variables`, `cache` definitions, or `before`/`after` hooks.
-3. **Instance Level (`myParser(data, context)`)**: Settings applied during execution. Ideal for request-specific `variables` (e.g., currently logged-in user, active locale).
+1. **Global Level (`initializeParser`)**: Each call creates an isolated parser engine; settings applied here affect all parsers created from the returned `createParser`. Ideal for `storage`, global `transformers`, `patterns` (global-only), global `variables`, and global `pipes`. See [Multiple parser configurations](#multiple-parser-configurations).
+2. **Schema Level (`createParser`)**: Settings applied here affect all executions of this specific parser schema. Ideal for schema-specific `variables`, `pipes`, `cache` definitions, or `before`/`after` hooks.
+3. **Instance Level (`myParser(data, context)`)**: Settings applied during execution. Ideal for request-specific `variables` and `pipes` (e.g., currently logged-in user, active locale).
 
 ### Projection Directives
 
