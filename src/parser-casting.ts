@@ -215,7 +215,7 @@ export const applyCast = async (value: unknown, token: ParserTypeToken, context:
     if (!Array.isArray(value)) return handleFailure(new Error('Invalid array'), value, token, context, token.strict === true);
     const itemType = token._typeItem;
     if (!itemType) return value;
-    return Promise.all(value.map((item, index) => applyCast(item, itemType, { ...context, key: index, index, parent: context })));
+    return Promise.all(value.map((item, index) => applyCast(item, itemType, { ...context, key: index, index, value: item, parent: context })));
   }
 
   if (!token._fn) throw new Error(`Parser type "${describeToken(token)}" is missing an implementation`);

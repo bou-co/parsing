@@ -81,6 +81,8 @@ export interface ParserContext<DATA = AppObject, PARAMS = unknown[]>
   parser: Parser;
   /** The input data at the currently executing nested level */
   data: DATA;
+  /** Raw incoming data value at the current key (`data?.[key]`) — never resolved eagerly; call `resolve()` to resolve it on demand. Mirrors `data` inside transformers and pipes */
+  value?: any;
   /** Key of the property currently being evaluated */
   key?: PropertyKey;
   /** The active projection for the current level */
@@ -99,8 +101,8 @@ export interface ParserContext<DATA = AppObject, PARAMS = unknown[]>
   datalessPath?: object[];
   /** Get or compute a value through the global storage */
   store: <T>(key: string, fn: () => T | Promise<T>, options?: ParserCachingOptions) => Promise<T>;
-  /** Resolve variables and transformers on a value, inheriting the current context */
-  resolve: ParserResolveFunction;
+  /** Resolve variables and transformers on a value, inheriting the current context; with no arguments it lazily resolves the current `value` (memoized per context) */
+  resolve: ContextResolveFunction;
 }
 
 export interface CachingParserContext extends ParserContext {
@@ -311,13 +313,28 @@ export type ResolveInput =
   | readonly ResolveInput[]
   | { [key: PropertyKey]: ResolveInput };
 
+// Sentinel detecting whether the caller passed an explicit type argument: TS has no partial
+// type-argument inference, so R keeps this default exactly when the caller omitted it
+declare const RESOLVE_TYPE_UNSET: unique symbol;
+export type ResolveTypeUnset = typeof RESOLVE_TYPE_UNSET;
+
 // Overload order is load-bearing: the constrained-T signature must stay first so literal inputs get
-// contextual typing; plain-T catches interface-typed inputs (no implicit index signature); the R
-// signature catches an explicit generic the input isn't assignable to (transformer-reshaped output)
+// contextual typing; plain-T catches interface-typed inputs (no implicit index signature) and, via
+// its unknown default, explicit-R calls whose input the first overload rejects. An explicit R always
+// overrides the inferred ResolvedValue mapping (remaining type params fall back to their defaults)
 export interface ParserResolveFunction {
-  <T extends ResolveInput>(input: T, instanceContext?: ParserInstanceContext): Promise<ResolvedValue<T>>;
-  <T>(input: T, instanceContext?: ParserInstanceContext): Promise<ResolvedValue<T>>;
-  <R>(input: unknown, instanceContext?: ParserInstanceContext): Promise<R>;
+  <R = ResolveTypeUnset, T extends ResolveInput = ResolveInput>(
+    input: T,
+    instanceContext?: ParserInstanceContext,
+  ): Promise<[R] extends [ResolveTypeUnset] ? ResolvedValue<T> : R>;
+  <R = ResolveTypeUnset, T = unknown>(input: T, instanceContext?: ParserInstanceContext): Promise<[R] extends [ResolveTypeUnset] ? ResolvedValue<T> : R>;
+}
+
+// Context-only variant adding the zero-argument form that lazily resolves `context.value`
+// (memoized per context). Own signatures are checked before inherited ones, but arity 0 can
+// never capture a call with arguments, so the base overload order stays load-bearing
+export interface ContextResolveFunction extends ParserResolveFunction {
+  <R = unknown>(): Promise<R>;
 }
 
 type ParserValueFunction<R = unknown, DATA = AppObject, PARAMS = unknown[]> = (

@@ -713,6 +713,17 @@ const parser = createParser(
 // metadata → { uid: 'id-123' }
 ```
 
+In value functions, `resolve` can also be called with **no arguments** to resolve the current `context.value` — the raw incoming data at the function's own key. Nothing resolves until you call it (variables backed by a `variableResolver` stay untouched), and the result is memoized per context so calling it twice resolves once. Pass an explicit generic (`resolve<number>()`) to type the result; an explicit generic also overrides the inferred typing on the one-argument form.
+
+```ts
+const parser = createParser({
+  price: ({ value }) => value * 5, // raw data value, e.g. must be a plain number
+  total: async ({ resolve }) => (await resolve<number>()) * 5, // resolves "{{basePrice}}" etc. first
+});
+```
+
+One caveat inside `resolve()` inputs (not projections): a zero-arg `resolve()` call within a resolve-mode function value re-resolves the input containing that very function, so it recurses — parse-mode value functions are immune, since their `value` is raw data and never the function itself.
+
 ### Dynamic projections
 
 Pass a function instead of a static object to return a different projection structure based on the input data dynamically.
@@ -1415,20 +1426,21 @@ Creates an executable parser function based on the provided schema projection.
 
 Resolves variables and applies global transformers on raw input — an object, array, plain string, or function — without a projection, casting, or hooks. Transformers apply at every nesting level, and functions are invoked with the parser context and resolved recursively. See [Resolving values without parsing](#resolving-values-without-parsing).
 
-- **Returns:** A promise of the resolved input, typed from the input shape; pass an explicit generic when a transformer reshapes values.
+- **Returns:** A promise of the resolved input, typed from the input shape; an explicit generic always overrides the inferred type (e.g. when a transformer reshapes values).
 
 ### Context Object (`ParserContext`)
 
 The `context` object is passed to all dynamic resolver functions in your projection. It contains the raw data, some info about current execution and custom properties.
 
 - **`data`**: The raw input data at the currently executing nested level. During projection-driven resolution (no matching input for a nested projection) this is an empty object; the parent's value remains available via `context.parent.data`.
+- **`value`**: The raw incoming data value at the current key (`data?.[key]`), so `({ value }) => value * 5` replaces `({ data, key }) => data[key] * 5`. Never resolved eagerly — a `"{{variable}}"` string arrives as-is; call `resolve()` with no arguments to resolve it on demand. `undefined` during projection-driven resolution. Inside transformers and pipes, `value` mirrors `data` (the candidate value being processed).
 - **`variables`**: A merged dictionary of global, schema, and instance variables, including a `current` reference to the input data. Used automatically in string template replacement. See [Variables](#variables).
 - **`key`**: The string key of the property currently being evaluated.
 - **`index`**: The numeric index if the current data is being evaluated inside an array. See [Nested Arrays](#nested-data-structures).
 - **`isRoot`**: A boolean indicating if this is the top-level execution of the parser.
 - **`projection`**: The active projection schema definition for the current level.
 - **`cache`**: The merged caching options. See [Caching](#server-side-data-fetching--caching).
-- **`resolve`**: A contextual version of [`resolve`](#resolveinput-contextoverride) that inherits the active context (variables, transformers, locale) with optional per-call overrides. See [Function values & the contextual resolve](#function-values--the-contextual-resolve).
+- **`resolve`**: A contextual version of [`resolve`](#resolveinput-contextoverride) that inherits the active context (variables, transformers, locale) with optional per-call overrides. Called with **no arguments** it lazily resolves the current `context.value`, memoized per context so repeated calls resolve once. See [Function values & the contextual resolve](#function-values--the-contextual-resolve).
 - **`parser`**: A reference to the underlying `Parser` instance handling the execution.
 - **`path`**: The chain of projection references from the root to the current level, present in every parse.
 - **`datalessPath`**: The chain of projection references accumulated during projection-driven resolution. Present only when the current parse has no matching input data — its presence tells a value function it is running data-lessly. See [The projection is the point of truth](#the-projection-is-the-point-of-truth).
