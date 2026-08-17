@@ -12,6 +12,7 @@ import {
   ParserInstanceContext,
   ParserGlobalContext,
   CachingParserContext,
+  ParserResolveFunction,
 } from './parser-types';
 import { applyCast, assertNotLegacyTypeKey, isTypeToken, ParserTypeToken, types } from './parser-casting';
 import { filterNill, filterUndefinedEntries, mergeObjects, optional, typed } from './parser-util';
@@ -220,6 +221,70 @@ export class Parser {
     return current;
   };
 
+  // Resolves variables and applies global transformers on raw input without parsing it against a projection
+  public resolve = (async (input: unknown, instanceContext: ParserInstanceContext = {}) => {
+    const globalContext = await this.getGlobalContext();
+
+    const variables = { current: input };
+    if (globalContext) Object.assign(variables, globalContext.variables);
+    if (instanceContext) Object.assign(variables, instanceContext.variables);
+    if (this.cache.variables) Object.assign(variables, this.cache.variables);
+
+    const context: ParserContext = {
+      parser: this,
+      ...globalContext,
+      ...instanceContext,
+      isRoot: true,
+      variables,
+      data: input,
+      cache: mergeObjects(globalContext?.cache, instanceContext?.cache),
+      store: (key, fn, options) => this.storeValue(context, key, fn, options),
+      resolve: (nested: unknown, override?: ParserInstanceContext) => this.resolveWithParentContext(nested, context, override),
+    } satisfies Partial<ParserContext<unknown>> as any;
+
+    return this.resolveNode(input, context);
+  }) as ParserResolveFunction;
+
+  // Backs context.resolve — same resolution as the public resolve but inheriting the calling context
+  private resolveWithParentContext = (input: unknown, parentContext: ParserContext, instanceContext?: ParserInstanceContext): Promise<unknown> => {
+    const variables = { ...parentContext.variables, ...instanceContext?.variables, current: input };
+    const context: ParserContext = { ...parentContext, ...instanceContext, variables, data: input } satisfies Partial<ParserContext<unknown>> as any;
+    context.store = (key, fn, options) => this.storeValue(context, key, fn, options);
+    context.resolve = (nested: unknown, override?: ParserInstanceContext) => this.resolveWithParentContext(nested, context, override);
+    return this.resolveNode(input, context);
+  };
+
+  // Unlike parse, transformers apply at every nesting level since there is no projection to scope them
+  private resolveNode = async (value: unknown, context: ParserContext): Promise<unknown> => {
+    if (value instanceof Promise) return this.resolveNode(await value, context);
+    if (typeof value === 'function') {
+      // Branded functions (type tokens, parsers) are parse concerns — pass through untouched
+      if ('_type' in value || '_parser' in value) return value;
+      const result = await (value as (context: ParserContext) => unknown)(context);
+      return this.resolveNode(result, context);
+    }
+    if (context.transformers) {
+      for (const transformer of Object.values(context.transformers)) {
+        if (await transformer.when({ ...context, data: value })) {
+          value = await transformer.then({ ...context, data: value });
+        }
+      }
+    }
+    if (value && typeof value === 'object') {
+      const entries = Object.entries(value);
+      if (!entries.length) return value;
+      const result: Record<any, any> = Array.isArray(value) ? [] : {};
+      const levelContext: ParserContext = { ...context, data: value, parent: context, isRoot: false };
+      await Promise.all(
+        entries.map(async ([key, item]) => {
+          result[key] = await this.resolveNode(item, { ...levelContext, key });
+        }),
+      );
+      return result;
+    }
+    return Parser.resolveVariables(value, context);
+  };
+
   public createProjection = <const T extends object>(
     project: T | ((context: ParserContext) => T | Promise<T>),
     parserContext?: CreateParserContext,
@@ -253,6 +318,7 @@ export class Parser {
         cache: mergeObjects(globalContext?.cache, parserContext?.cache, instanceContext?.cache),
         parent: isRoot ? undefined : parentContext,
         store: (key, fn, options) => this.storeValue(contextBase, key, fn, options),
+        resolve: (input: unknown, override?: ParserInstanceContext) => this.resolveWithParentContext(input, contextBase, override),
       } satisfies Partial<ParserContext> as any;
 
       const projection = typeof project === 'function' ? await project(contextBase) : project;
@@ -561,8 +627,8 @@ export class Parser {
 
 export const initializeParser = (addGlobalContext?: ParserGlobalContext | ParserGlobalContextFn) => {
   const engine = new Parser(addGlobalContext || ({} as ParserGlobalContext));
-  const { createParser } = engine;
-  return { createParser, types };
+  const { createParser, resolve } = engine;
+  return { createParser, resolve, types };
 };
 
 export const resolveVariables = async <T>(current: T, context: ParserContext): Promise<T> => {

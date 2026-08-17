@@ -37,6 +37,7 @@ Key capabilities at a glance:
   - [Multiple parser configurations](#multiple-parser-configurations)
   - [Merging data](#merging-data)
   - [Variables](#variables)
+  - [Resolving values without parsing](#resolving-values-without-parsing)
   - [Dynamic projections](#dynamic-projections)
   - [Extending parsers](#extending-parsers)
   - [Context overriding](#context-overriding)
@@ -67,13 +68,13 @@ npm i @bou-co/parsing
 
 ### 2 - Initialize the parser
 
-In the root level of your code, run the `initializeParser` function to export your tailored `createParser` function and `types` object. This allows you to set up global configurations like caching and variables once.
+In the root level of your code, run the `initializeParser` function to export your tailored `createParser` function and `types` object. This allows you to set up global configurations like caching and variables once. The returned `resolve` function runs the same variable and transformer resolution on hard-coded values without a projection — see [Resolving values without parsing](#resolving-values-without-parsing).
 
 ```ts
 // parser-config.ts
 import { initializeParser } from '@bou-co/parsing';
 
-export const { createParser, types } = initializeParser(/** Global configurations comes here **/);
+export const { createParser, resolve, types } = initializeParser(/** Global configurations comes here **/);
 ```
 
 ### 3 - Start using the parser
@@ -634,6 +635,82 @@ const result = await dynamicParser({ message: 'Welcome back, {{userName}}!', use
   "message": "Welcome back, Alice!"
 }
 */
+```
+
+### Resolving values without parsing
+
+The `resolve` function returned by `initializeParser` runs the engine's value resolution — [variable](#variables) interpolation and global [transformers](#transformers) — directly on hard-coded input, without a projection, casting, or hooks. This is useful for state management and other situations where the data is already in its final shape.
+
+`resolve` walks the input recursively: transformers apply at every nesting level, functions are invoked with the parser context and their results resolved further, `{{variable}}` strings are interpolated, and other values pass through unchanged (branded type tokens and parsers included). Both objects and plain strings are accepted, and an optional instance context can supply call-specific variables (or e.g. `currentLocale` for a localize transformer).
+
+```ts
+import { resolve } from '../path-to/parser-config';
+
+const data = await resolve({
+  message: 'Hello {{name}}!',
+  time: '{{currentTime}}',
+});
+// → { message: 'Hello John!', time: '2024-06-01T12:00:00Z' }
+
+// Instance variables work like in parsers
+const order = await resolve({ message: 'Your order {{orderId}} has been shipped.' }, { variables: { orderId: '12345' } });
+// → { message: 'Your order 12345 has been shipped.' }
+
+// Plain strings resolve directly
+const message = await resolve('Hello {{name}}!');
+// → 'Hello John!'
+
+// Global transformers (e.g. localize) apply at every nesting level
+const localized = await resolve<{ message: string }>({
+  message: { en: 'Hello {{name}}!', fi: 'Hei {{name}}!' },
+});
+// → { message: 'Hello John!' } — or { message: 'Hei John!' } when the current locale is Finnish
+```
+
+The return type is inferred from the input (strings stay strings, objects and arrays recurse, functions map to their resolved return value). When a transformer reshapes a value — like localize collapsing a locale object into a string — pass an explicit generic (`resolve<{ message: string }>(...)`) to assert the output type.
+
+#### Function values & the contextual `resolve`
+
+Functions in the input are invoked with a `ParserContext` — like value functions in projections — and their results are resolved recursively (returned strings, objects, promises, and further functions all resolve fully). The context exposes its own `resolve`, which works exactly like the global one but **inherits the active context** — merged variables, transformers, locale, and so on — with optional per-call overrides merged on top. The globally exported `resolve` never inherits ambient context, so reach for `context.resolve` whenever inherited variables matter.
+
+This also makes it possible to resolve strings whose variables are (async) functions:
+
+```ts
+export const { resolve } = initializeParser({
+  variables: {
+    random: async () => Math.random(),
+  },
+});
+
+const data = await resolve(
+  {
+    randomValue: async ({ resolve }) => {
+      return await resolve('{{random}}-{{uid}}');
+    },
+  },
+  {
+    variables: { uid: async () => '123' },
+  },
+);
+// → { randomValue: '0.123456789-123' }
+```
+
+`context.resolve` is also available in regular parser value functions:
+
+```ts
+import { createParser, types } from '../path-to/parser-config';
+
+const parser = createParser(
+  {
+    name: types.string,
+    metadata: async ({ resolve }) => {
+      const uid = await resolve('id-{{userId}}');
+      return { uid };
+    },
+  },
+  { variables: { userId: '123' } },
+);
+// metadata → { uid: 'id-123' }
 ```
 
 ### Dynamic projections
@@ -1325,7 +1402,7 @@ export const UserProfile = ({ rawData }) => {
 
 Initializes an isolated parsing engine with global settings (loose casting, transformers, storage caching, variables, lifecycle hooks).
 
-- **Returns:** `{ createParser, types }` — `types` contains the built-in casting types.
+- **Returns:** `{ createParser, resolve, types }` — `types` contains the built-in casting types.
 
 #### `createParser(projection, options?)`
 
@@ -1333,6 +1410,12 @@ Creates an executable parser function based on the provided schema projection.
 
 - **Returns:** An asynchronous parsing function that takes `(rawData, contextOverride?)`.
 - **Methods:** `.extend(newProjection)`, `.withContext(newContext)`
+
+#### `resolve(input, contextOverride?)`
+
+Resolves variables and applies global transformers on raw input — an object, array, plain string, or function — without a projection, casting, or hooks. Transformers apply at every nesting level, and functions are invoked with the parser context and resolved recursively. See [Resolving values without parsing](#resolving-values-without-parsing).
+
+- **Returns:** A promise of the resolved input, typed from the input shape; pass an explicit generic when a transformer reshapes values.
 
 ### Context Object (`ParserContext`)
 
@@ -1345,6 +1428,7 @@ The `context` object is passed to all dynamic resolver functions in your project
 - **`isRoot`**: A boolean indicating if this is the top-level execution of the parser.
 - **`projection`**: The active projection schema definition for the current level.
 - **`cache`**: The merged caching options. See [Caching](#server-side-data-fetching--caching).
+- **`resolve`**: A contextual version of [`resolve`](#resolveinput-contextoverride) that inherits the active context (variables, transformers, locale) with optional per-call overrides. See [Function values & the contextual resolve](#function-values--the-contextual-resolve).
 - **`parser`**: A reference to the underlying `Parser` instance handling the execution.
 - **`path`**: The chain of projection references from the root to the current level, present in every parse.
 - **`datalessPath`**: The chain of projection references accumulated during projection-driven resolution. Present only when the current parse has no matching input data — its presence tells a value function it is running data-lessly. See [The projection is the point of truth](#the-projection-is-the-point-of-truth).

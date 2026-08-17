@@ -99,6 +99,8 @@ export interface ParserContext<DATA = AppObject, PARAMS = unknown[]>
   datalessPath?: object[];
   /** Get or compute a value through the global storage */
   store: <T>(key: string, fn: () => T | Promise<T>, options?: ParserCachingOptions) => Promise<T>;
+  /** Resolve variables and transformers on a value, inheriting the current context */
+  resolve: ParserResolveFunction;
 }
 
 export interface CachingParserContext extends ParserContext {
@@ -287,6 +289,36 @@ export type ParserFunction<T extends object> = {
   _parser: true;
   projection: T;
 };
+
+export type ResolvedValue<T> = T extends string
+  ? string
+  : T extends (...args: any) => infer R
+    ? ResolvedValue<Awaited<R>>
+    : T extends readonly (infer I)[]
+      ? ResolvedValue<I>[]
+      : T extends object
+        ? { [K in keyof T]: ResolvedValue<T[K]> }
+        : T;
+
+// Recursive so function values get contextual typing, like ParserProjection does for createParser
+export type ResolveInput =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | ((context: ParserContext) => unknown)
+  | readonly ResolveInput[]
+  | { [key: PropertyKey]: ResolveInput };
+
+// Overload order is load-bearing: the constrained-T signature must stay first so literal inputs get
+// contextual typing; plain-T catches interface-typed inputs (no implicit index signature); the R
+// signature catches an explicit generic the input isn't assignable to (transformer-reshaped output)
+export interface ParserResolveFunction {
+  <T extends ResolveInput>(input: T, instanceContext?: ParserInstanceContext): Promise<ResolvedValue<T>>;
+  <T>(input: T, instanceContext?: ParserInstanceContext): Promise<ResolvedValue<T>>;
+  <R>(input: unknown, instanceContext?: ParserInstanceContext): Promise<R>;
+}
 
 type ParserValueFunction<R = unknown, DATA = AppObject, PARAMS = unknown[]> = (
   context: ParserContext<DATA, PARAMS>,
