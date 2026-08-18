@@ -1,14 +1,17 @@
-# Bou Parsing
+# Bou Parsing ~ project any data into a shape that resolves your typing problems
 
-`@bou-co/parsing` is a TypeScript library for picking, validating, and transforming data with a declarative schema. Define the shape you want, run the parser, and get back a typed result. Async-native, no boilerplate, no manual type-writing.
+Sketch the shape of your data. The parser fills it in.
 
-It's isomorphic and works in the browser. **The stronger case is on the server**, in Next.js App Router, Astro, NestJS, or Express: fetch massive API responses, run expensive computations, parse them into exact type-safe structures, cache the result, and send the frontend only what it needs. Less database load, less network payload, cleaner components.
-
-The central concept is a **projection**: a plain object that maps input keys to output rules. Rules can be casting types (`types.string`, `types.number`, …), literal constants, plain functions, async functions, nested projections, or other parsers. The library walks the projection, resolves every rule against your raw data in parallel, and returns a strictly-typed output object. The TypeScript type is inferred automatically from the schema, so there are no hand-written interfaces. If a projection feels closer to a GraphQL query or a GROQ projection than to a validation schema, that is no accident: you declare the output shape you want, and the engine picks, computes, fetches, and casts to produce it.
-
----
+Bou Parsing is a declarative data layer for TypeScript. A projection looks like a plain
+object but behaves like a canvas: every key can hold whatever produces its value, from a
+casting type to an async fetch to a whole other parser. The engine resolves it all against
+your raw data and infers the exact TypeScript type on the way out. Built for highly
+dynamic websites: await a parser in a Next.js Server Component or an Astro page, and your
+content comes out joined, templated, cached, and typed.
 
 [NPM](https://www.npmjs.com/package/@bou-co/parsing) | [GitHub](https://github.com/bou-co/parsing)
+
+---
 
 ## Key capabilities at a glance
 
@@ -26,29 +29,36 @@ The central concept is a **projection**: a plain object that maps input keys to 
 - **Server-side caching**: pluggable storage (Redis, etc.) with deterministic cache-key generation
 - **TypeScript inference**: output types derived entirely from the projection literal, no generics to write
 
-## What are we looking at
-
-If you are looking for a validation library, you probably know [Zod](https://zod.dev). Zod is the standard for validation and superb at it. Bou Parsing overlaps with Zod on validation, casting, and type inference, but treats them as one stage of a larger pipeline that also picks, derives, joins, templates, and caches. In short: Zod checks the data you have, Bou Parsing produces the data you want. The full rundown lives at the end of this document in [Comparison with Zod](#comparison-with-zod).
-
 ## Table of Contents
 
+- [The core idea](#the-core-idea)
 - [Get Started](#get-started)
 - [Basic Usage](#basic-usage)
   - [Defining the data you want](#defining-the-data-you-want)
   - [Types & casting](#types--casting)
+    - [Default values](#default-values)
   - [Adding and modifying values](#adding-and-modifying-values)
   - [Nested data structures](#nested-data-structures)
+    - [The projection is the point of truth](#the-projection-is-the-point-of-truth)
+    - [Flattening nested parsers with `.flat`](#flattening-nested-parsers-with-flat)
   - [Conditional data](#conditional-data)
 - [Fundamentals](#fundamentals)
   - [The value resolution pipeline](#the-value-resolution-pipeline)
   - [Transformers vs patterns](#transformers-vs-patterns)
 - [Advanced Usage](#advanced-usage)
   - [Custom types & casting options](#custom-types--casting-options)
+    - [Loose casting](#loose-casting)
+    - [Strict types](#strict-types)
   - [Multiple parser configurations](#multiple-parser-configurations)
   - [Merging data](#merging-data)
   - [Variables](#variables)
+    - [Dynamic Variable Resolvers](#dynamic-variable-resolvers)
   - [Expressions & pipes](#expressions--pipes)
+    - [Fallbacks & literals](#fallbacks--literals)
+    - [Pipes](#pipes)
+    - [Escaping](#escaping)
   - [Resolving values without parsing](#resolving-values-without-parsing)
+    - [Function values & the contextual `resolve`](#function-values--the-contextual-resolve)
   - [Dynamic projections](#dynamic-projections)
   - [Extending parsers](#extending-parsers)
   - [Context overriding](#context-overriding)
@@ -59,15 +69,55 @@ If you are looking for a validation library, you probably know [Zod](https://zod
 - [Examples & Use Cases](#examples--use-cases)
   - [Next.js App Router & Server Components](#nextjs-app-router--server-components)
   - [Server-Side Data Fetching & Caching](#server-side-data-fetching--caching)
+  - [Value-Level Caching with `context.store`](#value-level-caching-with-contextstore)
   - [CMS Content Templating with Variables](#cms-content-templating-with-variables)
+  - [CMS Dynamic Variables with On-Demand Fetching & Caching](#cms-dynamic-variables-with-on-demand-fetching--caching)
   - [Advanced TypeScript Generation & Utilities](#advanced-typescript-generation--utilities)
   - [Global Localization via Transformers](#global-localization-via-transformers)
   - [Client-Side React Integration](#client-side-react-integration)
 - [API Reference](#api-reference)
+  - [Core Functions](#core-functions)
+  - [Context Object (`ParserContext`)](#context-object-parsercontext)
+  - [Context Configuration & Modifiers](#context-configuration--modifiers)
+  - [Projection Directives](#projection-directives)
+  - [Built-in Types](#built-in-types)
+  - [Utility Functions](#utility-functions)
 - [Comparison with Zod](#comparison-with-zod)
+  - [Feature overview](#feature-overview)
+  - [What actually makes the difference](#what-actually-makes-the-difference)
+  - [Which one to use](#which-one-to-use)
 - [Maintainers](#maintainers)
 
 ---
+
+## The core idea
+
+Everything in Bou Parsing is a **projection**. Not a form to fill in, a canvas to compose
+on: casting types (`types.string`, `types.number`, …), constants, sync or async functions,
+nested projections, other parsers, all valid values for any key. The engine walks your
+composition, resolves every rule against the raw data in parallel, and returns a strictly
+typed object, with the type inferred from the projection itself. You never write an
+interface for data you already described.
+
+Because a projection declares output instead of describing input, it can do things a schema
+never could. A field can join in data from another API mid-parse. A string from your CMS
+can carry `{{variables}}` with fallbacks and pipes, so content editors get templating
+without you building a template engine. The expensive parts can be cached through Redis or
+any storage you plug in. The inspiration comes from GraphQL queries and GROQ projections
+rather than validation schemas, and it shows: this is a data layer for sites that need
+their data fetched, shaped, and typed in one pass.
+
+Every parser is an async function, which makes the server its natural home. Await it in a
+React Server Component or an Astro page and the props arrive fully typed, no generics, no
+interface files. Fetch a heavy API response, join what's missing, cache the result, and
+send the frontend only the fields it renders. The library is isomorphic and runs in the
+browser too, with a `useParserValue` hook for the client side.
+
+Looking for a validation library? That's [Zod](https://zod.dev), and it's excellent at it.
+Bou Parsing overlaps with Zod on validation, casting, and inference, but treats them as one
+stage of a larger pipeline that also picks, derives, joins, templates, and caches. In
+short: Zod checks the data you have, Bou Parsing produces the data you want. The full
+rundown lives in [Comparison with Zod](#comparison-with-zod).
 
 ## Get Started
 
@@ -87,7 +137,7 @@ In the root level of your code, run the `initializeParser` function to export yo
 // parser-config.ts
 import { initializeParser } from '@bou-co/parsing';
 
-export const { createParser, resolve, types } = initializeParser(/** Global configurations comes here **/);
+export const { createParser, resolve, types } = initializeParser(/** Global configurations come here **/);
 ```
 
 ### 3 - Start using the parser
@@ -189,15 +239,15 @@ const result = await myParser({
 
 The built-in types cast conservatively: only lossless, unambiguous conversions are performed.
 
-| Type                          | Accepted inputs                                                                             | Fails on                          |
-| ----------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------- |
-| `types.string`                | strings; finite numbers, booleans (`String(value)`); valid dates (ISO string)               | objects, arrays, `NaN`/`Infinity` |
-| `types.number`                | numbers; booleans (`1`/`0`); dates (`getTime()`); whole numeric strings (`'12.5'`, `'1e3'`) | `''`, `'12px'`, objects           |
-| `types.boolean`               | booleans; `1`/`0`; `'true'`/`'false'` (case-insensitive)                                    | other numbers/strings             |
-| `types.date`                  | `Date` instances; parseable date strings and epoch numbers                                  | unparseable values                |
-| `types.object`                | plain objects (validated, passed through)                                                   | arrays, primitives                |
-| `types.array`                 | arrays (passed through); `types.array(types.x)` also casts each item                        | non-arrays                        |
-| `types.any` / `types.unknown` | anything (pure pass-through, never fails)                                                   | —                                 |
+| Type                          | Accepted inputs                                                                       | Fails on                          |
+| ----------------------------- | ------------------------------------------------------------------------------------- | --------------------------------- |
+| `types.string`                | strings; finite numbers, booleans (`String(value)`); valid dates (ISO string)         | objects, arrays, `NaN`/`Infinity` |
+| `types.number`                | numbers; booleans (`1`/`0`); dates (`getTime()`); numeric strings (`'12.5'`, `'1e3'`) | `''`, `'12px'`, objects           |
+| `types.boolean`               | booleans; `1`/`0`; `'true'`/`'false'` (case-insensitive)                              | other numbers/strings             |
+| `types.date`                  | `Date` instances; parseable date strings and epoch numbers                            | unparseable values                |
+| `types.object`                | plain objects (validated, passed through)                                             | arrays, primitives                |
+| `types.array`                 | arrays (passed through); `types.array(types.x)` also casts each item                  | non-arrays                        |
+| `types.any` / `types.unknown` | anything (pure pass-through, never fails)                                             | —                                 |
 
 `undefined` and `null` values always skip casting and are omitted from the output, so declared fields stay optional. When a present value cannot be cast, the parser throws a `ParserCastError` by default. See [Custom types & casting options](#custom-types--casting-options) for loose modes and defining your own types.
 
@@ -670,7 +720,7 @@ export const { createParser, types } = initializeParser(() => ({
   variableResolver: async (variableName, context) => {
     // Dynamically catch variables named 'userName'
     if (variableName === 'userName') {
-      const { userId } = context.data; //
+      const { userId } = context.data;
 
       // Simulated DB fetch (e.g., await db.getUser(userId))
       const userName = await Promise.resolve('Alice');
@@ -865,7 +915,7 @@ const result = await dynamicParser({ type: 'detailed', value: 10, metadata: 'ext
 
 ### Extending parsers
 
-Merge a new projection onto an existing parser securely without mutating the original definition.
+Merge a new projection onto an existing parser safely without mutating the original definition.
 
 ```ts
 import { createParser, types } from '../path-to/parser-config';
@@ -1257,13 +1307,13 @@ import { AuthorBadge } from '../author-badge/author-badge';
 // This is the parent component handling the raw, dynamic input
 export const ArticleBlock = async (initialProps: object) => {
   // `props` is automatically typed and includes the parsed `author` object!
-  const { title, content, authorBadge } = await articleBlockParser(initialProps);
+  const { title, content, author } = await articleBlockParser(initialProps);
 
   return (
     <article>
       <h1>{title}</h1>
       {/* Pass the fully parsed and typed `author` object to the child component */}
-      <AuthorBadge {...authorBadge} />
+      <AuthorBadge {...author} />
       <p>{content}</p>
     </article>
   );
@@ -1450,15 +1500,13 @@ export const { createParser, types } = initializeParser(() => ({
     if (variableName.startsWith('snippets/')) {
       const slug = variableName.split('/')[1];
 
-      // Fetch the snippet from the CMS
-      const dataFromCMS = {
+      // Fetch the snippet from the CMS (simulated here with a static map)
+      const dataFromCMS: Record<string, string> = {
         'current-sale-title': '50% Off Summer Sale',
         'current-sale-description': 'Get the best deals of the season.',
       };
-      const snippet = await Promise.resolve(slug.toUpperCase());
+      const snippet = await Promise.resolve(dataFromCMS[slug]);
 
-      // Cache the result globally so subsequent usages of this exact
-      // variableName don't trigger another CMS fetch
       return snippet;
     }
 
