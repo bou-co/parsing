@@ -52,6 +52,7 @@ content comes out joined, templated, cached, and typed.
   - [Multiple parser configurations](#multiple-parser-configurations)
   - [Merging data](#merging-data)
   - [Variables](#variables)
+    - [Built-in context variables](#built-in-context-variables)
     - [Dynamic Variable Resolvers](#dynamic-variable-resolvers)
   - [Expressions & pipes](#expressions--pipes)
     - [Fallbacks & literals](#fallbacks--literals)
@@ -708,6 +709,29 @@ const result = await myParser(rawDataFromApi, instanceData);
 }
 */
 ```
+
+#### Built-in context variables
+
+A few variable heads are always available without any configuration:
+
+- **`{{data.*}}`** — the input data of the current nesting level (e.g. `{{data.uid}}`). Inside a nested projection it refers to that level's data, not the root.
+- **`{{ctx.*}}` / `{{context.*}}`** — the full [parser context](#context-object-parsercontext) of the spot being resolved. Anything on the context is reachable: `{{ctx.data.uid}}`, `{{ctx.key}}`, `{{ctx.currentLocale}}` (when using the localize template), or your own context augmentations. `{{data.*}}` is simply a shortcut for `{{ctx.data.*}}`.
+- **`{{current.*}}`** — the root input of the current parse or resolve run (kept for continuity; prefer `{{data.*}}` / `{{ctx.*}}`).
+
+```ts
+const parser = createParser({
+  greeting: types.string,
+  user: { profileUrl: types.string },
+});
+
+await parser({
+  name: 'John',
+  greeting: 'Hello {{data.name}}!', // → 'Hello John!'
+  user: { uid: '1234', profileUrl: '/profiles/{{data.uid}}' }, // → '/profiles/1234' — nested level data
+});
+```
+
+Resolution order for a variable head is: explicit variables (global, schema, and instance) → built-in heads → [`variableResolver`](#dynamic-variable-resolvers). Explicit variables can therefore shadow the built-ins, and the built-in heads are terminal — `{{data.missing}}` never falls through to a `variableResolver`, so context lookups can't trigger external fetches. One caveat: `context.resolve(input)` rebinds the context's `data`/`value` (and `current`) to the input being resolved, so built-ins inside such strings refer to that input rather than the surrounding parse data.
 
 #### Dynamic Variable Resolvers
 

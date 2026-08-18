@@ -354,3 +354,95 @@ describe('parsing', () => {
     expect(data.getVariableValueResultSimple).toEqual('https://bou.co');
   });
 });
+
+describe('built-in context variables', () => {
+  it('should resolve {{data.*}}, {{ctx.data.*}} and {{context.data.*}} from the current data', async () => {
+    const parser = createParser({
+      greeting: types.string,
+      viaCtx: types.string,
+      viaContext: types.string,
+    });
+    const data = await parser({
+      name: 'John',
+      greeting: 'Hello {{data.name}}!',
+      viaCtx: 'Hello {{ctx.data.name}}!',
+      viaContext: 'Hello {{context.data.name}}!',
+    });
+    expect(data.greeting).toEqual('Hello John!');
+    expect(data.viaCtx).toEqual('Hello John!');
+    expect(data.viaContext).toEqual('Hello John!');
+  });
+
+  it('should resolve {{data.*}} from the data of the current nesting level', async () => {
+    const parser = createParser({
+      greeting: types.string,
+      user: { greeting: types.string },
+    });
+    const data = await parser({
+      name: 'Root',
+      greeting: 'Hi {{data.name}}',
+      user: { name: 'Nested', greeting: 'Hi {{data.name}}' },
+    });
+    expect(data.greeting).toEqual('Hi Root');
+    expect(data.user?.greeting).toEqual('Hi Nested');
+  });
+
+  it('should expose other context fields like the current key', async () => {
+    const parser = createParser({ label: types.string });
+    const data = await parser({ label: 'key is {{ctx.key}}' });
+    expect(data.label).toEqual('key is label');
+  });
+
+  it('should return raw objects for full-string matches and support fallbacks', async () => {
+    const parser = createParser({
+      info: types.object,
+      author: types.string,
+    });
+    const data = await parser({
+      meta: { uid: '1234' },
+      info: '{{data.meta}}',
+      author: '{{data.missing || "anon"}}',
+    });
+    expect(data.info).toEqual({ uid: '1234' });
+    expect(data.author).toEqual('anon');
+  });
+
+  it('should let explicit variables win over the built-in heads', async () => {
+    const parser = createParser({ value: types.string });
+    const data = await parser({ uid: 'from-data', value: '{{data.uid}}' }, { variables: { data: { uid: 'from-variable' } } });
+    expect(data.value).toEqual('from-variable');
+  });
+
+  it('should never call the variableResolver for built-in heads', async () => {
+    const variableResolver = vi.fn(async (name: string) => (name === 'other' ? 'resolved' : undefined));
+    const { createParser: createWithResolver } = initializeParser({ variableResolver });
+
+    const parser = createWithResolver({ value: types.string, missing: types.string });
+    const data = await parser({ uid: '1', value: '{{data.uid}}-{{ctx.key}}-{{other}}', missing: '{{data.notThere}}{{context.notThere}}' });
+
+    expect(data.value).toEqual('1-value-resolved');
+    expect(variableResolver).toHaveBeenCalledTimes(1);
+    expect(variableResolver).toHaveBeenCalledWith('other', expect.anything(), expect.anything());
+  });
+
+  it('should resolve {{data.*}} per nesting level in standalone resolve', async () => {
+    const { resolve } = initializeParser();
+    const data = await resolve({
+      name: 'Root',
+      label: 'Name: {{data.name}}',
+      user: { name: 'Ann', label: 'Name: {{data.name}}' },
+    });
+    expect(data.label).toEqual('Name: Root');
+    expect(data.user.label).toEqual('Name: Ann');
+  });
+
+  it('should not leak built-in heads into the variables spread', async () => {
+    const parser = createParser({ contextual: types.object });
+    const data = await parser({ contextual: '{{...}}' }, { variables: { custom: hello } });
+    expect(data.contextual).toBeTruthy();
+    expect('ctx' in (data.contextual as AppObject)).toBe(false);
+    expect('context' in (data.contextual as AppObject)).toBe(false);
+    expect('data' in (data.contextual as AppObject)).toBe(false);
+    expect((data.contextual as AppObject)['custom']).toEqual(hello);
+  });
+});

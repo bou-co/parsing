@@ -63,7 +63,13 @@ export const variablesPattern: ParserPattern = {
     const [head, ...rest] = path.split('.');
     const cacheVariable = <T>(value: T): T => (context.parser ? context.parser.cacheVariable(head, value) : value);
     let value: unknown = await getFromObject(variables, head, context);
-    if (value === undefined && variableResolver) value = await variableResolver(head, context, cacheVariable);
+    if (value === undefined) {
+      // Built-in context heads are terminal (explicit variables still win): they never fall through
+      // to variableResolver, so context lookups can't trigger external fetches
+      if (head === 'ctx' || head === 'context') value = context;
+      else if (head === 'data') value = context.data;
+      else if (variableResolver) value = await variableResolver(head, context, cacheVariable);
+    }
     if (typeof value === 'function') value = await value(context);
     if (value && typeof value === 'object' && rest.length) value = await getFromObject(value, rest.join('.'), context);
     return value;
