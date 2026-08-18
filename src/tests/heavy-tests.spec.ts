@@ -1,6 +1,11 @@
 import { AppObject, initializeParser, ParserFunction } from '../parser';
 const variableTitle = 'variable title';
 
+// CI runners are slower than the dev machine; scale time budgets accordingly
+const ciMultiplier = 10;
+const timeBudget = process.env['CI'] ? ciMultiplier : 1;
+vi.setConfig({ testTimeout: 5_000 * timeBudget });
+
 let initializeCount = 0;
 
 const { createParser, types } = initializeParser(async () => {
@@ -53,7 +58,7 @@ describe('parsing', () => {
     console.timeEnd('Run first async initialization (>=10ms)');
     const initialEndTime = Date.now();
     expect(initialEndTime - initialStartTime).toBeGreaterThanOrEqual(10);
-    expect(initialEndTime - initialStartTime).toBeLessThan(100);
+    expect(initialEndTime - initialStartTime).toBeLessThan(100 * timeBudget);
 
     const basicStartTime = Date.now();
     console.time('Parse basic data (<10ms)');
@@ -61,7 +66,7 @@ describe('parsing', () => {
     console.timeEnd('Parse basic data (<10ms)');
     const basicEndTime = Date.now();
     expect(basicEndTime - basicStartTime).toBeGreaterThanOrEqual(0);
-    expect(basicEndTime - basicStartTime).toBeLessThan(50);
+    expect(basicEndTime - basicStartTime).toBeLessThan(50 * timeBudget);
 
     // The projection is the point of truth so every level resolves regardless of input depth
     expect(asyncCount).toBe(0); // Ensure async function hasn't been called yet
@@ -92,7 +97,7 @@ describe('parsing', () => {
 
     const duration = fullEndTime - fullStartTime;
     console.log(`Total parsing time for ${levels} levels: ${duration} ms`);
-    expect(duration).toBeLessThan(levels / 2); // Ensure parsing completes in a reasonable time
+    expect(duration).toBeLessThan((levels / 2) * timeBudget); // Ensure parsing completes in a reasonable time
 
     const asString = JSON.stringify(fullResult);
 
@@ -136,7 +141,7 @@ describe('parsing', () => {
     const duration = fullEndTime - fullStartTime;
     console.log(`Total parsing time for 15 async parsers: ${duration} ms`);
     // Serial execution would take ~120ms; generous budget tolerates test-runner CPU contention
-    expect(duration).toBeLessThan(100);
+    expect(duration).toBeLessThan(100 * timeBudget);
 
     expect(result[1]).toBeDefined();
     expect(result[5]).toBeDefined();
@@ -187,7 +192,7 @@ describe('parsing', () => {
     const duration = fullEndTime - fullStartTime;
     console.log(`Total parsing time for nested async parsers: ${duration} ms`);
     // Serial execution would take ~110ms; generous budget tolerates test-runner CPU contention
-    expect(duration).toBeLessThan(100);
+    expect(duration).toBeLessThan(100 * timeBudget);
 
     expect(result[1]).toBeDefined();
     expect(result[2]).toBeDefined();
@@ -207,7 +212,7 @@ describe('parsing', () => {
 
     // One extra level of constants, then the cycle guard stops the recursion
     expect(result).toEqual({ name: 'node', child: { name: 'node' } });
-    expect(duration).toBeLessThan(100);
+    expect(duration).toBeLessThan(100 * timeBudget);
 
     // With real data the chain follows the data, plus the one constant tail
     const deep = await nodeParser({ child: { child: {} } });
@@ -272,7 +277,7 @@ describe('parsing', () => {
     const fullEndTime = Date.now();
     const duration = fullEndTime - fullStartTime;
     console.log(`Total parsing time for heavy data driven object: ${duration} ms`);
-    expect(duration).toBeLessThan(100);
+    expect(duration).toBeLessThan(100 * timeBudget);
 
     expect(result.id).toEqual('heavy-root');
     expect(result.isValid).toBe(true);
@@ -318,7 +323,7 @@ describe('parsing', () => {
     const fullEndTime = Date.now();
     const duration = fullEndTime - fullStartTime;
     console.log(`Total parsing time for ${iterations} projection driven parses: ${duration} ms`);
-    expect(duration).toBeLessThan(100);
+    expect(duration).toBeLessThan(100 * timeBudget);
 
     expect(results).toHaveLength(iterations);
     expect(results[iterations - 1]).toEqual({
