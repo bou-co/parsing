@@ -88,6 +88,7 @@ content comes out joined, templated, cached, and typed.
   - [Feature overview](#feature-overview)
   - [What actually makes the difference](#what-actually-makes-the-difference)
   - [Which one to use](#which-one-to-use)
+- [Agent skills](#agent-skills)
 - [Maintainers](#maintainers)
 
 ---
@@ -2002,6 +2003,26 @@ To be equally clear about the other direction, Zod has things Bou Parsing does n
 - **Lean towards Zod** when you are validating untrusted input at a boundary: form submissions, request bodies, environment variables. Same if you need JSON Schema output or the ecosystem around it (tRPC, react-hook-form, and friends).
 - **Lean towards Bou Parsing** in the data layer: shaping CMS content, aggregating multiple APIs on the server, computing or fetching per-field values, templating editor content, caching the results.
 - **They compose.** Validate a request body with Zod at the edge, then project it (and everything it references) onward with a parser. Use Zod when the output you want is an error report; lean on Bou Parsing when the output is the data your UI renders.
+
+---
+
+## Agent skills
+
+The package ships with agent skills — instruction folders (`SKILL.md` + reference docs) that teach AI coding agents such as Claude Code how to work with the library:
+
+- **`bou-parsing`** — how to use the library: projections, types, variables, caching, gotchas.
+- **`bou-parsing-v2-to-v3-migration`** — how to migrate a codebase from V2 to V3.
+
+Copy them into your repo with:
+
+```bash
+npx @bou-co/parsing add-skills                 # interactive selection
+npx @bou-co/parsing add-skills --all           # copy every skill
+npx @bou-co/parsing add-skills bou-parsing     # copy by name
+npx @bou-co/parsing add-skills --all --dir some/path   # custom destination
+```
+
+By default skills are copied into `.claude/skills/`, where Claude Code picks them up automatically. Re-running the command overwrites previously copied skills, so run it again after updating the package.
 
 ---
 
