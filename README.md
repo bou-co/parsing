@@ -1,28 +1,34 @@
 # Bou Parsing
 
-`@bou-co/parsing` is a TypeScript library for picking, validating, and transforming data from a declarative schema. Define the shape you want. Run the parser. Get back a typed result — async-native, no boilerplate, no manual type-writing.
+`@bou-co/parsing` is a TypeScript library for picking, validating, and transforming data with a declarative schema. Define the shape you want, run the parser, and get back a typed result. Async-native, no boilerplate, no manual type-writing.
 
-It's isomorphic and works in the browser. **The stronger case is on the server** — in Next.js App Router, Astro, NestJS, or Express — where you can fetch massive API responses, run expensive computations, parse them into exact type-safe structures, cache the result, and send the frontend only what it needs. Less database load, less network payload, cleaner components.
+It's isomorphic and works in the browser. **The stronger case is on the server**, in Next.js App Router, Astro, NestJS, or Express: fetch massive API responses, run expensive computations, parse them into exact type-safe structures, cache the result, and send the frontend only what it needs. Less database load, less network payload, cleaner components.
 
-The central concept is a **projection** — a plain object that maps input keys to output rules. Rules can be casting types (`types.string`, `types.number`, …), literal constants, plain functions, async functions, nested projections, or other parsers. The library walks the projection, resolves every rule against your raw data in parallel, and returns a strictly-typed output object whose TypeScript type is inferred automatically from the schema — no hand-written interfaces required.
+The central concept is a **projection**: a plain object that maps input keys to output rules. Rules can be casting types (`types.string`, `types.number`, …), literal constants, plain functions, async functions, nested projections, or other parsers. The library walks the projection, resolves every rule against your raw data in parallel, and returns a strictly-typed output object. The TypeScript type is inferred automatically from the schema, so there are no hand-written interfaces. If a projection feels closer to a GraphQL query or a GROQ projection than to a validation schema, that is no accident: you declare the output shape you want, and the engine picks, computes, fetches, and casts to produce it.
 
-Key capabilities at a glance:
-
-- **Field picking** — select only the keys you need from any input shape
-- **Type casting** — declared types are enforced at runtime: `types.number` turns `'21'` into `21`, with strict or loose failure handling
-- **Custom types** — define reusable validation/casting types (emails, slugs, date shapes) once, use them like built-ins
-- **Value transformation** — sync or async functions, static constants, derived values
-- **Nested structures** — objects, arrays, and reusable sub-parsers compose naturally
-- **Conditional fields** — `@if` blocks add or override fields based on runtime conditions
-- **Data merging** — `@combine` fetches secondary data and merges it into the output
-- **Variable interpolation** — `{{variable}}` templates with fallbacks, pipes, and async resolvers
-- **Patterns** — define your own inline syntaxes (e.g. `$products.count`) resolved from any string; variables are just the built-in one
-- **Transformers** — global hooks that auto-convert matching values (e.g. localisation objects)
-- **Lifecycle hooks** — `before`/`after` callbacks for shared context setup and post-processing
-- **Server-side caching** — pluggable storage (Redis, etc.) with deterministic cache-key generation
-- **TypeScript inference** — output types derived entirely from the projection literal, no generics to write
+---
 
 [NPM](https://www.npmjs.com/package/@bou-co/parsing) | [GitHub](https://github.com/bou-co/parsing)
+
+## Key capabilities at a glance
+
+- **Field picking**: select only the keys you need from any input shape
+- **Type casting**: declared types are enforced at runtime: `types.number` turns `'21'` into `21`, with strict or loose failure handling
+- **Custom types**: define reusable validation/casting types (emails, slugs, date shapes) once, use them like built-ins
+- **Value transformation**: sync or async functions, static constants, derived values
+- **Nested structures**: objects, arrays, and reusable sub-parsers compose naturally
+- **Conditional fields**: `@if` blocks add or override fields based on runtime conditions
+- **Data merging**: `@combine` fetches secondary data and merges it into the output
+- **Variable interpolation**: `{{variable}}` templates with fallbacks, pipes, and async resolvers
+- **Patterns**: define your own inline syntaxes (e.g. `$products.count`) resolved from any string; variables are just the built-in one
+- **Transformers**: global hooks that auto-convert matching values (e.g. localisation objects)
+- **Lifecycle hooks**: `before`/`after` callbacks for shared context setup and post-processing
+- **Server-side caching**: pluggable storage (Redis, etc.) with deterministic cache-key generation
+- **TypeScript inference**: output types derived entirely from the projection literal, no generics to write
+
+## What are we looking at
+
+If you are looking for a validation library, you probably know [Zod](https://zod.dev). Zod is the standard for validation and superb at it. Bou Parsing overlaps with Zod on validation, casting, and type inference, but treats them as one stage of a larger pipeline that also picks, derives, joins, templates, and caches. In short: Zod checks the data you have, Bou Parsing produces the data you want. The full rundown lives at the end of this document in [Comparison with Zod](#comparison-with-zod).
 
 ## Table of Contents
 
@@ -58,6 +64,7 @@ Key capabilities at a glance:
   - [Global Localization via Transformers](#global-localization-via-transformers)
   - [Client-Side React Integration](#client-side-react-integration)
 - [API Reference](#api-reference)
+- [Comparison with Zod](#comparison-with-zod)
 - [Maintainers](#maintainers)
 
 ---
@@ -74,7 +81,7 @@ npm i @bou-co/parsing
 
 ### 2 - Initialize the parser
 
-In the root level of your code, run the `initializeParser` function to export your tailored `createParser` function and `types` object. This allows you to set up global configurations like caching and variables once. The returned `resolve` function runs the same variable and transformer resolution on hard-coded values without a projection — see [Resolving values without parsing](#resolving-values-without-parsing).
+In the root level of your code, run the `initializeParser` function to export your tailored `createParser` function and `types` object. This allows you to set up global configurations like caching and variables once. The returned `resolve` function runs the same variable and transformer resolution on hard-coded values without a projection. See [Resolving values without parsing](#resolving-values-without-parsing).
 
 ```ts
 // parser-config.ts
@@ -149,9 +156,9 @@ const result = await myParser(rawDataFromApi);
 
 ### Types & casting
 
-Every `types.*` entry both **types** the output and **casts** the value at runtime — the declared type is guaranteed in the result, not just suggested to TypeScript.
+Every `types.*` entry both **types** the output and **casts** the value at runtime: the declared type is guaranteed in the result, not just suggested to TypeScript.
 
-The `types` object with all built-ins is returned by `initializeParser` — re-export it from your parser config alongside `createParser` (as shown in [Get Started](#get-started)). The same built-ins are also individually importable from the tree-shakeable `@bou-co/parsing/types` entry point, which is ideal for standalone type files. Custom types are created with `defineType` and used directly in projections — no registration involved. See [Custom types & casting options](#custom-types--casting-options).
+The `types` object with all built-ins is returned by `initializeParser`. Re-export it from your parser config alongside `createParser` (as shown in [Get Started](#get-started)). The same built-ins are also individually importable from the tree-shakeable `@bou-co/parsing/types` entry point, which is ideal for standalone type files. Custom types are created with `defineType` and used directly in projections, no registration involved. See [Custom types & casting options](#custom-types--casting-options).
 
 ```ts
 import { createParser, types } from '../path-to/parser-config';
@@ -180,7 +187,7 @@ const result = await myParser({
 */
 ```
 
-The built-in types cast conservatively — only lossless, unambiguous conversions are performed:
+The built-in types cast conservatively: only lossless, unambiguous conversions are performed.
 
 | Type                          | Accepted inputs                                                                             | Fails on                          |
 | ----------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------- |
@@ -190,13 +197,13 @@ The built-in types cast conservatively — only lossless, unambiguous conversion
 | `types.date`                  | `Date` instances; parseable date strings and epoch numbers                                  | unparseable values                |
 | `types.object`                | plain objects (validated, passed through)                                                   | arrays, primitives                |
 | `types.array`                 | arrays (passed through); `types.array(types.x)` also casts each item                        | non-arrays                        |
-| `types.any` / `types.unknown` | anything — pure pass-through, never fails                                                   | —                                 |
+| `types.any` / `types.unknown` | anything (pure pass-through, never fails)                                                   | —                                 |
 
-`undefined` and `null` values always skip casting and are omitted from the output, so declared fields stay optional. When a present value cannot be cast, the parser throws a `ParserCastError` by default — see [Custom types & casting options](#custom-types--casting-options) for loose modes and defining your own types.
+`undefined` and `null` values always skip casting and are omitted from the output, so declared fields stay optional. When a present value cannot be cast, the parser throws a `ParserCastError` by default. See [Custom types & casting options](#custom-types--casting-options) for loose modes and defining your own types.
 
 #### Default values
 
-Every type accepts an options object with a `default`, used whenever the field would otherwise end up `undefined` — missing input (`undefined`/`null`) as well as failed casts resolved to `undefined` under `looseCasting: 'undefined'`. A field with a default is therefore never `undefined`, and its inferred output type is non-optional:
+Every type accepts an options object with a `default`, used whenever the field would otherwise end up `undefined`: missing input (`undefined`/`null`) as well as failed casts resolved to `undefined` under `looseCasting: 'undefined'`. A field with a default is therefore never `undefined`, and its inferred output type is non-optional:
 
 ```ts
 const myParser = createParser({
@@ -207,7 +214,7 @@ const myParser = createParser({
 });
 ```
 
-The default is returned as-is (it is not cast — TypeScript already enforces it matches the output type) and also works with `defineType` via the object form: `defineType({ fn, default })`. It never masks hard failures: without `looseCasting`, a present-but-invalid value still throws, and `strict` types always do.
+The default is returned as-is (it is not cast; TypeScript already enforces it matches the output type) and also works with `defineType` via the object form: `defineType({ fn, default })`. It never masks hard failures: without `looseCasting`, a present-but-invalid value still throws, and `strict` types always do.
 
 ### Adding and modifying values
 
@@ -327,15 +334,15 @@ const result = await myParser(structuredData);
 
 #### The projection is the point of truth
 
-Nested projections resolve from the schema, not from the shape of the incoming data. When the input lacks a key (or holds a scalar that cannot feed an object projection — `null`, `0`, `''`, `false`, `5`), the nested projection still resolves: constants, value functions, type-token defaults, `@combine`, and `@if` inside it all produce output as usual.
+Nested projections resolve from the schema, not from the shape of the incoming data. When the input lacks a key (or holds a scalar that cannot feed an object projection, like `null`, `0`, `''`, `false`, or `5`), the nested projection still resolves: constants, value functions, type-token defaults, `@combine`, and `@if` inside it all produce output as usual.
 
 ```ts
 const myParser = createParser({
   title: types.string,
   meta: {
-    version: 3, // constant — always present
-    theme: types.string({ default: 'light' }), // default — always present
-    description: types.string, // needs data — omitted without it
+    version: 3, // constant, always present
+    theme: types.string({ default: 'light' }), // default, always present
+    description: types.string, // needs data, omitted without it
   },
 });
 
@@ -345,13 +352,13 @@ const result = await myParser({ title: 'Hello' });
 
 The rules that keep this predictable:
 
-- **Empty results are omitted.** If everything inside a nested projection depended on the missing data, the resolved object has no keys and the key is dropped entirely — purely data-mapping projections keep their omit behavior. This cascades naturally through deep nesting.
+- **Empty results are omitted.** If everything inside a nested projection depended on the missing data, the resolved object has no keys and the key is dropped entirely, so purely data-mapping projections keep their omit behavior. This cascades naturally through deep nesting.
 - **Arrays are never conjured without data.** Projections marked `'@array': true`, array literals, and `parser.asArray` values keep requiring array input.
 - **The incoming value stays reachable.** During projection-driven resolution `context.data` is an empty object, and the original value (if any) is available through `context.parent.data`.
 - **Recursive schemas terminate.** A parser that references itself (directly or mutually) stops at the first repeat: the cycle is resolved once more with its data-independent fields, then cut.
 - **Opting out is a one-liner.** A value function can make any nested parser data-driven again: `child: ({ data }) => (data['child'] ? childParser : undefined)`.
 
-Note that value functions and `@combine` resolvers inside nested projections now run even when the key is absent from the data — including any API fetches or `context.store` calls they make.
+Note that value functions and `@combine` resolvers inside nested projections now run even when the key is absent from the data, including any API fetches or `context.store` calls they make.
 
 #### Flattening nested parsers with `.flat`
 
@@ -369,7 +376,7 @@ const result = await pageParser({ name: 'Home', seo: { title: 'T', description: 
 // → { name: 'Home', title: 'T', description: 'D' }
 ```
 
-`.flat` is the composable sibling of the `@combine` directive and behaves the same way: merged fields override same-named regular keys and they are typed as optional in the output. With missing input the sub-parser resolves projection-driven — data-independent fields (constants, defaults) still merge; if nothing resolves, nothing is merged. The result must be an object — using `.flat` on array data throws.
+`.flat` is the composable sibling of the `@combine` directive and behaves the same way: merged fields override same-named regular keys and they are typed as optional in the output. With missing input the sub-parser resolves projection-driven: data-independent fields (constants, defaults) still merge, and if nothing resolves, nothing is merged. The result must be an object; using `.flat` on array data throws.
 
 ### Conditional data
 
@@ -421,10 +428,10 @@ A few concepts pay off across everything else in this document. Values flow thro
 
 Every projected key resolves its value through the same stages, in order:
 
-1. **Pick** — the raw value is read from the input data, or produced by a value function or nested parser in the projection.
-2. **Transformers** — every global transformer whose `when` condition matches may replace the whole value. See [Transformers](#transformers).
-3. **Patterns** — string values are scanned for pattern matches (`{{variable}}` interpolation by default); each match is resolved and spliced back into the text. See [Variables](#variables) and [Patterns](#patterns).
-4. **Casting** — the declared `types.*` token casts the final value at the very end. See [Types & casting](#types--casting).
+1. **Pick**: the raw value is read from the input data, or produced by a value function or nested parser in the projection.
+2. **Transformers**: every global transformer whose `when` condition matches may replace the whole value. See [Transformers](#transformers).
+3. **Patterns**: string values are scanned for pattern matches (`{{variable}}` interpolation by default); each match is resolved and spliced back into the text. See [Variables](#variables) and [Patterns](#patterns).
+4. **Casting**: the declared `types.*` token casts the final value at the very end. See [Types & casting](#types--casting).
 
 The standalone [`resolve`](#resolving-values-without-parsing) function runs the same middle stages without a projection: transformers apply at every nesting level and patterns resolve in every string, but nothing is picked or cast. Output that comes from a nested parser is already fully resolved and is not re-processed by the parent.
 
@@ -451,7 +458,7 @@ The one-line rule: **if you're reacting to what the value _is_, use a transforme
 - You want `$products.count` anywhere in any string to become a live DB count → **pattern**.
 - You want to strip HTML from every string value → **transformer** (you're rewriting the whole value, not a token in it).
 
-**Ordering guarantee:** patterns resolve **after** transformers. A transformer's output is still scanned for patterns, so "rewrite my legacy `[[token]]` syntax into `{{token}}`" is a legitimate one-line transformer. The reverse is not true — pattern output is re-scanned by patterns, not by transformers.
+**Ordering guarantee:** patterns resolve **after** transformers. A transformer's output is still scanned for patterns, so "rewrite my legacy `[[token]]` syntax into `{{token}}`" is a legitimate one-line transformer. The reverse is not true: pattern output is re-scanned by patterns, not by transformers.
 
 Remember that for the common case you rarely define either: the built-in variables pattern with its [expressions](#expressions--pipes) covers everyday templating out of the box.
 
@@ -459,10 +466,10 @@ Remember that for the common case you rarely define either: the built-in variabl
 
 ### Custom types & casting options
 
-Create your own types with `defineType` — a casting function `(value, context) => output` (sync or async) that returns the cast value or throws when the input is invalid. The result is a type token used **directly** in projections; there is no registration step, and one-off types are perfectly fine:
+Create your own types with `defineType`: a casting function `(value, context) => output` (sync or async) that returns the cast value or throws when the input is invalid. The result is a type token used **directly** in projections; there is no registration step, and one-off types are perfectly fine:
 
 ```ts
-// my-types.ts — a standalone types file, no parser needed
+// my-types.ts, a standalone types file, no parser needed
 import { array, number, defineType } from '@bou-co/parsing/types';
 
 export const email = defineType(async (value, context) => {
@@ -495,15 +502,15 @@ const myParser = createParser({
 });
 ```
 
-The `@bou-co/parsing/types` entry point exports every built-in token individually (`string`, `number`, `boolean`, `date`, `object`, `array`, `any`, `unknown`) plus `defineType`, is tree-shakeable, and never pulls in the parser engine — so shared type files stay lightweight and work with any parser configuration.
+The `@bou-co/parsing/types` entry point exports every built-in token individually (`string`, `number`, `boolean`, `date`, `object`, `array`, `any`, `unknown`) plus `defineType`, is tree-shakeable, and never pulls in the parser engine, so shared type files stay lightweight and work with any parser configuration.
 
 #### Loose casting
 
-By default a failed cast throws a `ParserCastError` (with the failing key path, target type, and received value). Set `looseCasting` to relax this globally — or per parser / per call, since it is a regular context option:
+By default a failed cast throws a `ParserCastError` (with the failing key path, target type, and received value). Set `looseCasting` to relax this globally, or per parser / per call, since it is a regular context option:
 
 ```ts
 export const { createParser, types } = initializeParser({
-  looseCasting: true, // default is false — pass the original value through and log a warning
+  looseCasting: true, // default is false: pass the original value through and log a warning
 });
 ```
 
@@ -513,7 +520,7 @@ export const { createParser, types } = initializeParser({
 });
 ```
 
-> Note: with `looseCasting: true` the declared output types become best-effort — the runtime may pass through an uncast original value that TypeScript still types as the declared type. Use `'undefined'` if the output types should stay fully honest (the fields are optional in the inferred type anyway).
+> Note: with `looseCasting: true` the declared output types become best-effort: the runtime may pass through an uncast original value that TypeScript still types as the declared type. Use `'undefined'` if the output types should stay fully honest (the fields are optional in the inferred type anyway).
 
 To observe cast failures (e.g. for telemetry) instead of relying on the console warning, register an `onCastError` callback. It receives the `ParserCastError` (with `path`, `type`, and `received`) before the failure policy is applied, and replaces the default warning when set. Like `looseCasting`, it can be set globally, per parser, or per call.
 
@@ -526,7 +533,7 @@ export const { createParser, types } = initializeParser({
 
 #### Strict types
 
-A type marked `strict` always throws on failure, even when `looseCasting` is enabled — for values where silently passing bad data through is never acceptable. Pass an object definition `{ fn, strict }` to `defineType`:
+A type marked `strict` always throws on failure, even when `looseCasting` is enabled. Use it for values where silently passing bad data through is never acceptable. Pass an object definition `{ fn, strict }` to `defineType`:
 
 ```ts
 import { defineType } from '@bou-co/parsing/types';
@@ -544,7 +551,7 @@ export const hexColor = defineType({
 
 ### Multiple parser configurations
 
-Each `initializeParser` call creates a fully isolated parser engine — its own variables, casting options (`looseCasting`/`onCastError`), transformers, lifecycle hooks, and caches/storage. This makes it possible to run separate configurations in one app, for example a strict server setup with Redis-backed caching next to a lenient client setup:
+Each `initializeParser` call creates a fully isolated parser engine: its own variables, casting options (`looseCasting`/`onCastError`), transformers, lifecycle hooks, and caches/storage. This makes it possible to run separate configurations in one app, for example a strict server setup with Redis-backed caching next to a lenient client setup:
 
 ```ts
 // server-config.ts
@@ -561,7 +568,7 @@ export const { createParser, types } = initializeParser({
 });
 ```
 
-Parsers stay permanently bound to the engine that created them — nesting a parser from one configuration inside another keeps its own transformers, storage, and variables for the nested parse, while parent context values still merge down. Since type tokens carry their casting implementation, projections and type files are freely shareable across configurations.
+Parsers stay permanently bound to the engine that created them. Nesting a parser from one configuration inside another keeps its own transformers, storage, and variables for the nested parse, while parent context values still merge down. Since type tokens carry their casting implementation, projections and type files are freely shareable across configurations.
 
 ### Merging data
 
@@ -595,21 +602,21 @@ const result = await myParser(rawDataFromApi);
 */
 ```
 
-> Tip: when the data you want to merge already lives under a key and has its own parser, use [`.flat`](#flattening-nested-parsers-with-flat) instead of a `@combine` resolver — same merge behavior, composed declaratively.
+> Tip: when the data you want to merge already lives under a key and has its own parser, use [`.flat`](#flattening-nested-parsers-with-flat) instead of a `@combine` resolver: same merge behavior, composed declaratively.
 
 ### Variables
 
-Variables provide template logic for string values coming from raw data — the everyday tool for dynamic content, and for most projects all you ever need. They allow content editors (e.g., in a CMS) to use dynamic data without requiring coders to build an entire EJS or templating engine.
+Variables provide template logic for string values coming from raw data. They are the everyday tool for dynamic content, and for most projects all you ever need. They allow content editors (e.g., in a CMS) to use dynamic data without requiring coders to build an entire EJS or templating engine.
 
 Variables support:
 
 - **Functions:** Resolve dynamic data (e.g., `currentYear: () => new Date().getFullYear()`).
 - **Async Execution:** Fetch variable values from a DB or CMS dynamically.
 - **Deep object resolution:** Access nested properties using dot notation (e.g., `{{user.address.city}}`).
-- **Fallbacks & literals:** Chain checks like `{{user.name || "Guest"}}` — see [Expressions & pipes](#expressions--pipes).
-- **Pipes:** Transform output inline like `{{title | uppercase}}` — see [Expressions & pipes](#expressions--pipes).
+- **Fallbacks & literals:** Chain checks like `{{user.name || "Guest"}}`. See [Expressions & pipes](#expressions--pipes).
+- **Pipes:** Transform output inline like `{{title | uppercase}}`. See [Expressions & pipes](#expressions--pipes).
 
-Under the hood, variables are the built-in [pattern](#patterns) — that only matters once you want to re-delimit them, disable them, or register your own syntaxes alongside them, which is the expert tier of the same machinery.
+Under the hood, variables are the built-in [pattern](#patterns). That only matters once you want to re-delimit them, disable them, or register your own syntaxes alongside them, which is the expert tier of the same machinery.
 
 ```ts
 // 1. Global Setup (in parser-config.ts)
@@ -654,7 +661,7 @@ const result = await myParser(rawDataFromApi, instanceData);
 
 #### Dynamic Variable Resolvers
 
-Instead of defining every possible variable upfront, `variableResolver` allows you to dynamically intercept and resolve variables by their exact name when they are encountered. This is incredibly powerful for catching wildcards, fetching data on-demand from a database, or handling dynamic keys.
+Instead of defining every possible variable upfront, `variableResolver` allows you to dynamically intercept and resolve variables by their exact name when they are encountered. This is useful for catching wildcards, fetching data on-demand from a database, or handling dynamic keys.
 
 ```ts
 import { initializeParser } from '@bou-co/parsing';
@@ -688,11 +695,11 @@ const result = await dynamicParser({ message: 'Welcome back, {{userName}}!', use
 
 ### Expressions & pipes
 
-Everything between the delimiters of a variable — `{{ here }}` — is an **expression**, and the same grammar is shared by any custom [pattern](#patterns) that declares its own delimiters. Expressions stay deliberately small: fallback chains, literals, and a single pipe. No loops, no conditionals, no arbitrary code.
+Everything between the delimiters of a variable (`{{ here }}`) is an **expression**, and the same grammar is shared by any custom [pattern](#patterns) that declares its own delimiters. Expressions stay deliberately small: fallback chains, literals, and a single pipe. No loops, no conditionals, no arbitrary code.
 
 #### Fallbacks & literals
 
-Chain candidates with `||`; they evaluate left to right and the first **defined** value wins. Only `undefined` falls through — `false`, `0`, and `''` are valid results and stop the chain.
+Chain candidates with `||`; they evaluate left to right and the first **defined** value wins. Only `undefined` falls through: `false`, `0`, and `''` are valid results and stop the chain.
 
 Literals can appear as fallback candidates or as pipe parameters:
 
@@ -700,7 +707,7 @@ Literals can appear as fallback candidates or as pipe parameters:
 - **Numbers** (integers): `42`
 - **Booleans**: `true` / `false`
 
-A literal in the value position is returned exactly as written — a pipe after a literal does not apply.
+A literal in the value position is returned exactly as written. A pipe after a literal does not apply.
 
 ```ts
 const rawDataFromCMS = {
@@ -714,7 +721,7 @@ const rawDataFromCMS = {
 
 A pipe transforms the resolved value inline: `{{value | pipe}}`, or with parameters, `{{value | pipe:param1:param2}}`. One pipe per expression. Parameters may be literals or variable names (resolved from `variables`).
 
-Pipe functions are plain value functions registered under the `pipes` config — at the global, schema, or instance level, exactly like variables, with the more specific level winning on a name collision. Each pipe is called with the parser context, where `data` (and `value`) is the resolved value being piped and `params` holds the parsed parameters:
+Pipe functions are plain value functions registered under the `pipes` config, at the global, schema, or instance level, exactly like variables, with the more specific level winning on a name collision. Each pipe is called with the parser context, where `data` (and `value`) is the resolved value being piped and `params` holds the parsed parameters:
 
 ```ts
 import { initializeParser } from '@bou-co/parsing';
@@ -747,7 +754,7 @@ To output pattern syntax literally, prefix the match with a backslash: `\{{name}
 
 ### Resolving values without parsing
 
-The `resolve` function returned by `initializeParser` runs the engine's value resolution — [variable](#variables) interpolation and global [transformers](#transformers) — directly on hard-coded input, without a projection, casting, or hooks. This is useful for state management and other situations where the data is already in its final shape.
+The `resolve` function returned by `initializeParser` runs the engine's value resolution ([variable](#variables) interpolation and global [transformers](#transformers)) directly on hard-coded input, without a projection, casting, or hooks. This is useful for state management and other situations where the data is already in its final shape.
 
 `resolve` walks the input recursively: transformers apply at every nesting level, functions are invoked with the parser context and their results resolved further, `{{variable}}` strings (and any registered [patterns](#patterns)) are interpolated, and other values pass through unchanged (branded type tokens and parsers included). Both objects and plain strings are accepted, and an optional instance context can supply call-specific variables (or e.g. `currentLocale` for a localize transformer).
 
@@ -772,14 +779,14 @@ const message = await resolve('Hello {{name}}!');
 const localized = await resolve<{ message: string }>({
   message: { en: 'Hello {{name}}!', fi: 'Hei {{name}}!' },
 });
-// → { message: 'Hello John!' } — or { message: 'Hei John!' } when the current locale is Finnish
+// → { message: 'Hello John!' }, or { message: 'Hei John!' } when the current locale is Finnish
 ```
 
-The return type is inferred from the input (strings stay strings, objects and arrays recurse, functions map to their resolved return value). When a transformer reshapes a value — like localize collapsing a locale object into a string — pass an explicit generic (`resolve<{ message: string }>(...)`) to assert the output type.
+The return type is inferred from the input (strings stay strings, objects and arrays recurse, functions map to their resolved return value). When a transformer reshapes a value (like localize collapsing a locale object into a string), pass an explicit generic (`resolve<{ message: string }>(...)`) to assert the output type.
 
 #### Function values & the contextual `resolve`
 
-Functions in the input are invoked with a `ParserContext` — like value functions in projections — and their results are resolved recursively (returned strings, objects, promises, and further functions all resolve fully). The context exposes its own `resolve`, which works exactly like the global one but **inherits the active context** — merged variables, transformers, locale, and so on — with optional per-call overrides merged on top. The globally exported `resolve` never inherits ambient context, so reach for `context.resolve` whenever inherited variables matter.
+Functions in the input are invoked with a `ParserContext` (like value functions in projections) and their results are resolved recursively: returned strings, objects, promises, and further functions all resolve fully. The context exposes its own `resolve`, which works exactly like the global one but **inherits the active context** (merged variables, transformers, locale, and so on), with optional per-call overrides merged on top. The globally exported `resolve` never inherits ambient context, so use `context.resolve` whenever inherited variables matter.
 
 This also makes it possible to resolve strings whose variables are (async) functions:
 
@@ -821,7 +828,7 @@ const parser = createParser(
 // metadata → { uid: 'id-123' }
 ```
 
-In value functions, `resolve` can also be called with **no arguments** to resolve the current `context.value` — the raw incoming data at the function's own key. Nothing resolves until you call it (variables backed by a `variableResolver` stay untouched), and the result is memoized per context so calling it twice resolves once. Pass an explicit generic (`resolve<number>()`) to type the result; an explicit generic also overrides the inferred typing on the one-argument form.
+In value functions, `resolve` can also be called with **no arguments** to resolve the current `context.value`, the raw incoming data at the function's own key. Nothing resolves until you call it (variables backed by a `variableResolver` stay untouched), and the result is memoized per context so calling it twice resolves once. Pass an explicit generic (`resolve<number>()`) to type the result; an explicit generic also overrides the inferred typing on the one-argument form.
 
 ```ts
 const parser = createParser({
@@ -830,7 +837,7 @@ const parser = createParser({
 });
 ```
 
-One caveat inside `resolve()` inputs (not projections): a zero-arg `resolve()` call within a resolve-mode function value re-resolves the input containing that very function, so it recurses — parse-mode value functions are immune, since their `value` is raw data and never the function itself.
+One caveat inside `resolve()` inputs (not projections): a zero-arg `resolve()` call within a resolve-mode function value re-resolves the input containing that very function, so it recurses. Parse-mode value functions are immune, since their `value` is raw data and never the function itself.
 
 ### Dynamic projections
 
@@ -919,7 +926,7 @@ const result = await productParser({ price: 25 });
 
 ### Transformers
 
-Transformers run conditionally globally against properties. Helpful for automatic data morphing based on context — the mid-tier extension point: they reshape whole values, while [patterns](#patterns) rewrite text inside them. For the ordering guarantee and how to choose between the two, see [Transformers vs patterns](#transformers-vs-patterns).
+Transformers run conditionally globally against properties. Helpful for automatic data morphing based on context. They are the mid-tier extension point: they reshape whole values, while [patterns](#patterns) rewrite text inside them. For the ordering guarantee and how to choose between the two, see [Transformers vs patterns](#transformers-vs-patterns).
 
 ```ts
 // 1. Setup in parser-config.ts
@@ -947,26 +954,26 @@ const result = await myParser(rawData);
 
 ### Patterns
 
-A **pattern** detects a substring inside string data and resolves it to something else. `{{variable}}` interpolation is simply the pattern that ships with the library — you can register your own syntaxes next to it, replace its delimiters, or disable it.
+A **pattern** detects a substring inside string data and resolves it to something else. `{{variable}}` interpolation is simply the pattern that ships with the library. You can register your own syntaxes next to it, replace its delimiters, or disable it.
 
-This is the expert tier: if you just want `{{name}}` templating, [Variables](#variables) already covers you. Reach for the pattern API when you need a new inline syntax (like `$products.count` hitting a database) or need to change how the built-in one behaves. For choosing between a pattern and a transformer, see [Transformers vs patterns](#transformers-vs-patterns).
+This is the expert tier: if you just want `{{name}}` templating, [Variables](#variables) already covers you. Use the pattern API when you need a new inline syntax (like `$products.count` hitting a database) or need to change how the built-in one behaves. For choosing between a pattern and a transformer, see [Transformers vs patterns](#transformers-vs-patterns).
 
 There are two kinds of patterns, and the difference decides whether [expressions](#expressions--pipes) work:
 
-- **Delimited patterns** declare `delimiters: [start, end]`. The engine builds the match regex from them, and the full expression grammar — `||` fallbacks, literals, pipes — works inside the delimiters automatically.
-- **Token patterns** declare a raw `match` regex with no end marker (like `$products.count`). Each match resolves independently, and expressions are off — there is no boundary that could contain a fallback chain.
+- **Delimited patterns** declare `delimiters: [start, end]`. The engine builds the match regex from them, and the full expression grammar (`||` fallbacks, literals, pipes) works inside the delimiters automatically.
+- **Token patterns** declare a raw `match` regex with no end marker (like `$products.count`). Each match resolves independently, and expressions are off: there is no boundary that could contain a fallback chain.
 
 ```ts
 import { initializeParser } from '@bou-co/parsing';
 
 export const { createParser, types } = initializeParser({
   patterns: {
-    // Delimited: expressions work — '<<snippets/sale || "50% off" | uppercase>>'
+    // Delimited: expressions work, e.g. '<<snippets/sale || "50% off" | uppercase>>'
     snippet: {
       delimiters: ['<<', '>>'],
       resolve: async ({ path }) => await cms.getSnippet(path),
     },
-    // Token: bare '$products.count' anywhere in text — no expressions
+    // Token: bare '$products.count' anywhere in text, no expressions
     db: {
       match: /\$([a-zA-Z0-9_.]+)/g,
       resolve: async ({ path }) => await db.get(path),
@@ -979,7 +986,7 @@ export const { createParser, types } = initializeParser({
     truncate: ({ data, params: [len = 50] = [] }) => String(data).slice(0, len),
   },
 
-  // Unchanged — this is just the data the built-in variables pattern reads from
+  // Unchanged: this is just the data the built-in variables pattern reads from
   variables: {
     currentYear: () => new Date().getFullYear(),
   },
@@ -992,7 +999,7 @@ The pattern interface:
 interface ParserPattern {
   /** Start and end strings bounding a match, e.g. ['{{', '}}']. Required for expressions */
   delimiters?: [string, string];
-  /** Match regex — built from delimiters when omitted. First capture group is the expression */
+  /** Match regex, built from delimiters when omitted. First capture group is the expression */
   match?: RegExp;
   /** Called once per unique match in a string, never per occurrence */
   resolve: (input: PatternResolveInput) => unknown | Promise<unknown>;
@@ -1015,7 +1022,7 @@ interface PatternResolveInput {
 }
 ```
 
-**Expressions require delimiters.** The grammar only works when the engine can capture the _whole_ expression, and only a start + end pair bounds one reliably — an open-ended token like `$animals.cat` has no end marker, so a `||` after it is just surrounding text, never a fallback. Compare:
+**Expressions require delimiters.** The grammar only works when the engine can capture the _whole_ expression, and only a start + end pair bounds one reliably. An open-ended token like `$animals.cat` has no end marker, so a `||` after it is just surrounding text, never a fallback. Compare:
 
 ```
 Input:     'Favorite: $animals.cat.title || animals.dog.title'
@@ -1025,20 +1032,20 @@ Input:     'Favorite: <<animals.cat.title || animals.dog.title>>'
 Delimited: 'Favorite: Cat'                         // the whole fallback chain is the expression
 ```
 
-Because a half-working grammar would be worse than none, setting `expressions: true` on a token pattern **throws at setup** with guidance instead of silently misbehaving. Delimited patterns can opt out with `expressions: false` (the raw captured text then arrives as `path`, untouched). Declaring both `delimiters` and a custom `match` is allowed for fine-tuning — your regex wins (first capture group is the expression) while the delimiters vouch that its capture is bounded; this is exactly how the built-in variables pattern is defined.
+Because a half-working grammar would be worse than none, setting `expressions: true` on a token pattern **throws at setup** with guidance instead of silently misbehaving. Delimited patterns can opt out with `expressions: false` (the raw captured text then arrives as `path`, untouched). Declaring both `delimiters` and a custom `match` is allowed for fine-tuning: your regex wins (first capture group is the expression) while the delimiters vouch that its capture is bounded. This is exactly how the built-in variables pattern is defined.
 
 Beyond that, the engine owns everything that isn't the lookup itself: scanning, deduplication, splicing, parallel resolution, re-scanning, and cycle protection. Your `resolve` only turns a path into a value.
 
 Rules worth knowing:
 
-- **Full-string matches return the raw value.** When a string consists solely of one match, the resolved value is returned untouched — objects, numbers, and arrays survive, and an object result can feed a nested projection.
+- **Full-string matches return the raw value.** When a string consists solely of one match, the resolved value is returned untouched: objects, numbers, and arrays survive, and an object result can feed a nested projection.
 - **Precedence:** overlapping matches resolve longest-first, then by registration order (the built-in `variables` pattern registers first).
-- **Escaping:** a backslash directly before a match suppresses it and is consumed — `\{{foo}}` outputs `{{foo}}`; `\\{{foo}}` outputs a literal backslash followed by the resolved value. Uniform across all patterns.
+- **Escaping:** a backslash directly before a match suppresses it and is consumed: `\{{foo}}` outputs `{{foo}}`, and `\\{{foo}}` outputs a literal backslash followed by the resolved value. Uniform across all patterns.
 - **Re-scanning & cycles:** resolved string output is scanned again by all patterns (opt out per pattern with `rescan: false`). Cycles throw `ParserPatternCycleError` instead of hanging.
-- **Caching:** user patterns default to `cache: 'run'` (memoized per parse — safe for per-request data). `'storage'` persists results through the configured [storage](#server-side-data-fetching--caching) under `pattern:<name>:<path>` keys. The built-in variables pattern uses `'none'` because variable lookups are context-sensitive.
+- **Caching:** user patterns default to `cache: 'run'` (memoized per parse, safe for per-request data). `'storage'` persists results through the configured [storage](#server-side-data-fetching--caching) under `pattern:<name>:<path>` keys. The built-in variables pattern uses `'none'` because variable lookups are context-sensitive.
 - **Customizing variables:** existing keys merge partially, so `patterns: { variables: { delimiters: ['${', '}'] } }` re-delimits `{{ }}` to `${ }` while keeping lookups, fallbacks, pipes, and the spread intact (a custom `match` regex works too); `patterns: { variables: false }` disables interpolation entirely.
 - **Caveat:** a string that looks like a stringified object (`{...}`) under a nested projection is parsed as an object before patterns are consulted.
-- **Type inference is unaffected** — a pattern that resolves a `types.string` field into an object makes the inferred type inaccurate, exactly as transformers already can.
+- **Type inference is unaffected**: a pattern that resolves a `types.string` field into an object makes the inferred type inaccurate, exactly as transformers already can.
 
 ### Chaining parsers (Reparsing)
 
@@ -1335,7 +1342,7 @@ const result = await expensiveParser(rawData); // Takes 1s first time, almost in
 
 ### Value-Level Caching with `context.store`
 
-**Why:** Whole-parse caching (above) keys on the full input data — but often a single value function makes an expensive async request whose result is shared across many different parses (e.g. fetching a referenced author). `context.store` caches individual computations through the same globally configured `storage`.
+**Why:** Whole-parse caching (above) keys on the full input data. Often, though, a single value function makes an expensive async request whose result is shared across many different parses (e.g. fetching a referenced author). `context.store` caches individual computations through the same globally configured `storage`.
 
 **Features Used:** `context.store`, `context.storage`, `initializeParser` (storage).
 
@@ -1357,13 +1364,13 @@ const articleParser = createParser({
 
 Semantics:
 
-- Caches whenever a global `storage` is configured — **independent of `cache.enabled`** (calling `store` is the opt-in).
+- Caches whenever a global `storage` is configured, **independent of `cache.enabled`** (calling `store` is the opt-in).
 - With no storage configured (e.g. client-side) it simply runs the function, so value functions stay isomorphic.
-- Concurrent calls with the same key share one in-flight computation — array items parse in parallel, but the request fires once.
+- Concurrent calls with the same key share one in-flight computation: array items parse in parallel, but the request fires once.
 - Errors are never cached; a failed computation rejects all waiters and the next call retries.
 - `null`/`undefined` from `storage.match` count as misses, so falsy values (`0`, `''`, `false`) cache correctly.
 - The optional third argument is merged into `context.cache` for the backend's `match`/`add` (e.g. a `ttl`).
-- The cache identity is your explicit key — the context passed to the backend carries no per-key information.
+- The cache identity is your explicit key: the context passed to the backend carries no per-key information.
 
 For manual control, the configured backend is also directly available as `context.storage` (`match`/`add`/`remove`/`clear`).
 
@@ -1429,7 +1436,7 @@ const result = await cmsBlockParser(rawDataFromCMS, instanceContext);
 
 ### CMS Dynamic Variables with On-Demand Fetching & Caching
 
-**Why:** Often in CMS systems, content editors want to embed reusable snippets or documents directly into their text (e.g., `{{snippets/summer-sale.title}}`). Instead of pre-fetching all possible snippets upfront—which can be slow and resource-heavy—you can use `variableResolver` to fetch only the exact snippets used in the text on-demand.
+**Why:** Often in CMS systems, content editors want to embed reusable snippets or documents directly into their text (e.g., `{{snippets/summer-sale.title}}`). Instead of pre-fetching all possible snippets upfront (which can be slow and resource-heavy), you can use `variableResolver` to fetch only the exact snippets used in the text on-demand.
 
 **Features Used:** `variableResolver`, Deep object resolution.
 
@@ -1617,7 +1624,7 @@ export const UserProfile = ({ rawData }) => {
 
 Initializes an isolated parsing engine with global settings (loose casting, transformers, patterns, pipes, storage caching, variables, lifecycle hooks).
 
-- **Returns:** `{ createParser, resolve, types }` — `types` contains the built-in casting types.
+- **Returns:** `{ createParser, resolve, types }`, where `types` contains the built-in casting types.
 
 #### `createParser(projection, options?)`
 
@@ -1628,7 +1635,7 @@ Creates an executable parser function based on the provided schema projection.
 
 #### `resolve(input, contextOverride?)`
 
-Resolves variables and applies global transformers on raw input — an object, array, plain string, or function — without a projection, casting, or hooks. Transformers apply at every nesting level, and functions are invoked with the parser context and resolved recursively. See [Resolving values without parsing](#resolving-values-without-parsing).
+Resolves variables and applies global transformers on raw input (an object, array, plain string, or function) without a projection, casting, or hooks. Transformers apply at every nesting level, and functions are invoked with the parser context and resolved recursively. See [Resolving values without parsing](#resolving-values-without-parsing).
 
 - **Returns:** A promise of the resolved input, typed from the input shape; an explicit generic always overrides the inferred type (e.g. when a transformer reshapes values).
 
@@ -1637,7 +1644,7 @@ Resolves variables and applies global transformers on raw input — an object, a
 The `context` object is passed to all dynamic resolver functions in your projection. It contains the raw data, some info about current execution and custom properties.
 
 - **`data`**: The raw input data at the currently executing nested level. During projection-driven resolution (no matching input for a nested projection) this is an empty object; the parent's value remains available via `context.parent.data`.
-- **`value`**: The raw incoming data value at the current key (`data?.[key]`), so `({ value }) => value * 5` replaces `({ data, key }) => data[key] * 5`. Never resolved eagerly — a `"{{variable}}"` string arrives as-is; call `resolve()` with no arguments to resolve it on demand. `undefined` during projection-driven resolution. Inside transformers and pipes, `value` mirrors `data` (the candidate value being processed).
+- **`value`**: The raw incoming data value at the current key (`data?.[key]`), so `({ value }) => value * 5` replaces `({ data, key }) => data[key] * 5`. Never resolved eagerly: a `"{{variable}}"` string arrives as-is; call `resolve()` with no arguments to resolve it on demand. `undefined` during projection-driven resolution. Inside transformers and pipes, `value` mirrors `data` (the candidate value being processed).
 - **`variables`**: A merged dictionary of global, schema, and instance variables, including a `current` reference to the input data. Used automatically in string template replacement. See [Variables](#variables).
 - **`pipes`**: A merged dictionary of global, schema, and instance pipe functions, available to every pattern with expressions enabled. See [Patterns](#patterns).
 - **`key`**: The string key of the property currently being evaluated.
@@ -1646,13 +1653,13 @@ The `context` object is passed to all dynamic resolver functions in your project
 - **`parent`**: The enclosing level's context, chaining all the way up to the root (`undefined` at the root). During nested or projection-driven resolution, `context.parent.data` reaches the surrounding input.
 - **`projection`**: The active projection schema definition for the current level.
 - **`cache`**: The merged caching options. See [Caching](#server-side-data-fetching--caching).
-- **`store`**: `store(key, fn, options?)` — get-or-compute caching for a single async value through the global `storage`, with in-flight dedupe, independent of `cache.enabled`. See [Value-Level Caching with `context.store`](#value-level-caching-with-contextstore).
+- **`store`**: `store(key, fn, options?)` runs get-or-compute caching for a single async value through the global `storage`, with in-flight dedupe, independent of `cache.enabled`. See [Value-Level Caching with `context.store`](#value-level-caching-with-contextstore).
 - **`storage`**: Direct access to the configured storage backend.
 - **`params`**: Inside a pipe function, the resolved parameters given after the pipe name (`{{x | pipe:param1:param2}}`); `undefined` when none were passed.
 - **`resolve`**: A contextual version of [`resolve`](#resolveinput-contextoverride) that inherits the active context (variables, transformers, locale) with optional per-call overrides. Called with **no arguments** it lazily resolves the current `context.value`, memoized per context so repeated calls resolve once. See [Function values & the contextual resolve](#function-values--the-contextual-resolve).
 - **`parser`**: A reference to the underlying `Parser` instance handling the execution.
 - **`path`**: The chain of projection references from the root to the current level, present in every parse.
-- **`datalessPath`**: The chain of projection references accumulated during projection-driven resolution. Present only when the current parse has no matching input data — its presence tells a value function it is running data-lessly. See [The projection is the point of truth](#the-projection-is-the-point-of-truth).
+- **`datalessPath`**: The chain of projection references accumulated during projection-driven resolution. Present only when the current parse has no matching input data. Its presence tells a value function it is running data-lessly. See [The projection is the point of truth](#the-projection-is-the-point-of-truth).
 - **Custom Properties**: Any additional properties passed via context overriding or lifecycle hooks. To enable strong typing for custom properties, use TypeScript module augmentation. See [Advanced TypeScript Generation](#advanced-typescript-generation--utilities) and [Context Overriding](#context-overriding).
 
 ### Context Configuration & Modifiers
@@ -1670,19 +1677,19 @@ Advanced structural controls available as keys within your schema definition.
 - **`@if`**: Accepts an array of objects containing `when` (a condition function) and `then` (the projection to merge if true). Allows fully conditional object picking. Inside projection-driven resolution the condition runs against an empty data object. See [Conditional Data](#conditional-data).
 - **`@combine`**: Accepts an async function returning an object. Merges the returned object directly into the current parsed output. Useful for fetching secondary datasets. See [Merging Data](#merging-data).
 - **`@array`**: When set to `true` at the root of a nested projection, signals the parser to iterate over the input data as an array and apply the remaining properties to each item. See [Nested Arrays](#nested-data-structures).
-- **`parser.flat`**: Not a key but a projection value — parses the data under its key with the given parser and merges the result into the parent output, dropping the key. See [Flattening nested parsers](#flattening-nested-parsers-with-flat).
+- **`parser.flat`**: Not a key but a projection value. It parses the data under its key with the given parser and merges the result into the parent output, dropping the key. See [Flattening nested parsers](#flattening-nested-parsers-with-flat).
 
 ### Built-in Types
 
-The `types` object — returned by `initializeParser` and also available as individual named exports from the tree-shakeable `@bou-co/parsing/types` entry point — provides casting types for standard properties:
+The `types` object (returned by `initializeParser` and also available as individual named exports from the tree-shakeable `@bou-co/parsing/types` entry point) provides casting types for standard properties:
 
 - **Primitives**: `types.string`, `types.number`, `types.boolean`, `types.date`, `types.object`, `types.any`, `types.unknown`.
 - **Arrays**: `types.array` (pass-through validation) or per-item casting via `types.array(types.string)`, `types.array(types.number)`, including nesting (`types.array(types.array(types.number))`).
 - **Custom types**: created anywhere with `defineType` and used directly as projection values. See [Custom types & casting options](#custom-types--casting-options).
 
-Every type casts its value at runtime after variables and transformers have resolved; `undefined`/`null` values skip casting and are omitted — unless the type carries a `default` (`types.string({ default: 'x' })`), which fills in whenever the field would end up `undefined` and makes it non-optional. Failed casts throw a `ParserCastError` unless `looseCasting` allows them through. See [Types & casting](#types--casting) for the full casting table and [Default values](#default-values).
+Every type casts its value at runtime after variables and transformers have resolved; `undefined`/`null` values skip casting and are omitted, unless the type carries a `default` (`types.string({ default: 'x' })`), which fills in whenever the field would end up `undefined` and makes it non-optional. Failed casts throw a `ParserCastError` unless `looseCasting` allows them through. See [Types & casting](#types--casting) for the full casting table and [Default values](#default-values).
 
-> **Migration note:** the v2 string identifiers (`title: 'string'`, `items: 'array<string>'`, …) are no longer supported — using one as a projection value throws a migration error at runtime. Other string literals still work as constants.
+> **Migration note:** the v2 string identifiers (`title: 'string'`, `items: 'array<string>'`, …) are no longer supported: using one as a projection value throws a migration error at runtime. Other string literals still work as constants.
 
 ### Utility Functions
 
@@ -1699,7 +1706,7 @@ const slug = defineType((value) => {
 });
 ```
 
-Types hash into cache keys by their implementation source, so caching stays correct when a type changes. When a **factory** creates several types from one function (closures are invisible to hashing), give each a `name` to keep their cache identities apart — the name also shows up in `ParserCastError.type`:
+Types hash into cache keys by their implementation source, so caching stays correct when a type changes. When a **factory** creates several types from one function (closures are invisible to hashing), give each a `name` to keep their cache identities apart (the name also shows up in `ParserCastError.type`):
 
 ```ts
 const scaled = (factor: number) => defineType({ fn: (value) => Number(value) * factor, name: `scaled-${factor}` });
@@ -1752,7 +1759,7 @@ const myParser = createParser({
 
 #### `toHash(data)`
 
-Deterministically hashes an object or primitive into a stable string. Highly useful for generating deterministic Cache/Storage keys in `initializeParser`.
+Deterministically hashes an object or primitive into a stable string. Useful for generating deterministic cache/storage keys in `initializeParser`.
 
 ```ts
 import { toHash } from '@bou-co/parsing';
@@ -1765,7 +1772,7 @@ console.log(toHash(obj1) === toHash(obj2)); // true
 
 #### `useParserValue(data, parser)`
 
-React hook exported from `@bou-co/parsing/react`. Safely resolves async parsers inside React components, returning `{ result, loading, error, revalidate }`. `revalidate(updatedData?)` re-runs the parse on demand — with the latest data by default, or with new data when passed (also bypassing the hook's change detection, e.g. after a mutation you know changed the output).
+React hook exported from `@bou-co/parsing/react`. Safely resolves async parsers inside React components, returning `{ result, loading, error, revalidate }`. `revalidate(updatedData?)` re-runs the parse on demand: with the latest data by default, or with new data when passed (also bypassing the hook's change detection, e.g. after a mutation you know changed the output).
 
 ```tsx
 import React from 'react';
@@ -1781,6 +1788,87 @@ export const MyComponent = ({ rawProps }) => {
   return <div onClick={() => revalidate()}>{result?.title}</div>;
 };
 ```
+
+---
+
+## Comparison with Zod
+
+[Zod](https://zod.dev) is the de-facto standard for TypeScript schema validation, deservedly so. If the question is _"does this data match this schema?"_, Zod answers it superbly, coerces values on the way through, and infers the static type for free.
+
+Bou Parsing asks a different question: _"give me this shape out of that data."_ Validation and casting are in the pipeline, but they are one stage of it. The projection also picks the fields you need, derives new values, runs sub-queries against other systems, resolves templates, and caches expensive work. The design owes more to GraphQL queries and Sanity's GROQ than to validation libraries: the schema is not a description of the input to check, it is a declaration of the output to produce.
+
+The same raw article through both makes the difference concrete:
+
+```ts
+// Zod validates that the data matches; the output is the input, now typed
+const Article = z.object({ title: z.string(), body: z.string(), authorId: z.string() });
+const article = Article.parse(raw);
+
+// Bou Parsing projects the data into what the consumer needs
+const articleParser = createParser({
+  title: types.string,
+  readingTime: ({ data }) => estimateReadingTime(data.body), // derived value
+  author: async ({ data }) => await fetchAuthor(data.authorId), // sub-query
+});
+const article = await articleParser(raw);
+```
+
+### Feature overview
+
+| Aspect                              | Zod                                             | Bou Parsing                                                 |
+| ----------------------------------- | ----------------------------------------------- | ----------------------------------------------------------- |
+| Primary job                         | validate that data matches a schema             | project raw data into a new shape                           |
+| Schema style                        | chained builders (`z.object(...)`)              | plain-object projections                                    |
+| Validation & casting                | core feature: `z.coerce`, codecs (`z.codec()`)  | final pipeline stage; every `types.*` token casts           |
+| Custom types                        | `.refine()`, `.transform()`, `z.custom()`       | `defineType` (sync/async, `strict`)                         |
+| Default values                      | `.default()`                                    | `types.x({ default })`, field becomes non-optional          |
+| Type inference                      | `z.infer<>`, `z.input<>`/`z.output<>`           | inferred from the projection literal                        |
+| Composition                         | `.extend()`, `.pick()`, `.omit()`, `.partial()` | `.extend()`, `.flat`, `.asArray`, nested parsers            |
+| Conditional shapes                  | unions, `z.discriminatedUnion`                  | `@if`, dynamic projections                                  |
+| Recursive schemas                   | first-class, recursive type inference           | lazy value functions, no recursive inference                |
+| Field picking / derived values      | `.pick()` / `.omit()` for shape¹                | the core concept²                                           |
+| Async                               | opt-in (`.parseAsync()`)                        | async-native, all keys resolve in parallel                  |
+| Error handling                      | full issue array, non-throwing `safeParse`      | throws on first cast failure; `looseCasting`, `onCastError` |
+| Standard Schema & JSON Schema       | implements both                                 | —                                                           |
+| Size & performance                  | ~2 kb core, `z.compile()` AOT³                  | parallel resolution, server-side caching                    |
+| React                               | via ecosystem resolvers                         | `useParserValue` hook                                       |
+| Ecosystem                           | huge, the standard                              | focused; meta-framework level API capabilities              |
+| Sub-queries / merging external data | —                                               | `@combine`, value functions, `.flat`                        |
+| Context (per-request values)        | —                                               | global / schema / instance levels                           |
+| Templating & custom patterns        | —⁴                                              | `{{variables}}`, pipes, pattern API                         |
+| Global value transformers           | —⁵                                              | `transformers` config, shipped localize                     |
+| Lifecycle hooks                     | —                                               | `before` / `after`                                          |
+| Caching                             | —                                               | pluggable storage, whole-parse cache, `context.store`       |
+| Schema-less resolution              | —                                               | `resolve()` on plain values                                 |
+
+<sub>¹ Derived values are not the focus; `.transform()` can reshape output.</sub><br>
+<sub>² There is no rename directive; renaming happens through value functions or `get('a.b')`.</sub><br>
+<sub>³ The AOT fast path does not model `z.coerce.*`.</sub><br>
+<sub>⁴ `z.templateLiteral()` validates template-literal types; it does not interpolate strings.</sub><br>
+<sub>⁵ Transforms exist per schema (`.transform()`), not globally.</sub>
+
+The Zod column is based on Zod 4.4.3 (August 2026).
+
+### What actually makes the difference
+
+The tail of that table is the point, so here it is in plain words:
+
+- **Sub-queries.** A projection can fetch. `@combine`, async value functions, and nested parsers join other systems mid-parse. This is the GraphQL/GROQ heritage.
+- **Context.** Three merged levels (global, schema, instance), `withContext`, and the `parent` chain, typed via module augmentation. Per-request locale and user reach every value function without threading arguments through the call stack.
+- **Templating.** Variables with `||` fallbacks and `|` pipes, plus a full pattern API for your own inline syntaxes: custom delimiters, custom regex, rescan control, per-pattern cache modes.
+- **Transformers.** Global value hooks that reshape matching values anywhere in the data. A ready localize transformer ships at `@bou-co/parsing/templates/localize`.
+- **Caching.** Pluggable storage backends, whole-parse caching, and per-value `context.store` with in-flight dedup: concurrent calls for the same key share one request.
+- **Resolving without a projection.** `resolve()` runs transformers and patterns on plain values, no schema needed.
+
+None of this comes from plugins. Everything is core API built on the same context system, so when the built-ins are not enough, you extend the same machinery yourself instead of hunting for third-party packages. That is what "meta-framework level API capabilities" means in the table above.
+
+To be equally clear about the other direction, Zod has things Bou Parsing does not. It implements the Standard Schema spec, so it drops straight into tRPC, TanStack Form, and anything else that speaks it. It converts schemas to JSON Schema (fed by its metadata registries), reports every problem at once through `ZodError` and the non-throwing `safeParse`, and its ~2 kb core with AOT-compiled hot paths is hard to beat when validation is all you need.
+
+### Which one to use
+
+- **Lean towards Zod** when you are validating untrusted input at a boundary: form submissions, request bodies, environment variables. Same if you need JSON Schema output or the ecosystem around it (tRPC, react-hook-form, and friends).
+- **Lean towards Bou Parsing** in the data layer: shaping CMS content, aggregating multiple APIs on the server, computing or fetching per-field values, templating editor content, caching the results.
+- **They compose.** Validate a request body with Zod at the edge, then project it (and everything it references) onward with a parser. Use Zod when the output you want is an error report; lean on Bou Parsing when the output is the data your UI renders.
 
 ---
 
