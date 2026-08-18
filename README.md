@@ -71,6 +71,7 @@ content comes out joined, templated, cached, and typed.
   - [Next.js App Router & Server Components](#nextjs-app-router--server-components)
   - [Server-Side Data Fetching & Caching](#server-side-data-fetching--caching)
   - [Value-Level Caching with `context.store`](#value-level-caching-with-contextstore)
+  - [Caching individual values with `cacheResult`](#caching-individual-values-with-cacheresult)
   - [CMS Content Templating with Variables](#cms-content-templating-with-variables)
   - [CMS Dynamic Variables with On-Demand Fetching & Caching](#cms-dynamic-variables-with-on-demand-fetching--caching)
   - [Advanced TypeScript Generation & Utilities](#advanced-typescript-generation--utilities)
@@ -1448,6 +1449,60 @@ Semantics:
 
 For manual control, the configured backend is also directly available as `context.storage` (`match`/`add`/`remove`/`clear`).
 
+### Caching individual values with `cacheResult`
+
+**Why:** `context.store` requires writing a value function that builds its own key. `cacheResult` packages the same caching into a declarative wrapper: give it a key template and a function, and drop it anywhere — a projection, a [`resolve`](#resolving-values-without-parsing) input, or a plain `await` outside the parser entirely.
+
+**Features Used:** `cacheResult`, `initializeParser` (storage), [Built-in context variables](#built-in-context-variables).
+
+```ts
+// parsing-config.ts — caching requires a configured storage; the export works without one too
+export const { createParser, resolve, cacheResult, types } = initializeParser({ storage });
+```
+
+```ts
+import { createParser, types, cacheResult } from './parsing-config';
+
+const myParser = createParser({
+  name: types.string,
+  profile: cacheResult('profile-{{data.uid}}', async (ctx) => {
+    /* Logic to fetch profile */
+    return profile;
+  }),
+});
+
+const data = await myParser({ name: 'John Doe', uid: '1234' });
+// → profile is fetched once and cached under 'profile-1234'
+```
+
+The key is interpolated with the [variables pattern](#variables) against the active context when the value resolves — `{{data.uid}}`, `{{ctx.currentLocale}}`, explicit variables, fallbacks and pipes all work. The same wrapper also runs outside a parser:
+
+```ts
+import { resolve, cacheResult } from './parsing-config';
+
+const uid = '1234';
+const query = (ctx) => fetch(`https://api.example.com/profile/${uid}`).then((res) => res.json());
+
+// Standalone: await it directly — the optional third argument provides the data for key interpolation
+const rawData = await cacheResult('raw-data-{{data.uid}}', query, { uid });
+const rawData2 = await cacheResult(`raw-data-${uid}`, query); // or skip interpolation entirely
+
+// Or inside a resolve input
+const data = await resolve({
+  name: 'John Doe',
+  profile: cacheResult(`profile-${uid}`, query),
+});
+```
+
+Semantics:
+
+- Same engine as `context.store`: storage-gated (no storage → the function just runs), independent of `cache.enabled`, in-flight dedup shared per key, errors never cached, `null`/`undefined` matches count as misses.
+- The function always receives the active `ParserContext` (inside a parse the real per-key context; standalone a root context whose `data` is the third argument).
+- The optional third argument feeds key interpolation: standalone it becomes the context data, inside a parse it is merged over the current `data` for the key only.
+- The optional fourth argument is merged into `context.cache` for the storage backend (e.g. a `ttl`), like `context.store`'s third argument.
+- Awaiting the same wrapper twice standalone computes once (memoized per wrapper).
+- Watch the key template: a variable that resolves to nothing stringifies to `undefined` inside the key (`'profile-undefined'`), silently colliding across inputs.
+
 ### CMS Content Templating with Variables
 
 **Why:** Instead of building complex string-replacement utilities or integrating heavy templating engines like EJS, Bou Parsing allows content editors in a CMS to use double curly braces (`{{variable}}`) for dynamic injection. Coders define the variable resolvers (which can even be async DB lookups), and the parser handles replacing them safely.
@@ -1696,7 +1751,7 @@ export const UserProfile = ({ rawData }) => {
 
 Initializes an isolated parsing engine with global settings (loose casting, transformers, patterns, pipes, storage caching, variables, lifecycle hooks).
 
-- **Returns:** `{ createParser, resolve, types }`, where `types` contains the built-in casting types.
+- **Returns:** `{ createParser, resolve, cacheResult, types }`, where `types` contains the built-in casting types.
 
 #### `createParser(projection, options?)`
 
@@ -1711,13 +1766,19 @@ Resolves variables and applies global transformers on raw input (an object, arra
 
 - **Returns:** A promise of the resolved input, typed from the input shape; an explicit generic always overrides the inferred type (e.g. when a transformer reshapes values).
 
+#### `cacheResult(key, fn, extraData?, options?)`
+
+Wraps a value function so its result is cached through the global `storage` under a variable-interpolated key (`'profile-{{data.uid}}'`). Works as a projection value, inside `resolve` inputs, or awaited directly outside a parse; without a configured storage it simply runs the function. See [Caching individual values with `cacheResult`](#caching-individual-values-with-cacheresult).
+
+- **Returns:** A wrapper that is invoked with the active `ParserContext` inside a parse, and is awaitable standalone (`extraData` becomes the context data; `options` merge into `context.cache` for the backend).
+
 ### Context Object (`ParserContext`)
 
 The `context` object is passed to all dynamic resolver functions in your projection. It contains the raw data, some info about current execution and custom properties.
 
 - **`data`**: The raw input data at the currently executing nested level. During projection-driven resolution (no matching input for a nested projection) this is an empty object; the parent's value remains available via `context.parent.data`.
 - **`value`**: The raw incoming data value at the current key (`data?.[key]`), so `({ value }) => value * 5` replaces `({ data, key }) => data[key] * 5`. Never resolved eagerly: a `"{{variable}}"` string arrives as-is; call `resolve()` with no arguments to resolve it on demand. `undefined` during projection-driven resolution. Inside transformers and pipes, `value` mirrors `data` (the candidate value being processed).
-- **`variables`**: A merged dictionary of global, schema, and instance variables, including a `current` reference to the input data. Used automatically in string template replacement. See [Variables](#variables).
+- **`variables`**: A merged dictionary of global, schema, and instance variables, including a `current` reference to the root input of the run. The built-in `data`/`ctx`/`context` heads resolve live from the context instead of this dictionary. Used automatically in string template replacement. See [Variables](#variables) and [Built-in context variables](#built-in-context-variables).
 - **`pipes`**: A merged dictionary of global, schema, and instance pipe functions, available to every pattern with expressions enabled. See [Patterns](#patterns).
 - **`key`**: The string key of the property currently being evaluated.
 - **`index`**: The numeric index if the current data is being evaluated inside an array. See [Nested Arrays](#nested-data-structures).

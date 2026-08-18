@@ -114,6 +114,23 @@ describe('type inference', () => {
     expect(checks.every(Boolean)).toBe(true);
   });
 
+  it('infers cacheResult output types in projections and standalone', async () => {
+    const { createParser: create, cacheResult } = initializeParser();
+    const cached = cacheResult('profile-{{data.uid}}', async () => ({ role: 'admin' }));
+    const cachedParser = create({ profile: cached });
+    type CachedValue = ParserReturnValue<typeof cachedParser>;
+
+    const standalone = await cacheResult('count', async () => numberValue);
+
+    // Object returns recurse through RealValue like any value function, so their fields come out optional
+    const checks: [Expect<Equal<CachedValue['profile'], { role?: string } | undefined>>, Expect<Equal<typeof standalone, number>>] = [true, true];
+    expect(checks.every(Boolean)).toBe(true);
+
+    const data = await cachedParser({ uid: '1' });
+    expect(data.profile).toEqual({ role: 'admin' });
+    expect(standalone).toEqual(numberValue);
+  });
+
   it('returns the default types from initializeParser', () => {
     const { types: defaultTypes } = initializeParser();
     const checks: [

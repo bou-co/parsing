@@ -373,6 +373,14 @@ export interface ContextResolveFunction extends ParserResolveFunction {
   <R = unknown>(): Promise<R>;
 }
 
+// cacheResult wrapper: callable like a plain value function (so it needs no ParserProjectionValue
+// member of its own — a second callable in that union would break contextual typing) and awaitable
+// directly for standalone use; a zero-argument call is the standalone run too. PromiseLike (not
+// Promise) so RealValue still infers via the call signature
+export interface CacheResultValue<T> extends PromiseLike<T> {
+  (context?: ParserContext, __parserFnContext?: any, __parserFnParent?: any): Promise<T>;
+}
+
 type ParserValueFunction<R = unknown, DATA = AppObject, PARAMS = unknown[]> = (
   context: ParserContext<DATA, PARAMS>,
   __parserFnContext?: any,
