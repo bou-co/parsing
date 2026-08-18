@@ -6,7 +6,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 describe('patterns', () => {
   it('should resolve a custom pattern and variables independently in the same string', async () => {
     const db: Record<string, unknown> = { 'products.count': 42 };
-    const dbResolve = jest.fn(async ({ path }: { path: string }) => db[path]);
+    const dbResolve = vi.fn(async ({ path }: { path: string }) => db[path]);
     const { createParser, types } = initializeParser({
       variables: { name: 'World' },
       patterns: {
@@ -26,8 +26,8 @@ describe('patterns', () => {
   });
 
   it('should prefer the longest match and then registration order on overlap', async () => {
-    const singleResolve = jest.fn(({ path }: { path: string }) => `single:${path}`);
-    const shadowResolve = jest.fn(() => 'shadowed');
+    const singleResolve = vi.fn(({ path }: { path: string }) => `single:${path}`);
+    const shadowResolve = vi.fn(() => 'shadowed');
     const { createParser, types } = initializeParser({
       variables: { name: 'Bob' },
       patterns: {
@@ -47,7 +47,7 @@ describe('patterns', () => {
   });
 
   it('should call resolve once for a pattern occurring five times in one string', async () => {
-    const resolve = jest.fn(async () => 'X');
+    const resolve = vi.fn(async () => 'X');
     const { createParser, types } = initializeParser({
       patterns: {
         db: { match: /\$([a-z]+)/g, expressions: false, cache: 'none', resolve },

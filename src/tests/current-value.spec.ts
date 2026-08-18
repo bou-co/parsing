@@ -69,7 +69,7 @@ describe('parsing', () => {
   });
 
   it('should not resolve variables unless resolve() is called', async () => {
-    const variableResolver = jest.fn();
+    const variableResolver = vi.fn();
     const { createParser } = initializeParser({ variableResolver });
     const parser = createParser({
       v: ({ value }) => (typeof value === 'string' ? 'was string' : 'was other'),
@@ -82,7 +82,7 @@ describe('parsing', () => {
 
   it('should memoize zero-arg resolve() per context', async () => {
     // The resolver must not call its cache param so the memo, not the variable cache, is measured
-    const variableResolver = jest.fn().mockResolvedValue('from-db');
+    const variableResolver = vi.fn().mockResolvedValue('from-db');
     const { createParser } = initializeParser({ variableResolver });
     const parser = createParser({
       v: async ({ resolve }) => {

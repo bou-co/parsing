@@ -1,41 +1,40 @@
-import { join } from 'path';
+import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
-import dts from 'vite-plugin-dts';
+import dts from 'unplugin-dts/vite';
 
 export default defineConfig({
-  root: __dirname,
-  cacheDir: './node_modules/.vite/libs/core',
+  root: resolve(import.meta.dirname, 'src'),
   plugins: [
     dts({
-      entryRoot: 'src',
-      tsconfigPath: join(__dirname, 'tsconfig.lib.json'),
-      pathsToAliases: false,
+      root: resolve(import.meta.dirname),
+      entryRoot: resolve(import.meta.dirname, 'src'),
+      tsconfigPath: resolve(import.meta.dirname, 'tsconfig.lib.json'),
+      exclude: ['src/tests/**/*', '**/*.spec.ts', '**/*.test.ts'],
+      compilerOptions: {
+        rootDir: resolve(import.meta.dirname, 'src'),
+      },
     }),
   ],
   build: {
-    outDir: './dist',
+    outDir: resolve(import.meta.dirname, 'dist'),
     emptyOutDir: true,
+    target: 'es2022',
+    minify: true,
     reportCompressedSize: true,
     lib: {
-      name: 'bou-co-parser',
-      entry: {
-        index: 'src/index.ts',
-        types: 'src/types.ts',
-        'react/index': 'src/react/index.ts',
-        'templates/localize': 'src/templates/localize.ts',
-      },
-      fileName: (format, entryName) => {
-        const ext = format === 'es' ? 'js' : format;
-        const parts = entryName.split('/');
-        if (parts.length > 1) {
-          const name = parts.at(-1);
-          const path = parts.slice(0, -1).join('/');
-          return `${path}/${name}.${ext}`;
-        }
-        return `${entryName}.${ext}`;
-      },
+      name: 'bou-co-parsing',
       formats: ['es', 'cjs'],
+      entry: {
+        index: 'index.ts',
+        types: 'types.ts',
+        'react/index': 'react/index.ts',
+        'templates/localize': 'templates/localize.ts',
+      },
     },
-    rollupOptions: { treeshake: true, external: ['path', 'fs', 'react', 'react-dom', 'react/jsx-runtime'] },
+    rolldownOptions: {
+      treeshake: true,
+      external: [/^node:/, /^(path|fs|url|crypto)(\/.*)?$/, /^react(\/.*)?$/, /^react-dom(\/.*)?$/],
+      optimization: { inlineConst: true },
+    },
   },
 });

@@ -4,7 +4,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('pattern caching', () => {
   it("should memoize 'run' patterns across strings within one parse but not across parses", async () => {
-    const resolve = jest.fn(async ({ path }: { path: string }) => `value-${path}`);
+    const resolve = vi.fn(async ({ path }: { path: string }) => `value-${path}`);
     const { createParser, types } = initializeParser({
       patterns: { db: { match: /\$([a-z]+)/g, expressions: false, cache: 'run', resolve: resolve as any } },
     });
@@ -21,7 +21,7 @@ describe('pattern caching', () => {
   });
 
   it("should only dedupe per string with cache 'none'", async () => {
-    const resolve = jest.fn(async () => 'X');
+    const resolve = vi.fn(async () => 'X');
     const { createParser, types } = initializeParser({
       patterns: { db: { match: /\$([a-z]+)/g, expressions: false, cache: 'none', resolve } },
     });
@@ -35,13 +35,13 @@ describe('pattern caching', () => {
   it("should persist 'storage' patterns through the configured storage with in-flight dedupe", async () => {
     class TestStorage implements StorageLike {
       values: Record<string, any> = {};
-      match = jest.fn(async (key: string) => (key in this.values ? this.values[key] : null));
-      add = jest.fn(async (key: string, value: any) => {
+      match = vi.fn(async (key: string) => (key in this.values ? this.values[key] : null));
+      add = vi.fn(async (key: string, value: any) => {
         this.values[key] = value;
       });
     }
     const storage = new TestStorage();
-    const resolve = jest.fn(async () => {
+    const resolve = vi.fn(async () => {
       await sleep(10);
       return 'stored';
     });

@@ -177,7 +177,7 @@ export class ParserCastError extends Error {
   readonly key?: PropertyKey;
   readonly path: string;
   readonly received: unknown;
-  readonly cause?: unknown;
+  override readonly cause?: unknown;
 
   constructor(cause: unknown, received: unknown, token: ParserTypeToken, context: ParserContext) {
     const type = describeToken(token);

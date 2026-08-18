@@ -10,7 +10,7 @@ describe('loose casting', () => {
   });
 
   it('passes the original value through with looseCasting: true', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { createParser, types } = initializeParser({ looseCasting: true });
     const parser = createParser({ value: types.number });
     const data = await parser({ value: 'abc' });
@@ -57,7 +57,7 @@ describe('loose casting', () => {
   });
 
   it('onCastError receives the error and replaces the warning with looseCasting: true', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const errors: ParserCastError[] = [];
     const { createParser, types } = initializeParser({ looseCasting: true, onCastError: (error) => errors.push(error) });
     const parser = createParser({ value: types.number });

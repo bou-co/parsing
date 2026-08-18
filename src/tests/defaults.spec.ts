@@ -25,7 +25,7 @@ describe('type defaults', () => {
   });
 
   it('applies the default when a failed cast resolves to undefined', async () => {
-    const onCastError = jest.fn();
+    const onCastError = vi.fn();
     const { createParser, types } = initializeParser({ looseCasting: 'undefined', onCastError });
     const parser = createParser({ count: types.number({ default: 0 }) });
     const data = await parser({ count: 'abc' });
@@ -34,7 +34,7 @@ describe('type defaults', () => {
   });
 
   it('does not apply the default with looseCasting: true (original value wins)', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { createParser, types } = initializeParser({ looseCasting: true });
     const parser = createParser({ count: types.number({ default: 0 }) });
     const data = await parser({ count: 'abc' });

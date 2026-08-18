@@ -8,8 +8,8 @@ declare module '../expandable-types' {
 
 class TestStorage implements StorageLike {
   values: Record<string, any> = {};
-  match = jest.fn(async (key: string) => (key in this.values ? this.values[key] : null));
-  add = jest.fn(async (key: string, value: any) => {
+  match = vi.fn(async (key: string) => (key in this.values ? this.values[key] : null));
+  add = vi.fn(async (key: string, value: any) => {
     this.values[key] = value;
   });
   clear = async () => {
@@ -27,11 +27,11 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 describe('context.store', () => {
   beforeEach(() => {
     storage.values = {};
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('should compute once and serve subsequent calls from storage', async () => {
-    const fetchAuthor = jest.fn(async () => ({ name: 'John Doe' }));
+    const fetchAuthor = vi.fn(async () => ({ name: 'John Doe' }));
     const parser = createParser({
       author: ({ store }: ParserContext) => store('author:1', fetchAuthor),
     });
@@ -46,7 +46,7 @@ describe('context.store', () => {
   });
 
   it('should dedupe concurrent calls with the same key across array items', async () => {
-    const slowFn = jest.fn(async () => {
+    const slowFn = vi.fn(async () => {
       await sleep(10);
       return 'shared-value';
     });
@@ -63,7 +63,7 @@ describe('context.store', () => {
   });
 
   it('should dedupe concurrent calls across separate parses', async () => {
-    const slowFn = jest.fn(async () => {
+    const slowFn = vi.fn(async () => {
       await sleep(10);
       return 'shared-value';
     });
@@ -90,7 +90,7 @@ describe('context.store', () => {
   });
 
   it('should not cache errors and allow retries', async () => {
-    const failing = jest.fn(async () => {
+    const failing = vi.fn(async () => {
       throw new Error('fetch failed');
     });
     const failingParser = createParser({
@@ -101,7 +101,7 @@ describe('context.store', () => {
     expect(storage.add).not.toHaveBeenCalled();
     expect('err' in storage.values).toBe(false);
 
-    const succeeding = jest.fn(async () => 'recovered');
+    const succeeding = vi.fn(async () => 'recovered');
     const succeedingParser = createParser({
       value: ({ store }: ParserContext) => store('err', succeeding),
     });
@@ -113,7 +113,7 @@ describe('context.store', () => {
   });
 
   it('should reject all deduped waiters when the computation fails', async () => {
-    const failing = jest.fn(async () => {
+    const failing = vi.fn(async () => {
       await sleep(10);
       throw new Error('fetch failed');
     });
@@ -130,7 +130,7 @@ describe('context.store', () => {
 
   it('should return cached falsy values without recomputing and treat null as a miss', async () => {
     storage.values = { zero: 0, empty: '', no: false, nullish: null };
-    const spy = jest.fn(async () => 'recomputed');
+    const spy = vi.fn(async () => 'recomputed');
     const parser = createParser({
       zero: ({ store }: ParserContext) => store('zero', spy),
       empty: ({ store }: ParserContext) => store('empty', spy),
@@ -206,7 +206,7 @@ describe('context.store', () => {
   it('should just run the function when no storage is configured', async () => {
     try {
       const { createParser: createWithoutStorage } = initializeParser();
-      const spy = jest.fn(async () => 'fresh');
+      const spy = vi.fn(async () => 'fresh');
       const parser = createWithoutStorage({
         value: ({ store }: ParserContext) => store('no-storage', spy),
       });

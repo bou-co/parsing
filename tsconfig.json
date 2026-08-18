@@ -2,19 +2,19 @@
   "compileOnSave": false,
   "compilerOptions": {
     "rootDir": ".",
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "lib": ["es2023", "dom"],
+    "types": ["node", "vitest/globals"],
+    "declaration": true,
     "sourceMap": true,
-    "declaration": false,
-    "moduleResolution": "node",
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
     "importHelpers": true,
-    "target": "es2015",
-    "lib": ["es2020", "dom"],
+    "isolatedModules": true,
     "skipLibCheck": true,
-    "skipDefaultLibCheck": true,
-    "baseUrl": ".",
-    "outDir": "dist",
-    "module": "ESNext",
+    "esModuleInterop": true,
+    "verbatimModuleSyntax": false,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "noImplicitOverride": true,
@@ -22,14 +22,6 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true
   },
-  "files": [],
-  "include": [],
-  "references": [
-    {
-      "path": "./tsconfig.lib.json"
-    },
-    {
-      "path": "./tsconfig.spec.json"
-    }
-  ]
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "out-tsc", "tmp", "src/templates"]
 }

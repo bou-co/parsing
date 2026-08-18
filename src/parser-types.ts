@@ -254,7 +254,8 @@ type OptionalUndefined<T> = Optional<T> & Required<T>;
 
 // type ObjectIncludesKey<T extends object, K> = K extends keyof T ? true : false;
 
-type RealValue<T> = //
+type RealValue<T> =
+  //
   T extends { readonly [PARSER_TYPE_OUTPUT]: infer Out }
     ? Out extends Promise<unknown>
       ? Awaited<Out>
@@ -346,14 +347,7 @@ export type ResolvedValue<T> = T extends string
 
 // Recursive so function values get contextual typing, like ParserProjection does for createParser
 export type ResolveInput =
-  | string
-  | number
-  | boolean
-  | null
-  | undefined
-  | ((context: ParserContext) => unknown)
-  | readonly ResolveInput[]
-  | { [key: PropertyKey]: ResolveInput };
+  string | number | boolean | null | undefined | ((context: ParserContext) => unknown) | readonly ResolveInput[] | { [key: PropertyKey]: ResolveInput };
 
 // Sentinel detecting whether the caller passed an explicit type argument: TS has no partial
 // type-argument inference, so R keeps this default exactly when the caller omitted it
@@ -404,13 +398,7 @@ export interface ParserProjectionUtils {
 }
 
 export type ParserProjectionValue =
-  | undefined
-  | ParserTypeLike
-  | ParserFlatLike
-  | ParserProjectionTypeValues
-  | ParserValueFunction
-  | ParserProjection
-  | ParserProjection[];
+  undefined | ParserTypeLike | ParserFlatLike | ParserProjectionTypeValues | ParserValueFunction | ParserProjection | ParserProjection[];
 
 export interface ParserProjectionValues {
   [key: PropertyKey]: ParserProjectionValue;
