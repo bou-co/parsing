@@ -83,6 +83,8 @@ export interface StorageLike {
   clear?: (context: ParserContext) => Promise<void> | void;
 }
 
+export type ParserContextHook = (context: ParserContext) => ParserContext | Promise<ParserContext>;
+
 export interface ParserGlobalContext extends CommonContext, GlobalContext {
   storage?: StorageLike;
   variables?: ParserContextVariables;

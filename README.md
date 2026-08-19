@@ -1002,6 +1002,20 @@ const result = await productParser({ price: 25 });
 */
 ```
 
+Hooks are per-level: global, schema, and instance hooks each run (in that order). Within a level, `.extend()` and `.withContext()` **compose** hooks instead of replacing them — the base parser's hook runs first, then the extension's, which sees (and may override) the base hook's context changes:
+
+```ts
+const extendedParser = productParser.extend(
+  { discounted: ({ data, basePrice, discount }) => data.price + basePrice - discount },
+  {
+    before: (context) => {
+      context.discount = context.basePrice / 2; // Runs after the base hook; basePrice is already set
+      return context;
+    },
+  },
+);
+```
+
 ### Transformers
 
 Transformers run conditionally globally against properties. Helpful for automatic data morphing based on context. They are the mid-tier extension point: they reshape whole values, while [patterns](#patterns) rewrite text inside them. For the ordering guarantee and how to choose between the two, see [Transformers vs patterns](#transformers-vs-patterns).

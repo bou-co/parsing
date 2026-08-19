@@ -230,3 +230,214 @@ describe('parsing', () => {
     expect(result.value).toEqual(5 * 20); // Value should be multiplied by the base set in the parent parser
   });
 });
+
+describe('hook composition on extend/withContext', () => {
+  it('should run both base and extension before hooks when extending with a second before hook', async () => {
+    const { createParser } = initializeParser();
+    const parser = createParser(
+      { value: ({ data, base }) => data['value'] + base },
+      {
+        before: (context) => {
+          context.base = 10;
+          return context;
+        },
+      },
+    );
+
+    const extended = parser.extend(
+      { extra: ({ base, instanceMultiplier }) => base * (instanceMultiplier || 0) },
+      {
+        before: (context) => {
+          context.instanceMultiplier = context.base + 5; // Reads the value set by the base hook
+          return context;
+        },
+      },
+    );
+
+    const result = await extended({ value: 5 });
+    expect(result.value).toEqual(5 + 10); // Base hook still ran
+    expect(result.extra).toEqual(10 * 15); // Extension hook ran and saw the base hook's context
+  });
+
+  it('should run both base and extension after hooks when extending with a second after hook', async () => {
+    const { createParser, types } = initializeParser();
+    const parser = createParser(
+      { value: types.number },
+      {
+        after: (context) => {
+          context.data['value'] *= 2;
+          return context;
+        },
+      },
+    );
+
+    const extended = parser.extend(
+      { note: types.string },
+      {
+        after: (context) => {
+          context.data['note'] = `value is ${context.data['value']}`; // Sees the base hook's transformed data
+          return context;
+        },
+      },
+    );
+
+    const result = await extended({ value: 5 });
+    expect(result.value).toEqual(10);
+    expect(result.note).toEqual('value is 10');
+  });
+
+  it('should chain before hooks across multiple extends in definition order', async () => {
+    const { createParser } = initializeParser();
+    const order: string[] = [];
+    const parser = createParser(
+      { value: ({ base }) => base },
+      {
+        before: (context) => {
+          order.push('base');
+          context.base = 1;
+          return context;
+        },
+      },
+    );
+
+    const extended = parser
+      .extend(
+        {},
+        {
+          before: (context) => {
+            order.push('first');
+            context.base += 10;
+            return context;
+          },
+        },
+      )
+      .extend(
+        {},
+        {
+          before: (context) => {
+            order.push('second');
+            context.base *= 3;
+            return context;
+          },
+        },
+      );
+
+    const result = await extended({ value: 0 });
+    expect(order).toEqual(['base', 'first', 'second']);
+    expect(result.value).toEqual((1 + 10) * 3);
+  });
+
+  it('should let the extension before hook override values set by the base hook', async () => {
+    const { createParser } = initializeParser();
+    const parser = createParser(
+      { value: ({ base }) => base },
+      {
+        before: (context) => {
+          context.base = 10;
+          return context;
+        },
+      },
+    );
+
+    const extended = parser.extend(
+      {},
+      {
+        before: (context) => {
+          context.base = 99;
+          return context;
+        },
+      },
+    );
+
+    expect((await parser({ any: true })).value).toEqual(10); // Base parser stays unaffected by the extension
+    expect((await extended({ any: true })).value).toEqual(99);
+  });
+
+  it('should keep the base before hook when the extend context has no hook of its own', async () => {
+    const { createParser } = initializeParser();
+    const parser = createParser(
+      { value: ({ base }) => base, greeting: '{{greeting}}' },
+      {
+        before: (context) => {
+          context.base = 7;
+          return context;
+        },
+      },
+    );
+
+    const extended = parser.extend({ extra: 'constant' }, { variables: { greeting: 'hello' } });
+
+    const result = await extended({ any: true });
+    expect(result.value).toEqual(7);
+    expect(result.greeting).toEqual('hello');
+    expect(result.extra).toEqual('constant');
+  });
+
+  it('should run both before hooks when withContext adds a second before hook', async () => {
+    const { createParser } = initializeParser();
+    const parser = createParser(
+      { value: ({ base, instanceMultiplier }) => base * (instanceMultiplier || 1) },
+      {
+        before: (context) => {
+          context.base = 5;
+          return context;
+        },
+      },
+    );
+
+    const withExtra = parser.withContext({
+      before: (context) => {
+        context.instanceMultiplier = 4;
+        return context;
+      },
+    });
+
+    expect((await withExtra({ any: true })).value).toEqual(5 * 4);
+    expect((await parser({ any: true })).value).toEqual(5); // Original parser stays unaffected
+  });
+
+  it('should run global, schema, extension and instance before hooks once each on an extended parser', async () => {
+    const counts = { global: 0, schema: 0, extension: 0, instance: 0 };
+    const { createParser } = initializeParser({
+      before: (context) => {
+        counts.global += 1;
+        context.base = 1;
+        return context;
+      },
+    });
+
+    const parser = createParser(
+      { value: ({ base }) => base },
+      {
+        before: (context) => {
+          counts.schema += 1;
+          context.base += 10;
+          return context;
+        },
+      },
+    ).extend(
+      {},
+      {
+        before: (context) => {
+          counts.extension += 1;
+          context.base += 100;
+          return context;
+        },
+      },
+    );
+
+    const result = await parser(
+      { any: true },
+      {
+        before: (context) => {
+          counts.instance += 1;
+          context.base += 1000;
+          return context;
+        },
+      },
+    );
+
+    expect(result.value).toEqual(1111);
+    expect(counts).toEqual({ global: 1, schema: 1, extension: 1, instance: 1 });
+  });
+});

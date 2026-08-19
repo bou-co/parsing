@@ -9,6 +9,7 @@ import {
   ParserGlobalContextFn,
   AppObject,
   CreateParserContext,
+  ParserContextHook,
   ParserInstanceContext,
   ParserGlobalContext,
   CachingParserContext,
@@ -35,10 +36,6 @@ interface ParserCache {
   pending: Map<string, Promise<any>>;
 }
 
-// TODO(v4): remove with the migration catches
-const parserGlobalContextRemoved =
-  '[@bou-co/parsing] Parser.parserGlobalContext was removed in v3 — engines are isolated; pass the global context to initializeParser(...) or new Parser(...)';
-
 export class Parser {
   private cache: ParserCache = { variables: {}, pending: new Map() };
 
@@ -51,11 +48,13 @@ export class Parser {
   }
 
   // TODO(v4): remove migration catches — assigning the removed v2 statics would otherwise silently no-op
+  private static readonly parserGlobalContextRemoved =
+    '[@bou-co/parsing] Parser.parserGlobalContext was removed in v3 — engines are isolated; pass the global context to initializeParser(...) or new Parser(...)';
   static get parserGlobalContext(): never {
-    throw new Error(parserGlobalContextRemoved);
+    throw new Error(Parser.parserGlobalContextRemoved);
   }
   static set parserGlobalContext(_value: unknown) {
-    throw new Error(parserGlobalContextRemoved);
+    throw new Error(Parser.parserGlobalContextRemoved);
   }
   static createParser = (): never => {
     throw new Error(
@@ -311,6 +310,21 @@ export class Parser {
       return result;
     }
     return Parser.resolveVariables(value, context);
+  };
+
+  private static chainHooks = (a?: ParserContextHook, b?: ParserContextHook): ParserContextHook | undefined => {
+    if (!a || !b || a === b) return a ?? b;
+    return async (context) => b(await a(context));
+  };
+
+  // Same-level context merge: hooks compose (base first, extension second) instead of overwriting
+  private static mergeParserContexts = (base?: CreateParserContext, extension?: CreateParserContext): CreateParserContext => {
+    const merged = mergeObjects<CreateParserContext>(base, extension);
+    const before = Parser.chainHooks(base?.before, extension?.before);
+    const after = Parser.chainHooks(base?.after, extension?.after);
+    if (before) merged.before = before;
+    if (after) merged.after = after;
+    return merged;
   };
 
   public createProjection = <const T extends object>(
@@ -586,7 +600,7 @@ export class Parser {
     };
 
     const withContext = (context: Partial<ParserInstanceContext>) => {
-      const _parserContext = mergeObjects(parserContext, context);
+      const _parserContext = Parser.mergeParserContexts(parserContext, context);
       return this.createProjection(project, _parserContext);
     };
 
@@ -622,7 +636,7 @@ export class Parser {
       value: <X extends ParserProjection>(extendProject: X, extendContext?: CreateParserContext): ParserFunction<T & X> => {
         if (typeof project === 'function') throw new Error('Cannot extend a projection that is a function');
         const _project = { ...project, ...extendProject };
-        const _parserContext = mergeObjects(parserContext, extendContext);
+        const _parserContext = Parser.mergeParserContexts(parserContext, extendContext);
         return this.createProjection(_project, _parserContext);
       },
     });
