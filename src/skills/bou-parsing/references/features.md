@@ -373,6 +373,13 @@ for the array level itself. Note that an `after` hook which unconditionally inje
 makes every projection-driven resolution non-empty — hook output counts as output, so the
 "empty results are omitted" rule stops applying.
 
+**`.extend()` and `.withContext()` compose hooks rather than replacing them.** The base
+parser's hook runs first, then the extension's, which receives the context the base hook
+returned (identical function references are deduped). All other context keys keep the normal
+deep-merge semantics (nested objects like `variables` merge, the extension wins on scalars) —
+only `before`/`after` chain. There is no way to *remove* a base hook by extending; create a
+separate parser if you need the hook gone.
+
 ---
 
 ## Custom types and casting options

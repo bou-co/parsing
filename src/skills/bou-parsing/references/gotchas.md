@@ -367,7 +367,8 @@ parser config; `cacheResult` is easy to forget because it was added later in v3.
 
 `asyncMapObject`, `filterNill`, `filterUndefinedEntries`, `mergeObjects`, and `toHash` are all
 importable from the root. `toHash` is documented and intended; the others are engine internals
-that happen to be reachable. Don't build on them.
+that happen to be reachable. Don't build on them. (If you did anyway: `asyncMapObject` resolves
+entries in parallel in v3 — v2 ran the callback sequentially in key order.)
 
 ### No lint script
 

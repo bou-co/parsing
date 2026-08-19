@@ -11,7 +11,8 @@ Contents:
 4. [Removed `Parser` statics](#4-removed-parser-statics)
 5. [`valueKeys` removed](#5-valuekeys-removed)
 6. [Parser call signature](#6-parser-call-signature)
-7. [Codemod strategy](#7-codemod-strategy)
+7. [Install-level changes](#7-install-level-changes)
+8. [Codemod strategy](#8-codemod-strategy)
 
 ---
 
@@ -252,7 +253,20 @@ A regular instance context in the second slot is unaffected:
 
 ---
 
-## 7. Codemod strategy
+## 7. Install-level changes
+
+Two package-level changes belong in the same mechanical pass:
+
+- **`react` moved from a hard dependency to an optional `peerDependency`.** v2 installed react
+  for you; v3 doesn't. Anywhere `@bou-co/parsing/react` is imported — or anything relied on
+  react arriving transitively — add `react` to that project's own dependencies. Server-only
+  consumers need nothing.
+- **Engines floor:** the package now declares Node `^20.19.0 || >=22.12.0` and builds to
+  es2022. Older runtimes fail at install (or at runtime on missing syntax) rather than subtly.
+
+---
+
+## 8. Codemod strategy
 
 The type-identifier replacement is the bulk of the work and is mostly automatable, but do it
 with judgement rather than a blind global replace.

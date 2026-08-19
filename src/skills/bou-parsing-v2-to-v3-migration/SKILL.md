@@ -79,8 +79,10 @@ ones that don't announce themselves:
    fire where they didn't before.
 2. **`context.isRoot` is `false` inside nested parsers.** v2 leaked `true`. Once-per-parse work
    guarded by `isRoot` inside a nested parser stops running.
-3. **Hooks fire once per level instead of twice.** Idempotent hooks won't notice; hooks that
-   count, push, or emit telemetry will report different numbers.
+3. **Hooks fire once per level instead of twice, and `.extend()`/`.withContext()` now
+   _compose_ hooks instead of replacing them** (base first, then the extension's). Idempotent
+   hooks won't notice; hooks that count, push, or emit telemetry will report different
+   numbers, and a base hook an extension used to silence now runs again.
 4. **Casting is real.** Most v2 identifiers passed values through untouched. Fields that were
    quietly the wrong shape now throw. `'date'` in particular got stricter.
 5. **Patterns re-scan resolved output, and escaping now exists.** A variable resolving to a
@@ -89,7 +91,10 @@ ones that don't announce themselves:
 
 Additionally: `parser.asArray !== parser` anymore (it used to be the same function, which
 meant it shared cache entries — a real bug, now fixed), schema-level `cache` no longer flows
-into nested parsers, and six more context keys are reserved.
+into nested parsers, six more context keys are reserved, the new `{{data.*}}`/`{{ctx.*}}`
+built-in heads intercept those head segments before the `variableResolver`, and `react` is now
+an **optional peer dependency** — install it yourself wherever `@bou-co/parsing/react` is used
+(the package also declares a Node `^20.19.0 || >=22.12.0` engines floor).
 
 ## Reference files
 

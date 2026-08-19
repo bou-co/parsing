@@ -53,6 +53,9 @@ Properties and methods on the returned parser:
 | `.flat`                 | parser | Parse `data[key]`, merge into parent, drop the key        |
 | `.projection`           | object | The projection definition                                 |
 
+`.extend`/`.withContext` deep-merge context **except `before`/`after` hooks, which compose**:
+base hook first, then the extension's (identical references dedupe).
+
 Passing a full parser context as the **second** argument throws — forward it as the third.
 
 ### `resolve(input, contextOverride?)`
@@ -152,6 +155,7 @@ whole match with a preceding backslash.
 | `asDate`           | `(v: string \| number) => Date \| undefined` — `undefined` for falsy input; unparseable input yields an `Invalid Date`, not `undefined`                                               |
 | `mergeObjects`     | `(a, b) => merged`                                                                                                                                                                    |
 | `resolveVariables` | `(input, context) => Promise<T>` — deep pattern resolution only (no transformers/casting); needs a caller-supplied `ParserContext`, which is why `context.resolve` is the usual entry |
+| `getVariableValue` | `(expression, context) => Promise<T>` — evaluates one variable expression; accepts the active variables syntax, the legacy `{{path}}` form, or a bare expression (v3 no longer auto-wraps bare names in `{{ }}`)                                                    |
 
 ## Errors
 

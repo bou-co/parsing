@@ -192,6 +192,18 @@ array level.
 metric, or emit telemetry will report roughly half what they used to. If a dashboard is built on
 those numbers, expect a step change that isn't a traffic change.
 
+**`.extend()` / `.withContext()` compose hooks instead of replacing them.** In v2 the
+extension's `before`/`after` overwrote the base parser's hook (last write wins, via the plain
+context merge). In v3 they chain: the base hook runs first, then the extension's, which receives
+the context the base hook returned. Identical function references are deduped, and all other
+context keys keep the old merge semantics — only hooks compose.
+
+→ **Audit:** find `.withContext(...)` / `.extend(...)` calls that pass `before` or `after` on a
+parser whose `createParser` context also has one. In v2 that silenced the base hook; in v3 both
+run, in base-then-extension order. If replacement was the intent, restructure: put the base
+behavior behind a context flag the extension can switch off, or create the variant with a
+separate `createParser` instead of extending.
+
 **Schema-level `cache` options no longer flow into nested parsers.** Each parser brings its own
 `createParser` cache config. Per-call cache still propagates.
 
@@ -221,6 +233,14 @@ limitations:
 
 `{{variable}}` interpolation is now implemented as a built-in **pattern**. Existing syntax,
 fallbacks, pipes, dot paths, and `variableResolver` behave as before, with these deltas:
+
+**Built-in context heads shadow the `variableResolver`.** `{{data.*}}`, `{{ctx.*}}` and
+`{{context.*}}` now resolve from the live context — checked after explicit variables but before
+the resolver, and they never fall through to it.
+
+→ **Audit:** a `variableResolver` that previously received `data`, `ctx`, or `context` as its
+head segment is no longer called for those. Rename the variable in content, or define it as an
+explicit variable (explicit variables still win over the built-ins).
 
 **Resolved output is re-scanned by default.** A variable resolving to a string containing
 `{{other}}` now resolves that too; v2 left it literal. Cycles — and rescan chains more than 10
@@ -327,21 +347,25 @@ search you can actually run.
 
 - [ ] `context.isRoot` used inside a nested parser
 - [ ] Hooks that count, push, or emit telemetry (expect ~half the calls)
+- [ ] `before`/`after` passed to `.extend()`/`.withContext()` on a parser that already has one (now both run, base first, instead of the extension replacing the base)
 - [ ] Nested parsers relying on an inherited cache `name`
 - [ ] Custom context properties named `value`, `parent`, `path`, `store`, `resolve`, `pipes`, `datalessPath`
 - [ ] Manual nested parser calls passing context as the 2nd argument
+- [ ] Code relying on `asyncMapObject` running its callback sequentially in key order (now parallel)
 
 **Patterns and content**
 
 - [ ] Content containing `{{` as literal text (now re-scanned)
 - [ ] Content containing `\` immediately before `{{` (escaping changed)
 - [ ] Non-deterministic variables appearing more than once in one string (now deduped)
+- [ ] A `variableResolver` handling `data`, `ctx`, or `context` as a head segment (built-in heads now intercept those)
 - [ ] `variableResolver` `cache()` holding user- or tenant-scoped values — **leak risk**
 - [ ] Workarounds for `$&`/`$1`/`$$` mangling (now unnecessary)
 
 **Caching**
 
 - [ ] Custom `generateKey` built only from projection + data (collides under dataless parses)
+- [ ] Storage callbacks (`generateKey`/`match`/`add`) reading `context.parser` (was `undefined` in v2, now the engine instance)
 - [ ] Identity comparisons against `parser.asArray`
 - [ ] Plan for one cold cache after deploy
 
