@@ -13,8 +13,10 @@ A quick tour of what's new — the breaking-change notes below reference these:
 - **`context.value` + zero-arg `await context.resolve()`** — `value` is the raw `data?.[key]`; calling `resolve()` with no arguments resolves it lazily (memoized per context).
 - **`resolve`** — new export of `initializeParser` (and contextually as `context.resolve(input, overrides?)`): runs pattern/variable resolution and global transformers on raw input without a projection.
 - **`context.store(key, fn, options?)` / `context.storage`** — get-or-compute caching for individual async values through the global `storage`, with in-flight dedupe, independent of `cache.enabled`.
+- **`cacheResult(key, fn)`** — new export of `initializeParser`: wraps a value function so its result is cached through the global `storage` under a variable-interpolated key (`'profile-{{data.uid}}'`); works as a projection value, inside `resolve` inputs, or awaited standalone.
 - **`context.parent` / `context.path`** — `parent` chains contexts up to the root (`undefined` at the root); `path` is the chain of projections down to the current level.
 - **Custom patterns** — define your own inline string syntaxes via the `patterns` config, powered by the same engine as `{{variables}}` (§9).
+- **Built-in context variable heads** — `{{data.*}}` (the current level's input data) and `{{ctx.*}}` / `{{context.*}}` (the full parser context) resolve live from the node context; explicit variables can shadow them, and they never fall through to a `variableResolver` (§9).
 - **Isolated engines** — every `initializeParser` call is its own engine; `new Parser(globalContext)` is the advanced equivalent (§4).
 - **React: `revalidate`** — `useParserValue` now returns `{ result, loading, error, revalidate }`; `revalidate(updatedData?)` re-parses with the last (or new) data.
 - **New exports** — `defineType`, `isTypeToken`, `ParserCastError`, `variablesPattern`, `ParserPatternCycleError`, and the tree-shakeable `@bou-co/parsing/types` entry point.
@@ -61,7 +63,7 @@ Each `initializeParser` call now creates an isolated engine with its own global 
 
 ### 5. The projection is the point of truth
 
-Nested projections resolve from the schema instead of following the incoming data. Previously a nested object, nested parser, or `.flat` parser was silently skipped whenever the input lacked (or held a scalar at) its key — even when the projection inside contained constants, defaults, or value functions that never needed the data. Most users considered this a bug; parsing `{}` at the root already resolved those, only nested levels short-circuited.
+Nested projections resolve from the schema instead of following the incoming data. Previously a nested object, nested parser, or `.flat` parser was silently skipped whenever the input lacked its key or held a scalar there (`null`, `''`, `0`, `false`, or any other non-object value) — even when the projection inside contained constants, defaults, or value functions that never needed the data. Most users considered this a bug; parsing `{}` at the root already resolved those, only nested levels short-circuited.
 
 What this means in practice:
 
@@ -78,14 +80,20 @@ What this means in practice:
 
 In V2, a nested **parser** received the whole parent context in its instance-context slot. V3 passes the parent context as a proper third channel instead, which fixes several leaks:
 
-- **`context.isRoot` is now `false` inside nested parsers.** V2 leaked `isRoot: true` into every nested parser (nested plain-object projections correctly reported `false`), and mutated the caller's context object to track it. V3 computes `isRoot` per level without mutation — it is `true` only at the actual root, for every kind of nesting. Once-per-parse work guarded by `context.isRoot` inside a nested parser no longer runs there; walk the new `context.parent` chain if you need the root level.
+- **`context.isRoot` is now `false` inside nested parsers.** V2 leaked `isRoot: true` into every nested parser (nested plain-object projections correctly reported `false`), and mutated the caller's context object to track it. V3 computes `isRoot` per level without mutation — it is `true` only at the actual root, for every kind of nesting. It is also written after your context spreads, so it can no longer be forced through a custom context property. Once-per-parse work guarded by `context.isRoot` inside a nested parser no longer runs there; walk the new `context.parent` chain if you need the root level.
 - **Hooks run once per level.** Because the parent context no longer doubles as the nested parser's instance context, global and per-call `before`/`after` hooks fire **once** per nesting level instead of twice (schema hooks fire for that parser's own levels but not inside nested inline object projections; at arrays hooks run per item). Idempotent hooks won't notice; hooks that count, push, or emit telemetry will see fewer calls.
+- **`.extend()` / `.withContext()` compose hooks instead of replacing them.** In V2 an extension's `before`/`after` overwrote the base parser's hook; in V3 they chain — the base hook runs first, then the extension's, which receives the context the base hook returned (identical function references dedupe). A base hook that a `.withContext({ before })` used to silence now runs again; if you relied on replacement, put the base behavior behind a flag the extension's context can switch off.
 - **Schema-level `cache` options no longer flow into nested parsers.** Each parser brings its own `createParser` cache config (per-call cache still propagates). With a custom `generateKey` that requires a cache `name`, a nested parse that previously inherited the parent's name can now throw `Caching options must have a name defined` — give the nested parser its own cache config.
 - **Calling conventions changed with it.** A parser's signature is now `parser(input, instanceContext, parentContext)`. Passing a full parser context as the _second_ argument (the V2 convention for forwarding context) throws a targeted migration error — forward it as the third argument instead.
 
 ### 7. Smaller breaking details
 
+- `react` is no longer a hard dependency — it is now an **optional `peerDependency`**. If you use `@bou-co/parsing/react` (or relied on `react` arriving transitively), install it yourself.
+- The package now declares an engines floor: **Node `^20.19.0 || >=22.12.0`** (the build targets es2022).
 - The `valueKeys` export (the V2 list of string type identifiers) is removed.
+- The `asyncMapObject` util now resolves entries in **parallel** (`Promise.all`) instead of sequentially in key order — side-effecting callbacks lose their serialization guarantee.
+- `getVariableValue` no longer auto-wraps bare names in `{{ }}` — it accepts the active variables syntax, the legacy `{{path}}` form, or a bare expression. Results are equivalent under the default delimiters, and re-delimited syntaxes now work too.
+- Storage callbacks (`generateKey`, `match`, `add`) now receive a context whose `parser` is the engine instance — in V2 it was `undefined` for plain parser calls.
 - `value`, `parent`, `path`, `store`, `resolve`, `pipes`, and `datalessPath` are now **reserved context keys**, written by the engine after your context spreads — custom context properties with those names (declaration-merged or passed via `withContext`/per-call) are silently overwritten. V2 only reserved `parser`, `data`, `key`, `projection`, `variables`, `isRoot`, `index`, `cache`, and `params`.
 - `parser.asArray` is no longer the parser function itself but a derived variant — `parser.asArray === parser` is now `false`. It still hashes as its base parser, and calling it directly bypasses whole-parse caching.
 - If your `storage` relies on the **default** cache key (no custom `generateKey`), expect a one-time cache invalidation: projection hashes changed when type identifiers became tokens. Storages with their own `generateKey` are unaffected unless they hash the projection. Going forward, token hashes are content-derived — editing a custom type's implementation (or its `strict`/`name`/`default`) intentionally invalidates entries that used it, and nested parsers hash by their own projection.
@@ -129,6 +137,7 @@ initializeParser(() => ({
 - **Escaping now exists**: a backslash directly before a match suppresses it and is consumed (`\{{foo}}` outputs `{{foo}}`); `\\` before a match is a literal backslash. Existing content containing `\` immediately before `{{` will change output.
 - **Matches are deduped per string** — the same `{{expression}}` occurring N times in one string resolves once (visible only with nondeterministic resolvers).
 - **`$`-sequences in resolved values are now inserted literally** — previously `$&`, `$1` and `$$` in a resolved value were mangled by the string splice.
+- **Built-in heads shadow the `variableResolver`** — `{{data.*}}`, `{{ctx.*}}` and `{{context.*}}` now resolve from the live context, checked after explicit variables but before the resolver. A `variableResolver` that previously received `data`, `ctx`, or `context` as its head segment is no longer called for them (rename the variable, or define it explicitly — explicit variables still win over the built-ins).
 - **Cache lifetime**: user-defined patterns default to per-parse memoization (`cache: 'run'`), with `'none'` and `'storage'` (reuses the configured `storage`) as options. The `variableResolver` `cache()` callback keeps its engine-lifetime store — be aware that values cached there are served for the life of the engine, across requests and tenants; prefer a pattern with `cache: 'run'` or `'storage'` for per-request data.
 
 See the README's Patterns section for the full API.

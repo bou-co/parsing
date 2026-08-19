@@ -132,6 +132,8 @@ Install the Bou Parsing package from NPM. It supports all frameworks.
 npm i @bou-co/parsing
 ```
 
+The package has no runtime dependencies and requires Node `^20.19.0 || >=22.12.0`. React is an **optional peer dependency** — install `react` yourself only if you use the [`@bou-co/parsing/react`](#client-side-react-integration) entry point.
+
 ### 2 - Initialize the parser
 
 In the root level of your code, run the `initializeParser` function to export your tailored `createParser` function and `types` object. This allows you to set up global configurations like caching and variables once. The returned `resolve` function runs the same variable and transformer resolution on hard-coded values without a projection. See [Resolving values without parsing](#resolving-values-without-parsing).
@@ -1732,6 +1734,8 @@ const resultEs = await pageParser(rawDataFromCMS, { locale: 'es' });
 **Why:** When running the parser directly inside a React component, handling asynchronous resolution and states can be tedious. The `useParserValue` hook abstracts this safely.
 
 **Features Used:** `useParserValue`
+
+_React is an optional peer dependency — install `react` in your project to use this entry point; the core package never pulls it in._
 
 ```tsx
 import React from 'react';
