@@ -140,7 +140,7 @@ In the root level of your code, run the `initializeParser` function to export yo
 // parser-config.ts
 import { initializeParser } from '@bou-co/parsing';
 
-export const { createParser, resolve, types } = initializeParser(/** Global configurations come here **/);
+export const { createParser, resolve, cacheResult, types } = initializeParser(/** Global configurations come here **/);
 ```
 
 ### 3 - Start using the parser
@@ -621,7 +621,7 @@ export const { createParser, types } = initializeParser({
 });
 ```
 
-Parsers stay permanently bound to the engine that created them. Nesting a parser from one configuration inside another keeps its own transformers, storage, and variables for the nested parse, while parent context values still merge down. Since type tokens carry their casting implementation, projections and type files are freely shareable across configurations.
+Parsers stay permanently bound to the engine that created them. Nesting a parser from one configuration inside another keeps its own transformers, whole-parse cache storage, and variable cache for the nested parse, while parent context values still merge down (on collisions the parent's values win). Since type tokens carry their casting implementation, projections and type files are freely shareable across configurations.
 
 ### Merging data
 
@@ -743,7 +743,7 @@ Instead of defining every possible variable upfront, `variableResolver` allows y
 import { initializeParser } from '@bou-co/parsing';
 
 export const { createParser, types } = initializeParser(() => ({
-  variableResolver: async (variableName, context) => {
+  variableResolver: async (variableName, context, cache) => {
     // Dynamically catch variables named 'userName'
     if (variableName === 'userName') {
       const { userId } = context.data;
@@ -768,6 +768,8 @@ const result = await dynamicParser({ message: 'Welcome back, {{userName}}!', use
 }
 */
 ```
+
+The resolver is called with the **head segment only** (`{{user.name}}` calls it with `'user'`; the engine walks the rest of the path afterwards). The third argument `cache(value)` opts the returned value into an **engine-lifetime** store keyed by the head: later parses get the cached value without calling the resolver again, and it shadows same-named variables from then on. Because that store lives for the life of the engine — across requests — don't `cache()` user- or request-scoped values; use a [pattern](#patterns) with `cache: 'run'` or `'storage'` for those.
 
 ### Expressions & pipes
 
@@ -1108,14 +1110,14 @@ Input:     'Favorite: <<animals.cat.title || animals.dog.title>>'
 Delimited: 'Favorite: Cat'                         // the whole fallback chain is the expression
 ```
 
-Because a half-working grammar would be worse than none, setting `expressions: true` on a token pattern **throws at setup** with guidance instead of silently misbehaving. Delimited patterns can opt out with `expressions: false` (the raw captured text then arrives as `path`, untouched). Declaring both `delimiters` and a custom `match` is allowed for fine-tuning: your regex wins (first capture group is the expression) while the delimiters vouch that its capture is bounded. This is exactly how the built-in variables pattern is defined.
+Because a half-working grammar would be worse than none, setting `expressions: true` on a token pattern **throws with guidance** instead of silently misbehaving (the pattern registry compiles lazily, so the error surfaces on the first parse). Delimited patterns can opt out with `expressions: false` (the raw captured text then arrives as `path`, untouched). Declaring both `delimiters` and a custom `match` is allowed for fine-tuning: your regex wins (first capture group is the expression) while the delimiters vouch that its capture is bounded. This is exactly how the built-in variables pattern is defined.
 
 Beyond that, the engine owns everything that isn't the lookup itself: scanning, deduplication, splicing, parallel resolution, re-scanning, and cycle protection. Your `resolve` only turns a path into a value.
 
 Rules worth knowing:
 
 - **Full-string matches return the raw value.** When a string consists solely of one match, the resolved value is returned untouched: objects, numbers, and arrays survive, and an object result can feed a nested projection.
-- **Precedence:** overlapping matches resolve longest-first, then by registration order (the built-in `variables` pattern registers first).
+- **Precedence:** the leftmost match wins; at the same start position the longest wins, then registration order (the built-in `variables` pattern registers first). Overlapping later matches are skipped.
 - **Escaping:** a backslash directly before a match suppresses it and is consumed: `\{{foo}}` outputs `{{foo}}`, and `\\{{foo}}` outputs a literal backslash followed by the resolved value. Uniform across all patterns.
 - **Re-scanning & cycles:** resolved string output is scanned again by all patterns (opt out per pattern with `rescan: false`). Cycles throw `ParserPatternCycleError` instead of hanging.
 - **Caching:** user patterns default to `cache: 'run'` (memoized per parse, safe for per-request data). `'storage'` persists results through the configured [storage](#server-side-data-fetching--caching) under `pattern:<name>:<path>` keys. The built-in variables pattern uses `'none'` because variable lookups are context-sensitive.
@@ -1893,7 +1895,7 @@ const myParser = createParser({
 
 #### `toHash(data)`
 
-Deterministically hashes an object or primitive into a stable string. Useful for generating deterministic cache/storage keys in `initializeParser`.
+Deterministically hashes an object or primitive into a stable string. Useful for generating deterministic cache/storage keys in `initializeParser`. Note that the hash is **key-order sensitive** — same content in a different insertion order produces a different hash, so sort keys first when the input's key order isn't guaranteed:
 
 ```ts
 import { toHash } from '@bou-co/parsing';
@@ -1901,7 +1903,10 @@ import { toHash } from '@bou-co/parsing';
 const obj1 = { a: 1, b: 2 };
 const obj2 = { b: 2, a: 1 }; // Same content, different order
 
-console.log(toHash(obj1) === toHash(obj2)); // true
+console.log(toHash(obj1) === toHash(obj2)); // false — insertion order feeds the hash
+
+const stable = (o) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b)));
+console.log(toHash(stable(obj1)) === toHash(stable(obj2))); // true
 ```
 
 #### `useParserValue(data, parser)`
