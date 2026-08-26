@@ -8,7 +8,7 @@ export const getFromObject = async (from: object, path: string, context?: unknow
       // Resolve asynchronous accumulator
       let current = await acc;
       // If the current value is not an object or is null, return undefined
-      if (current === undefined) return undefined;
+      if (current === undefined || current === null) return undefined;
       // If the current value is a function and context is provided, call the value with the context
       if (typeof current === 'function' && context) current = await current(context);
       // If the current value is not an object, return undefined
