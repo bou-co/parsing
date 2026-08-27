@@ -55,6 +55,9 @@ v3 fails fast on the common v2 leftovers. When one of these appears, this is the
 | `Legacy type string 'string'` (or `number`, `boolean`, `date`, `object`, `array`, `any`, `unknown`, `undefined`) | A v2 string identifier used as a projection value                                                                              | `types.string` etc. Error names the key path                     |
 | `Legacy type string 'array<string>'`                                                                             | v2 array identifier                                                                                                            | `types.array.of(types.string)`                                   |
 | `There is no types.undefined in v3`                                                                              | `types.undefined` accessed                                                                                                     | Use the `optional` util, or omit the key                         |
+| `types are not parameters — use .of(...)`                                                                        | A token passed as a call argument (`types.array(types.string)`)                                                                | `types.array.of(types.string)`                                   |
+| `was called as a value function or pipe — register types under \`types\``                                        | A token placed in `variables` or `pipes`                                                                                       | Register it under `types`                                        |
+| `expected an options object`                                                                                     | A token called with a non-object argument                                                                                      | `types.x({ default, required, strict, loose })`                  |
 | `Pipe "x" at "key" is defined in \`variables\``                                                                  | Pipe function left in the `variables` namespace                                                                                | Move the function into the `pipes` config                        |
 | `Pipe "x" not found at "key"`                                                                                    | Pipe genuinely missing                                                                                                         | Register it in `pipes`                                           |
 | `Parser.parserGlobalContext was removed in v3`                                                                   | Code reads or assigns the removed static                                                                                       | Use `initializeParser(config)` or `new Parser(config)`           |
@@ -64,8 +67,12 @@ v3 fails fast on the common v2 leftovers. When one of these appears, this is the
 | `ParserCastError` after upgrade                                                                                  | Casting is real now; the value never matched the declared type                                                                 | Fix the mapping, retype the field, or triage with `looseCasting` |
 | `ParserPatternCycleError`                                                                                        | A variable resolves to text containing itself, or rescan >10 deep                                                              | Break the cycle, or set `rescan: false` on the pattern           |
 
-These migration catches are transitional (`TODO(v4)` in the source) and will be removed in v4,
-so don't build tooling that depends on the message text.
+Six of these are transitional migration catches (`TODO(v4)` in the source) and will be removed
+in v4 — the legacy type strings, `types.undefined`, the pipe-in-`variables` hint, the two
+removed statics, the second-argument context, plus the `looseCasting: 'undefined'` alias — so
+don't build tooling that depends on their message text. The rest (`types are not parameters`,
+`expected an options object`, `Pipe not found`, `ParserCastError`, `ParserPatternCycleError`)
+are permanent.
 
 ## The five Tier 2 changes to audit
 
@@ -91,7 +98,7 @@ ones that don't announce themselves:
 
 Additionally: `parser.asArray !== parser` anymore (it used to be the same function, which
 meant it shared cache entries — a real bug, now fixed), schema-level `cache` no longer flows
-into nested parsers, six more context keys are reserved, the new `{{data.*}}`/`{{ctx.*}}`
+into nested parsers, eight more context keys are reserved (`value`, `parent`, `path`, `store`, `resolve`, `pipes`, `datalessPath`, `types`), the new `{{data.*}}`/`{{ctx.*}}`
 built-in heads intercept those head segments before the `variableResolver`, and `react` is now
 an **optional peer dependency** — install it yourself wherever `@bou-co/parsing/react` is used
 (the package also declares a Node `^20.19.0 || >=22.12.0` engines floor).
@@ -123,6 +130,6 @@ the existing configuration and move parsers across incrementally. Parsers stay b
 creating engine and nest safely across configurations, so a partial migration is a valid
 intermediate state rather than a broken one.
 
-**Verify against the source when docs disagree.** v3 is still a moving `-dev` line, so prose
+**Verify against the source when docs disagree.** v3 is at `3.0.0-rc.*` (npm tag `v3-rc`), so prose
 can lag the code. `initializeParser` returns `{ createParser, resolve, cacheResult, types }`
 — all four. Where this skill and any doc conflict, trust the code and the tests.

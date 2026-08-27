@@ -1,5 +1,6 @@
 import type { ParserContext } from '../../parser-types';
 import { applyCast, CastResult, TypeToken, defineType } from '../../type-token';
+import type { ParserTypeDefaulted } from '../../type-token';
 
 /** `record.of(value)` — a dictionary with unknown keys and cast values: about output shape (compare `json`, which is about input encoding) */
 export class RecordType<Value = unknown> extends TypeToken<Record<string, Value>> {
@@ -15,9 +16,9 @@ export class RecordType<Value = unknown> extends TypeToken<Record<string, Value>
     ).then((resolved) => Object.fromEntries(resolved.filter(([, entry]) => entry !== undefined)) as Record<string, Value>);
   }
 
-  /** Cast every value with `value` */
-  of<T>(value: TypeToken<T>): RecordType<T> {
-    return this.memo(`of:${value.id}`, () => this.clone({ item: value, name: `${this.name}<${value.name}>` })) as unknown as RecordType<T>;
+  /** Cast every value with `value`; a default/required set before `.of()` is kept in the type */
+  of<T>(value: TypeToken<T>): this extends ParserTypeDefaulted ? RecordType<T> & ParserTypeDefaulted : RecordType<T> {
+    return this.memo(`of:${value.id}`, () => this.clone({ item: value, name: `${this.name}<${value.name}>` })) as never;
   }
 }
 

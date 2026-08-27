@@ -132,8 +132,9 @@ exceptions.
 ### The one that catches people: `date`
 
 `'date'` was the single v2 identifier that already coerced (via `new Date(...)`), and it got
-**stricter**. Inputs that previously yielded an `Invalid Date` — `''` and `false` included —
-now throw. (`0` is not one of them: it's a valid epoch number and casts to `new Date(0)`.)
+**stricter**. Inputs that previously yielded an `Invalid Date` — `false` and unparseable strings —
+now throw. `''` does **not**: it is missing for every type (key omitted, or the default fills;
+`.required` to fail). `0` is a valid epoch number and casts to `new Date(0)`.
 
 If code relied on receiving an Invalid Date and checking `isNaN(d.getTime())` downstream, that
 branch is now unreachable and the parse fails earlier. Either clean the input or define a
@@ -148,8 +149,9 @@ const looseDate = defineType((value) => {
 
 ### What doesn't throw
 
-`undefined` and `null` skip casting entirely and the key is omitted, so genuinely optional
-fields are unaffected. Tokens with a `default` fill it in instead, and their field becomes
+`undefined`, `null` and `''` skip casting entirely and the key is omitted — for every type,
+including `string`, which in v2 passed `''` through — so genuinely optional fields are
+unaffected. Tokens with a `default` fill it in instead, and their field becomes
 non-optional in the inferred type.
 
 ### Intentional passthroughs
@@ -302,18 +304,23 @@ cache from v2, expect a cold start regardless.
 **Cache invalidation generally:** if your `storage` relies on the **default** cache key, expect
 a one-time invalidation — projection hashes changed when identifiers became tokens. Storages
 with their own `generateKey` are unaffected unless they hash the projection. Going forward,
-token hashes are content-derived, so editing a custom type's implementation (or its
-`strict`/`name`/`default`) intentionally invalidates entries that used it.
+token hashes are content-derived, so editing a custom type's implementation (or its `name`,
+`default`, `required`, `strict`/`loose` policy, item type or factory options) intentionally
+invalidates entries that used it. `get()` readers now stringify by path and type (`__get:a.b__`)
+instead of their shared closure source, so parsers that differ only in a `get` path get distinct
+hashes — one more source of changed keys.
 
 ---
 
 ## 6. Reserved context keys
 
 The keys the v3 engine writes _after_ your context spreads are: `data`, `key`, `projection`,
-`variables`, `pipes`, `isRoot`, `cache`, `value`, `parent`, `path`, `store`, `resolve`, and
-`datalessPath`. New relative to v2 are **`value`, `parent`, `path`, `store`, `resolve`,
-`pipes`, `datalessPath`**. Custom context properties with those names are **silently
-overwritten** — no error, no warning. (`parser` is engine-set _before_ the spreads, `index`
+`variables`, `pipes`, `types`, `isRoot`, `cache`, `value`, `parent`, `path`, `store`, and
+`resolve`; `datalessPath` is set on the parent context during projection-driven resolution and
+inherited from there. New relative to v2 are **`value`, `parent`, `path`, `store`, `resolve`,
+`pipes`, `datalessPath`, `types`**. Custom context properties with those names are **silently
+overwritten** (a custom `datalessPath` survives but breaks the projection-driven guard) — no
+error, no warning. (`parser` is engine-set _before_ the spreads, `index`
 is injected for array items, `params` inside pipes — treat all three as reserved too.)
 
 → **Audit:** grep your `withContext` calls, per-call contexts, `before` hooks, and any
@@ -349,7 +356,7 @@ search you can actually run.
 - [ ] Hooks that count, push, or emit telemetry (expect ~half the calls)
 - [ ] `before`/`after` passed to `.extend()`/`.withContext()` on a parser that already has one (now both run, base first, instead of the extension replacing the base)
 - [ ] Nested parsers relying on an inherited cache `name`
-- [ ] Custom context properties named `value`, `parent`, `path`, `store`, `resolve`, `pipes`, `datalessPath`
+- [ ] Custom context properties named `value`, `parent`, `path`, `store`, `resolve`, `pipes`, `types`, `datalessPath`
 - [ ] Manual nested parser calls passing context as the 2nd argument
 - [ ] Code relying on `asyncMapObject` running its callback sequentially in key order (now parallel)
 

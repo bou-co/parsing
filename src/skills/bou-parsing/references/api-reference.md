@@ -84,13 +84,13 @@ From `initializeParser().types`, or individually from `@bou-co/parsing/types`.
 
 `string` · `number` · `boolean` · `date` · `object` · `array` · `any` · `unknown` · `text` ·
 `email` · `url` · `slug` · `color` · `tel` · `mimeType` · `json` · `unique(item)` ·
-`oneOf(...values)` · `pattern(regex)`
+`oneOf(...values)` · `pattern(regex | source, flags?)` (named groups → group map)
 
 - `types.array.of(token)` — per-item casting; nests. `types.json.of(token)` decodes then casts
-- Universal chain: `.default(v)` (non-optional field) · `.required` (missing = failure, non-optional) · `.strict` · `.loose` · `.extend(fn)` (same family) · `.to(fn)` / `.to(token)` (new output / composition) · `.cast(value)`; or call the token: `types.x({ default, required, strict, loose })`
+- Universal chain: `.default(v)` (non-optional field) · `.required` (missing = failure, non-optional) · `.strict` · `.loose` · `.extend(fn)` (same family) · `.to(fn)` / `.to(token)` (new output / composition) · `.cast(value)`; read-only `name`, `id`, `defaultValue`, `isRequired`, `policy`; or call the token: `types.x({ default, required, strict, loose })`. `.of()` on `array`/`record` keeps a default/required set before it
 - Accessors per family — see `basics.md`; string-valued derivations are `StringType`s
-- Classes: `TypeToken`, `StringType`, `NumberType`, `BooleanType`, `DateType`, `ObjectType`, `ArrayType`, `TextType`, `EmailType`, `UrlType`, `SlugType`, `ColorType`, `TelType`, `MimeTypeType`, `JsonType`, `OneOfType`, `PatternType`
-- Subsets: `types/format` (`formatDate`, `currency`, `percent`, `time`, `duration`, `money`), `types/data` (`record`, `schema`, `coords`, `locale`), `types/content` (`html`, `markdown`, `sanitizeHtmlAdapter`, `ultrahtmlAdapter`, `markedAdapter`), `types/all`
+- Classes: `TypeToken`, `StringType`, `NumberType`, `BooleanType`, `DateType`, `ObjectType`, `ArrayType`, `AnyType`, `UnknownType`, `TextType`, `EmailType`, `UrlType`, `SlugType`, `ColorType`, `TelType`, `MimeTypeType`, `JsonType`, `OneOfType`, `PatternType`
+- Subsets: `types/format` (`formatDate(format = 'mediumDate', tz?, locale?)` — Angular `DatePipe` presets/tokens on `Intl`, `currency(code?, locale?, options?)`, `percent`, `time`, `duration`, `money`), `types/data` (`record`, `schema`, `coords`, `locale`), `types/content` (`html(adapter, options?)`, `markdown(parser, sanitiser, { parser?, sanitiser? }?)`, `sanitizeHtmlAdapter`, `ultrahtmlAdapter`, `markedAdapter`, `toPlainText`, `DEFAULT_DROP_ELEMENTS`, `createLoader`, `SanitiserAdapter`/`MarkdownAdapter`), `types/all`
 - No `types.undefined` — accessing it throws. Tokens are callable with an options object only; types are never call parameters (`.of()`)
 
 See the casting table in `basics.md`.
@@ -108,10 +108,10 @@ Other `@`-prefixed keys are silently dropped from the output.
 ## Context object
 
 See the full table in `basics.md`. Reserved keys (engine-written after your spreads,
-overwrite yours): `data`, `key`, `projection`, `variables`, `pipes`, `isRoot`, `cache`,
-`value`, `parent`, `path`, `store`, `resolve`, `datalessPath` — plus `parser` (engine-set
-before the spreads), `index` (array items), and `params` (pipes), which you should treat as
-reserved too.
+overwrite yours): `data`, `key`, `projection`, `variables`, `pipes`, `types`, `isRoot`,
+`cache`, `value`, `parent`, `path`, `store`, `resolve` — plus `datalessPath` (inherited from
+the parent context during projection-driven resolution), `parser` (engine-set before the
+spreads), `index` (array items), and `params` (pipes), which you should treat as reserved too.
 
 ## Pattern interface
 
@@ -189,6 +189,8 @@ Escape a whole match with a preceding backslash.
 | `ParserProjection`                                                                        | Projection constraint                                     |
 | `ParserCachingOptions`                                                                    | Augment via module declaration for your backend's options |
 | `CommonContext`, `GlobalContext`, `CreateContext`, `InstanceContext`, `FunctionalContext` | Augment via module declaration to type custom context     |
+| `ParserProjectionValue`                                                                   | Legal projection values (incl. `Promise<unknown>`)        |
+| `GetValueFunction<T>`, `GetValue<T>`, `GetOutput<T>`, `GetDefaulted<T>`                   | Return/output types behind `get(path, token)`             |
 
 ## React
 

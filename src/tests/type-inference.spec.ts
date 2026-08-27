@@ -3,6 +3,7 @@ import { array as arrayType, defineType, number as numberType, string as stringT
 import { AppObject, DefaultParserTypes, ParserType, ParserTypeWithDefault } from '../parser-types';
 import type { ParserTypeDefaulted } from '../type-token';
 import { get } from '../parser-util';
+import { record } from '../types/data/record';
 
 type Expect<T extends true> = T;
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
@@ -291,5 +292,34 @@ describe('get inference', () => {
     ] = [true, true, true, true, true, true, true, true, true, true];
     expect(checks.every(Boolean)).toBe(true);
     expect(standalone).toEqual(1);
+  });
+});
+
+describe('.of() keeps a default or required set before it', () => {
+  type IsOptional<T, K extends keyof T> = {} extends Pick<T, K> ? true : false;
+
+  it('types the options-first and chain-last forms identically', async () => {
+    const parser = createParser({
+      a: types.array({ default: [] }).of(types.number),
+      b: types.array.of(types.number).default([]),
+      c: types.array.required.of(types.string),
+      d: types.array.of(types.string),
+      e: record({ default: {} }).of(types.number),
+      f: record.of(types.number),
+    });
+    type Out = ParserReturnValue<typeof parser>;
+    const checks: [
+      Expect<Equal<Out['a'], number[]>>,
+      Expect<Equal<IsOptional<Out, 'a'>, false>>,
+      Expect<Equal<Out['a'], Out['b']>>,
+      Expect<Equal<Out['c'], string[]>>,
+      Expect<Equal<Out['d'], string[] | undefined>>,
+      Expect<Equal<Out['e'], Record<string, number>>>,
+      Expect<Equal<IsOptional<Out, 'e'>, false>>,
+      Expect<Equal<Out['f'], Record<string, number> | undefined>>,
+    ] = [true, true, true, true, true, true, true, true];
+    expect(checks.every(Boolean)).toBe(true);
+    expect(await parser({ c: ['x'] })).toEqual({ a: [], b: [], c: ['x'], e: {} });
+    await expect(parser({})).rejects.toThrow('Missing required value');
   });
 });

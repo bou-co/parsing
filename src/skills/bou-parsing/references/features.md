@@ -104,13 +104,19 @@ When a value resolves to `undefined`, its pipes are skipped and the fallback cha
 Set `pipeUndefined: true` in context to run pipes on `undefined` anyway. When a pipe chain
 _yields_ `undefined`, the fallback chain moves on too.
 
+**One primitive, two call sites.** A type in a projection (`contact: types.email`) and a pipe
+in a template (`{{ contact | email }}`) run the same cast under the same failure policy. The
+shallow end (`{{ price | round:2 }}`, written by an editor) and the deep end
+(`types.email.domain.upperCase`, with inference) differ in convention and complexity, not
+capability — types can be async and receive the full context, exactly like pipes.
+
 **Types are pipes.** Every casting type — built-in or registered via `types` at any level — is
 a pipe under the same name with the same parameters. Qualified names always work
 (`date.iso`, `number.round:2`, `url.base:"https://x"`, `email.domain`, `email.loose`;
 parameters attach to the last member); root names exist for accessors unique across families
 (`upperCase`, `round:2`, `unique`, `join:", "`) and carry the base cast (`{{ 12 | upperCase }}`
-→ `'12'`). `length` exists on both `string` and `array`, so only `string.length` /
-`array.length` work. Explicit `pipes` shadow type names. Literal-parameter factories work
+→ `'12'`). A name two families share has no root form — `length` (`string`/`array`),
+`normalized` and `href` (`email`/`tel`), `of` (`array`/`json`) — use the qualified one. Explicit `pipes` shadow type names. Literal-parameter factories work
 (`oneOf:"a":"b"`, `pattern:"^x$"`); token-parameter ones (`unique(item)`, `schema`) don't.
 
 Failure in a type pipe follows the cast-site policy (throw by default, drop under
@@ -419,10 +425,15 @@ export const dmy = defineType(async (value) => {
   return { day: d.getDate(), month: d.getMonth() + 1, year: d.getFullYear() };
 });
 
-export const scores = array(number);
+export const scores = array.of(number);
 ```
 
-Object form: `defineType({ fn, strict?, name?, default? })`.
+Forms: `defineType(fn)`; `defineType(Class, options?)` — the factory form of `new` for a
+`class Sku extends StringType` (built-ins use it too); `defineType({ fn, name?, default?,
+required?, strict?, loose? })`; and `defineType({ extends: types.string, fn?, accessors?,
+methods?, ... })`, which runs the parent's cast first and inherits its whole accessor surface
+(`fn` refines the parent's output). Every token also takes the same options as a call:
+`types.string({ default: 'x' })` is `types.string.default('x')`.
 
 - `strict: true` → always throws on failure, even under `looseCasting`. Use for values where
   passing bad data through is never acceptable.
@@ -438,20 +449,21 @@ const scaled = (factor: number) => defineType({ fn: (v) => Number(v) * factor, n
 
 ```ts
 initializeParser({
-  looseCasting: 'undefined', // or true, or false (default)
+  looseCasting: true, // default false: throw
   onCastError: (error) => telemetry.report('cast', { path: error.path, type: error.type }),
 });
 ```
 
-- `false` (default) — throw `ParserCastError`
-- `true` — pass the **original** value through and log a warning
-- `'undefined'` — drop the value (or apply the token's `default`)
+Exactly two flows. `false` (default) throws `ParserCastError`; `true` logs a warning and
+**drops** the value — the key is omitted, or the token's `default` fills it. There is no flow
+that passes the original value through, so inferred output types are true at runtime in every
+configuration. `'undefined'` is a deprecated alias of `true` (identical flow, removed in v4).
+A token pins its own flow with `.strict` (always throw) or `.loose` (always drop, silently);
+a missing value on a `.required` token follows the same two flows.
 
-Both are regular context options, so they can be set per parser or per call.
-`onCastError` fires before the failure policy is applied and replaces the default warning.
-
-Prefer `'undefined'` over `true` when output types should stay honest: under `true` the
-runtime can hold a value that TypeScript types as something else.
+Both are regular context options, so they can be set per parser or per call. `onCastError`
+fires before the failure policy is applied — it sees every failure, including the ones that
+then throw — and replaces the default warning.
 
 ---
 
@@ -503,7 +515,7 @@ options, transformers, patterns, hooks, storage, and caches.
 export const { createParser, types } = initializeParser({ storage: redisStorage, cache: { enabled: true } });
 
 // client-config.ts
-export const { createParser, types } = initializeParser({ looseCasting: 'undefined' });
+export const { createParser, types } = initializeParser({ looseCasting: true });
 ```
 
 Parsers stay permanently bound to their creating engine. Nesting a parser from one
@@ -536,21 +548,21 @@ React is an **optional peer dependency**, so the core package stays usable serve
 
 ## Utilities
 
-| Export                             | Purpose                                                                         |
-| ---------------------------------- | ------------------------------------------------------------------------------- |
-| `defineType(def)`                  | Create a custom casting type                                                    |
-| `isTypeToken(v)`                   | Test whether a value is a type token                                            |
-| `typed<T>`                         | Force a specific inferred type; passes the raw value through uncast             |
-| `optional`                         | Mark a key optional without a type                                              |
-| `condition(when, then)`            | Build an `@if` entry structurally                                               |
-| `get(path, from?)`                 | Dot-path lookup. One arg → resolves from `context.data`; two → arbitrary object |
-| `toHash(data)`                     | Deterministic hash for cache keys. **Key-order sensitive** — see `gotchas.md`   |
-| `asDate(v)`                        | Date coercion helper                                                            |
-| `mergeObjects(a, b)`               | Deep merge used for context merging                                             |
-| `ParserCastError`                  | Cast failure, with `path`, `type`, `received`, `cause`                          |
-| `ParserPatternCycleError`          | Pattern cycle / excessive rescan depth                                          |
-| `variablesPattern`                 | The built-in variables pattern definition                                       |
-| `ParserReturnValue<typeof parser>` | Extract a parser's output type                                                  |
+| Export                             | Purpose                                                                                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `defineType(def)`                  | Create a custom casting type                                                                                                                                  |
+| `isTypeToken(v)`                   | Test whether a value is a type token                                                                                                                          |
+| `typed<T>`                         | Force a specific inferred type; passes the raw value through uncast                                                                                           |
+| `optional`                         | Mark a key optional without a type                                                                                                                            |
+| `condition(when, then)`            | Build an `@if` entry structurally                                                                                                                             |
+| `get(path, from?, type?)`          | Dot-path lookup from `context.data` or an object; with a type, the engine casts the value like a token at the key (`phoneLink: get('phone', types.tel.href)`) |
+| `toHash(data)`                     | Deterministic hash for cache keys. **Key-order sensitive** — see `gotchas.md`                                                                                 |
+| `asDate(v)`                        | Date coercion helper                                                                                                                                          |
+| `mergeObjects(a, b)`               | Deep merge used for context merging                                                                                                                           |
+| `ParserCastError`                  | Cast failure, with `path`, `key`, `type`, `received`, `cause`                                                                                                 |
+| `ParserPatternCycleError`          | Pattern cycle / excessive rescan depth                                                                                                                        |
+| `variablesPattern`                 | The built-in variables pattern definition                                                                                                                     |
+| `ParserReturnValue<typeof parser>` | Extract a parser's output type                                                                                                                                |
 
 Note that `asyncMapObject`, `filterNill`, `filterUndefinedEntries`, and `mergeObjects` are
 exported via `export *` from internal modules. They are reachable but are engine internals

@@ -1,7 +1,7 @@
 import type { ParserContext } from '../parser-types';
 import type { TypeToken } from '../type-token';
 import { defineType } from '../type-token';
-import { StringType } from './string';
+import { string, StringType } from './string';
 
 export interface ColorChannels {
   r: number;
@@ -95,23 +95,23 @@ export class ColorType extends StringType {
     return toHex(parseColor(text));
   }
 
-  get hex(): TypeToken<string> {
-    return this.derive('hex', (value) => value);
+  get hex(): StringType {
+    return this.derive('hex', (value) => value).to(string);
   }
 
-  get rgb(): TypeToken<string> {
+  get rgb(): StringType {
     return this.derive('rgb', (value) => {
       const { r, g, b, a } = parseColor(value);
       return a < 1 ? `rgba(${r}, ${g}, ${b}, ${Math.round(a * 100) / 100})` : `rgb(${r}, ${g}, ${b})`;
-    });
+    }).to(string);
   }
 
-  get hsl(): TypeToken<string> {
+  get hsl(): StringType {
     return this.derive('hsl', (value) => {
       const parsed = parseColor(value);
       const [h, s, l] = rgbToHsl(parsed);
       return parsed.a < 1 ? `hsla(${h}, ${s}%, ${l}%, ${Math.round(parsed.a * 100) / 100})` : `hsl(${h}, ${s}%, ${l}%)`;
-    });
+    }).to(string);
   }
 
   /** `{ r, g, b }` as 0–255 numbers */

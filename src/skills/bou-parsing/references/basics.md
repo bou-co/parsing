@@ -48,27 +48,27 @@ ones are methods — or by calling the token with an **options object** for the 
 options: `types.string({ default: 'x', required: true, strict: true })` ≡ the chain. Items go
 through `.of()`, never as call parameters (`types.array(x)` from early RCs is `.of(x)`).
 
-| Type                          | Accepts                                                                                                                                               | Fails on                           |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| `types.string`                | strings; finite numbers; booleans; valid `Date` (→ ISO string)                                                                                        | objects, arrays, `NaN`, `Infinity` |
-| `types.number`                | numbers (incl. `NaN`/`Infinity`, unchecked); booleans (`1`/`0`); `Date` (→ `getTime()`); numeric strings (`'12.5'`, `'1e3'`)                          | `''`, `'12px'`, objects            |
-| `types.boolean`               | booleans; `1`/`0`; `'true'`/`'false'` (case-insensitive)                                                                                              | other numbers and strings          |
-| `types.date`                  | `Date` instances; parseable date strings; epoch numbers (incl. `0`)                                                                                   | unparseable values (`''`, `false`) |
-| `types.object`                | any non-array object (`Date`, `Map`, class instances pass through)                                                                                    | arrays, primitives                 |
-| `types.array`                 | arrays (passed through)                                                                                                                               | non-arrays                         |
-| `types.array.of(types.x)`     | arrays, casting each item with `x`                                                                                                                    | non-arrays; any failing item       |
-| `types.any` / `types.unknown` | anything (pure pass-through)                                                                                                                          | never fails                        |
-| `types.text`                  | what `string` does; textarea tidying (trim, collapse spaces, fold blank lines, **line breaks kept**), empty → **missing**                             | what `string` rejects              |
-| `types.email`                 | `local@domain.tld`; trimmed, **case kept** (`.normalized` lower-cases, `.href` → `mailto:`)                                                           | anything else                      |
-| `types.url`                   | absolute URLs (`new URL()`), normalised `href`; `.base(url)` for relative fields                                                                      | `/relative`, `//protocol-relative` |
-| `types.slug`                  | any string → ASCII slug (Latin folded/transliterated, lower-case, `-` separated); non-Latin scripts dropped; pre-step via `.to(types.slug)`           | nothing URL-safe left              |
-| `types.color`                 | hex / `rgb()` / `hsl()` → lower-case `#rrggbb[aa]`                                                                                                    | named colours, malformed           |
-| `types.tel`                   | kept **as written**; separators, optional `+`, extension (`ext. 12`/`x12`/`#12`), 3–15 digits (not country-aware); `.normalized` `.href` `.extension` | wrong length, letters              |
-| `types.mimeType`              | `type/subtype+suffix; params`, lower-cased                                                                                                            | no `type/subtype`                  |
-| `types.json`                  | JSON strings parsed, non-strings pass; `.of(inner)` for a typed result                                                                                | invalid JSON                       |
-| `types.unique(item)`          | arrays, deduplicated like a `Set`, returned as a plain array                                                                                          | non-arrays                         |
-| `types.oneOf(...v)`           | one of the literals (numeric/boolean members also as strings); union type                                                                             | anything else                      |
-| `types.pattern(re)`           | matching strings; named groups → group map                                                                                                            | non-matches                        |
+| Type                          | Accepts                                                                                                                                               | Fails on                                      |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `types.string`                | strings; finite numbers; booleans; valid `Date` (→ ISO string)                                                                                        | objects, arrays, `NaN`, `Infinity`            |
+| `types.number`                | numbers (incl. `NaN`/`Infinity`, unchecked); booleans (`1`/`0`); `Date` (→ `getTime()`); numeric strings (`'12.5'`, `'1e3'`)                          | `'12px'`, objects (`''` is missing)           |
+| `types.boolean`               | booleans; `1`/`0`; `'true'`/`'false'` (case-insensitive)                                                                                              | other numbers and strings                     |
+| `types.date`                  | `Date` instances; parseable date strings; epoch numbers (incl. `0`)                                                                                   | unparseable values, `false` (`''` is missing) |
+| `types.object`                | any non-array object (`Date`, `Map`, class instances pass through)                                                                                    | arrays, primitives                            |
+| `types.array`                 | arrays (passed through)                                                                                                                               | non-arrays                                    |
+| `types.array.of(types.x)`     | arrays, casting each item with `x`                                                                                                                    | non-arrays; any failing item                  |
+| `types.any` / `types.unknown` | anything (pure pass-through)                                                                                                                          | never fails                                   |
+| `types.text`                  | what `string` does; textarea tidying (trim, collapse spaces, fold blank lines, **line breaks kept**), empty → **missing**                             | what `string` rejects                         |
+| `types.email`                 | `local@domain.tld`; trimmed, **case kept** (`.normalized` lower-cases, `.href` → `mailto:`)                                                           | anything else                                 |
+| `types.url`                   | absolute URLs (`new URL()`), normalised `href`; `.base(url)` for relative fields                                                                      | `/relative`, `//protocol-relative`            |
+| `types.slug`                  | any string → ASCII slug (Latin folded/transliterated, lower-case, `-` separated); non-Latin scripts dropped; pre-step via `.to(types.slug)`           | nothing URL-safe left                         |
+| `types.color`                 | hex / `rgb()` / `hsl()` → lower-case `#rrggbb[aa]`                                                                                                    | named colours, malformed                      |
+| `types.tel`                   | kept **as written**; separators, optional `+`, extension (`ext. 12`/`x12`/`#12`), 3–15 digits (not country-aware); `.normalized` `.href` `.extension` | wrong length, letters                         |
+| `types.mimeType`              | `type/subtype+suffix; params`, lower-cased                                                                                                            | no `type/subtype`                             |
+| `types.json`                  | JSON strings parsed, non-strings pass; `.of(inner)` for a typed result                                                                                | invalid JSON                                  |
+| `types.unique(item)`          | arrays, deduplicated like a `Set`, returned as a plain array                                                                                          | non-arrays                                    |
+| `types.oneOf(...v)`           | one of the literals (numeric/boolean members also as strings); union type                                                                             | anything else                                 |
+| `types.pattern(re)`           | matching strings; named groups → group map                                                                                                            | non-matches                                   |
 
 Accessor families (transforms keep the type and chain; derivations change it): `string`
 `.upperCase .lowerCase .capitalize .titleCase .camel .pascal .kebab .snake .trim .truncate(n)
@@ -80,8 +80,8 @@ Accessor families (transforms keep the type and chain; derivations change it): `
 `color` `.hex .rgb .hsl .channels .alpha`; `tel` `.normalized` / `.href .extension`; `mimeType` `.type .subtype .suffix
 .essence`. Every string-based type (and every string-valued derivation) has the full `string`
 set. An accessor fails at the base cast — never a partial. Universal on every token:
-`.default(v) .required .strict .loose .extend(fn) .to(fn | token) .cast(value)`, and the
-options object `({ default, required, strict, loose })`.
+`.default(v) .required .strict .loose .extend(fn) .to(fn | token) .cast(value)`, the read-only
+`name id defaultValue isRequired policy`, and the options object `({ default, required, strict, loose })`.
 
 There is **no `types.undefined`** — accessing it throws a migration error. Use the
 `optional` util or just omit the key.
@@ -99,6 +99,11 @@ light and work against any engine configuration. Opt-in subsets: `@bou-co/parsin
 (`formatDate`, `currency`, `percent`, `time`, `duration`, `money`), `types/data` (`record`,
 `schema`, `coords`, `locale`), `types/content` (`html`, `markdown` + sanitiser adapters, peer
 deps), `types/all` (format + data). Register them: `initializeParser({ types: { ...formatTypes } })`.
+
+Which types are built in, which are opt-in, and which are deliberately not shipped (`uuid`,
+`iban`, `postalCode`, vendor IDs, …) follows the five-question admission test in the README
+(_Why a type is (or isn't) built in_) — point people there, and at `pattern`/`schema`/`defineType`,
+before writing a new built-in.
 
 ### Failure behaviour
 

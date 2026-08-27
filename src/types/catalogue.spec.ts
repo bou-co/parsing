@@ -183,6 +183,14 @@ describe('tier-1 catalogue', () => {
       await rejects(color, '#12345').toThrow('Invalid color');
     });
 
+    it('notations are strings and chain', async () => {
+      expect(color.hex).toBeInstanceOf(StringType);
+      expect(color.rgb).toBeInstanceOf(StringType);
+      expect(color.hsl).toBeInstanceOf(StringType);
+      expect(await cast(color.hex.upperCase, '#abc')).toEqual('#AABBCC');
+      expect(await cast(color.rgb.replace(/\s/g, ''), '#ff8800')).toEqual('rgb(255,136,0)');
+    });
+
     it('exposes notations and components', async () => {
       const parser = createParser({
         hex: types.color.hex,
@@ -224,7 +232,9 @@ describe('tier-1 catalogue', () => {
     });
 
     it('exposes the normalised number, the tel: link and the extension', async () => {
-      expect(await cast(tel.normalized, '+358 (0)40-123 4567 ext. 12')).toEqual('+3580401234567');
+      expect(await cast(tel.normalized, '+358 (0)40-123 4567 ext. 12')).toEqual('+358401234567');
+      expect(await cast(tel.normalized, '(040) 123 4567')).toEqual('0401234567');
+      expect(await cast(tel.normalized, '+358 40 (0)1234')).toEqual('+358401234');
       expect(await cast(tel.normalized, '040 123 4567')).toEqual('0401234567');
       expect(await cast(tel.href, '+1 555 0100')).toEqual('tel:+15550100');
       expect(await cast(tel.href, '+1 (555) 010-0100 ext. 12')).toEqual('tel:+15550100100;ext=12');
@@ -243,6 +253,9 @@ describe('tier-1 catalogue', () => {
 
   describe('mimeType', () => {
     it('parses and normalises type/subtype+suffix; params', async () => {
+      expect(mimeType.suffix).toBeInstanceOf(StringType);
+      expect(await cast(mimeType.suffix.upperCase, 'application/ld+json')).toEqual('JSON');
+      expect(await cast(mimeType.suffix, 'image/png')).toBeUndefined();
       expect(await cast(mimeType, 'Application/LD+JSON ; charset=UTF-8')).toEqual('application/ld+json; charset=UTF-8');
       expect(await cast(mimeType, 'image/png')).toEqual('image/png');
       await rejects(mimeType, 'image').toThrow('Invalid MIME type');

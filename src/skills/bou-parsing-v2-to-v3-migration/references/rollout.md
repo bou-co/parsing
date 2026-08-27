@@ -26,15 +26,17 @@ export const { createParser, resolve, cacheResult, types } = initializeParser({
 ```
 
 `looseCasting: true` drops uncastable values (applying the token's `default` when one
-exists) instead of throwing. `onCastError` fires _before_ the failure policy is applied, so you
+exists) instead of throwing. It is a regular context option, so a large codebase can loosen one
+parser (`createParser(projection, { looseCasting: true })`) or one call at a time instead of
+the whole engine. `onCastError` fires _before_ the failure policy is applied, so you
 see every failure regardless of what happens next. Setting it also replaces the default console
 warning, which keeps logs readable.
 
-**Use `'undefined'`, not `true`.** Both stop the throwing, but `true` passes the _original_
-uncast value through — so a field TypeScript types as `number` can hold `'12px'` at runtime.
-That is worse than dropping it, because downstream code has no way to notice. `'undefined'`
-keeps the output types honest: those fields are optional in the inferred type anyway, so dropping
-is type-safe in a way passing through is not.
+**`true` is the flag.** `'undefined'` is an identical, deprecated alias (marked `TODO(v4)`);
+both drop the value and neither passes the original through, so output types stay honest either
+way. Note that triage mode also silences `.required`: a missing required value goes through the
+same policy, so it is dropped (or defaulted) rather than thrown — re-verify required fields in
+stage 3.
 
 ### Stage 2 — collect and fix
 
@@ -50,8 +52,8 @@ Run your real traffic (or a representative sample of production data) through th
 | The input needs lenient coercion           | A custom `defineType`                   |
 | Bad data must never pass                   | `defineType({ fn, strict: true })`      |
 
-Cast errors carry the full key path, so this list is directly actionable — you're not guessing
-which field failed.
+Cast errors carry the full key path (array items include their index: `tags.2`), so this list is
+directly actionable — you're not guessing which field failed.
 
 ### Stage 3 — tighten
 
@@ -184,8 +186,8 @@ low traffic.
 ## A note on the v4 horizon
 
 v3's migration catches — the targeted errors for legacy type strings, misplaced pipes, the
-removed statics, `types.undefined`, and the second-argument context — are transitional. They are
-marked `TODO(v4)` in the source and will be removed. That has two implications:
+removed statics, `types.undefined`, the second-argument context, and the `looseCasting: 'undefined'`
+alias — are transitional. Six catches, seven `TODO(v4)` markers in the source (one catch has two), and they will be removed. That has two implications:
 
 Finish the migration properly rather than living on the error messages as documentation. And
 don't build tooling that parses those messages, because they're scheduled for deletion.

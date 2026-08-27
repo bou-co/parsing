@@ -1,5 +1,6 @@
 import type { ParserContext } from '../parser-types';
 import { applyCast, CastResult, TypeToken, defineType } from '../type-token';
+import type { ParserTypeDefaulted } from '../type-token';
 import { invalid } from './internal';
 import { string, StringType } from './string';
 
@@ -16,9 +17,9 @@ export class ArrayType<Item = unknown> extends TypeToken<Item[]> {
     ) as Promise<Item[]>;
   }
 
-  /** Cast every item with `item` */
-  of<T>(item: TypeToken<T>): ArrayType<T> {
-    return this.memo(`of:${item.id}`, () => this.clone({ item, name: `${this.name}<${item.name}>` })) as unknown as ArrayType<T>;
+  /** Cast every item with `item`. A default/required set before `.of()` is kept, so `array({ default: [] }).of(x)` types like `array.of(x).default([])` */
+  of<T>(item: TypeToken<T>): this extends ParserTypeDefaulted ? ArrayType<T> & ParserTypeDefaulted : ArrayType<T> {
+    return this.memo(`of:${item.id}`, () => this.clone({ item, name: `${this.name}<${item.name}>` })) as never;
   }
 
   // Transforms

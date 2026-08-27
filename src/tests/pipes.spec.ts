@@ -159,6 +159,8 @@ describe('types as pipes', () => {
     const { createParser } = initializeParser({ types: { contact, other }, variables: { v: 'a@b.co' } });
     await expect(createParser({ x: '{{ v | domain }}' })({})).rejects.toThrow('Pipe "domain" not found');
     expect(warn.mock.calls[0][0]).toContain('Accessor "domain" is declared by more than one type');
+    expect(warn.mock.calls[0][0]).toContain('"contact.domain"');
+    expect(warn.mock.calls[0][0]).toContain('"other.domain"');
     expect(await createParser({ x: '{{ v | contact.domain }}' })({})).toEqual({ x: 'b.co' });
     await expect(createParser({ x: '{{ v | contact.nope }}' })({})).rejects.toThrow('has no accessor "nope"');
     await expect(createParser({ x: '{{ v | contact.domain:1 }}' })({})).rejects.toThrow('takes no parameters');

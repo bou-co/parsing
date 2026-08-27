@@ -1,5 +1,7 @@
 # Bou Parsing
 
+**Note: this readme is only valid for version 2 of the library! Check the current README.md for updated API documentation and `migration.md` for the migration guide.**
+
 Bou Parsing is your ultimate sidekick for taming unruly data! Whether you're wrangling data from APIs, generating TypeScript types on the fly, or splitting complex queries into bite-sized pieces, Bou Parsing has got you covered. With its powerful yet easy-to-use functions, you can effortlessly manipulate, validate, and transform your data into exactly what you need.
 
 While Bou Parsing is fully isomorphic and works perfectly in the browser, **it truly shines on the server-side** (e.g., in Next.js App Router, Astro, NestJS, or Express). It allows you to fetch massive API responses or do complex mappings and calculations, parse them into exact, type-safe structures, and cache the computations to drastically reduce server, database and network load before sending data to the frontend.

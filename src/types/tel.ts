@@ -18,9 +18,11 @@ interface TelParts {
 const parseTel = (value: string): TelParts => {
   const trimmed = value.trim();
   const extensionMatch = trimmed.match(EXTENSION);
-  const main = extensionMatch ? trimmed.slice(0, extensionMatch.index).trim() : trimmed;
+  let main = extensionMatch ? trimmed.slice(0, extensionMatch.index).trim() : trimmed;
   if (!MAIN.test(main))
     throw new Error('Invalid phone number (digits with spaces, dashes, dots, slashes, parentheses, an optional leading + and an optional extension)');
+  // `+358 (0)40 …`: a parenthesised trunk prefix after a country code is not dialled internationally
+  if (main.startsWith('+')) main = main.replace(/\(0\)/, '');
   const digits = main.replace(/\D/g, '');
   if (digits.length < 3 || digits.length > 15) throw new Error('Invalid phone number (3–15 digits)');
   return { main, plus: main.startsWith('+') ? '+' : '', digits, extension: extensionMatch?.[1] };
@@ -31,8 +33,10 @@ const parseTel = (value: string): TelParts => {
  * written** (trimmed): digits with spaces, dashes, dots, slashes and parentheses, an optional
  * leading `+`, and an optional extension (`ext. 12`, `x12`, `#12`), 3–15 digits in the number
  * itself. Explicitly not country-aware: no dialling plan is checked and `00`/`011` prefixes are
- * not rewritten to `+`. `.normalized` gives the bare number (`+3580401234567`), `.href` the RFC
- * 3966 `tel:` link (`tel:+3580401234567;ext=12`), `.extension` the extension digits.
+ * not rewritten to `+`. `.normalized` gives the bare number (`+358401234567`), `.href` the RFC
+ * 3966 `tel:` link (`tel:+358401234567;ext=12`), `.extension` the extension digits. A parenthesised
+ * `(0)` trunk prefix after a `+` country code is dropped from the machine forms (`+358 (0)40 …` →
+ * `+358401234567`); the value as written keeps it.
  */
 export class TelType extends StringType {
   static override readonly family: string = 'tel';

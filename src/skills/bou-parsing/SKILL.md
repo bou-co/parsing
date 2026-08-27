@@ -8,7 +8,7 @@ description: Write, review, and debug parsers using the @bou-co/parsing library 
 A declarative data layer for TypeScript. You describe the **output** you want; the engine
 resolves it against raw input and infers the type.
 
-This skill covers v3 (`3.0.0-dev.x`). If the code uses string type identifiers
+This skill covers v3 (`3.0.0-rc.x`, npm tag `v3-rc`). If the code uses string type identifiers
 (`title: 'string'`), it is v2 — use the `bou-parsing-v2-to-v3-migration` skill instead.
 
 ## The mental model
@@ -42,23 +42,25 @@ Every parser is async and resolves all keys in parallel. Its natural home is the
 
 This table is the core of the API. Anything in the left column is a legal projection value:
 
-| Value                                            | Behaviour                                                                                |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `types.string`, `types.email`, …                 | Read `data[key]`, cast at runtime, infer the type                                        |
-| `types.array.of(types.x)`                        | Validate array, cast each item                                                           |
-| `types.x.default(v)` / `types.x({ default: v })` | Fill in `v` when the field would be `undefined`; makes it **non-optional**               |
-| `types.x.required` / `{ required: true }`        | A missing value (`undefined`/`null`/`''`) is a failure; non-optional in the type         |
-| `types.date.iso`, `types.number.round(2)`        | Chained accessor: casts, then derives/transforms; inferred type follows the chain        |
-| A custom `defineType(...)` token                 | Same, with your casting/validation function (extend a built-in to inherit its accessors) |
-| A literal (`'blogPost'`, `42`, `true`)           | Constant, passed through as-is                                                           |
-| `(context) => value`                             | Value function; sync or async; receives `ParserContext`                                  |
-| `{ … }`                                          | Nested projection                                                                        |
-| `{ '@array': true, … }`                          | Nested projection applied per array item                                                 |
-| Another parser                                   | Nested parse of `data[key]`                                                              |
-| `parser.asArray`                                 | Nested parse per array item                                                              |
-| `parser.flat`                                    | Parse `data[key]`, **merge fields into parent**, drop the key                            |
-| `cacheResult(keyTemplate, fn)`                   | Value function whose result is cached in storage                                         |
-| `typed<T>`                                       | Type-only annotation, passes `data[key]` through                                         |
+| Value                                            | Behaviour                                                                                           |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `types.string`, `types.email`, …                 | Read `data[key]`, cast at runtime, infer the type                                                   |
+| `types.array.of(types.x)`                        | Validate array, cast each item                                                                      |
+| `types.x.default(v)` / `types.x({ default: v })` | Fill in `v` when the field would be `undefined`; makes it **non-optional**                          |
+| `types.x.required` / `{ required: true }`        | A missing value (`undefined`/`null`/`''`) is a failure; non-optional in the type                    |
+| `types.date.iso`, `types.number.round(2)`        | Chained accessor: casts, then derives/transforms; inferred type follows the chain                   |
+| A custom `defineType(...)` token                 | Same, with your casting/validation function (extend a built-in to inherit its accessors)            |
+| `get('a.b', types.tel.href)`                     | Read another path, cast by the engine like a token at this key (several outputs from one raw field) |
+| A `Promise`                                      | Awaited (once per parser instance), never cast — e.g. `get('a.b', someObject)`                      |
+| A literal (`'blogPost'`, `42`, `true`)           | Constant, passed through as-is                                                                      |
+| `(context) => value`                             | Value function; sync or async; receives `ParserContext`                                             |
+| `{ … }`                                          | Nested projection                                                                                   |
+| `{ '@array': true, … }`                          | Nested projection applied per array item                                                            |
+| Another parser                                   | Nested parse of `data[key]`                                                                         |
+| `parser.asArray`                                 | Nested parse per array item                                                                         |
+| `parser.flat`                                    | Parse `data[key]`, **merge fields into parent**, drop the key                                       |
+| `cacheResult(keyTemplate, fn)`                   | Value function whose result is cached in storage                                                    |
+| `typed<T>`                                       | Type-only annotation, passes `data[key]` through                                                    |
 
 Directive keys (`'@if'`, `'@combine'`, `'@array'`) are structural, not values — see
 `references/features.md`. `@combine` is prefix-matched (`'@combine:stats'` works, several per
@@ -95,6 +97,9 @@ The rules that determine optionality:
 - `undefined`/`null`/`''` input is **missing**: it skips casting entirely and the key is
   omitted from the output — it does not throw and does not become `null`. `false` and `0`
   are values. Only `.required` tokens fail on missing input.
+- Asked for a built-in that does not exist (`uuid`, `iban`, `postalCode`, …)? The README's
+  _Why a type is (or isn't) built in_ has the admission test and the replacement (`pattern`,
+  `schema`, `defineType`).
 - A nested projection whose every field depended on missing data resolves to `{}` and the
   **whole key is dropped**.
 

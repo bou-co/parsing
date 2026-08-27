@@ -88,7 +88,7 @@ describe('get util', () => {
       const data = await parser({ contact: { phoneNumber: '+358 (0)40-123 4567', email: 'Bob@Example.com' } });
       expect(data).toEqual({
         phoneTitle: '+358 (0)40-123 4567',
-        phoneLink: 'tel:+3580401234567',
+        phoneLink: 'tel:+358401234567',
         phoneRaw: '+358 (0)40-123 4567',
         mail: 'mailto:bob@example.com',
       });

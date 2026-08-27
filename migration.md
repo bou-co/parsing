@@ -8,7 +8,11 @@ Bou Parsing V3 replaces the string-based type identifiers with a `types` object 
 
 A quick tour of what's new — the breaking-change notes below reference these:
 
-- **Type tokens & custom types** — `types.string`, `types.number`, … validate _and_ cast at runtime; `defineType` creates your own (§1–§3). Tokens accept a default: `types.string({ default: 'x' })` fills in when the value is missing and makes the field non-optional in the inferred type.
+- **Type tokens & custom types** — `types.string`, `types.number`, … validate _and_ cast at runtime; `defineType` (from a function, a class, or a definition object) creates your own (§1–§3). Every token is configured by chaining — `.default(v)`, `.required`, `.strict`, `.loose` — or by calling it with the same options (`types.string({ default: 'x' })`); a default makes the field non-optional in the inferred type, `required` makes a missing value an error.
+- **Use-case catalogue** — `text`, `email`, `url`, `slug`, `color`, `tel`, `mimeType`, `json`, `unique`, `oneOf` and `pattern` ship with no dependencies, each with chainable accessors (`types.date.iso`, `types.number.round(2)`, `types.url.pathname`, `types.text.wordCount`); every string-based type inherits the whole `string` accessor set.
+- **Types as pipes** — every type, built-in or registered under the new `types` config (global, `createParser`, or per call), is a template pipe under the same name: `{{ price | round:2 }}`, `{{ contact | email || "n/a" }}` (token-parameter factories such as `unique(item)` and `schema(validator)` are the exception — they have no template form).
+- **Opt-in subsets** — `@bou-co/parsing/types/format` (`formatDate`, `currency`, `percent`, …), `types/data` (`record`, `schema`, `coords`, `locale`), `types/content` (`html`, `markdown` behind sanitiser adapters; the only path with peer dependencies).
+- **`get(path, type)` / `get(path, from, type)`** — cast a looked-up value in the engine, so one raw field projects several outputs (`phoneTitle: get('phone', types.tel), phoneLink: get('phone', types.tel.href)`).
 - **`parser.flat`** — parses `data[key]` and merges the resulting object into the parent output, like `@combine` (the key itself is dropped).
 - **`context.value` + zero-arg `await context.resolve()`** — `value` is the raw `data?.[key]`; calling `resolve()` with no arguments resolves it lazily (memoized per context).
 - **`resolve`** — new export of `initializeParser` (and contextually as `context.resolve(input, overrides?)`): runs pattern/variable resolution and global transformers on raw input without a projection.
@@ -19,7 +23,7 @@ A quick tour of what's new — the breaking-change notes below reference these:
 - **Built-in context variable heads** — `{{data.*}}` (the current level's input data) and `{{ctx.*}}` / `{{context.*}}` (the full parser context) resolve live from the node context; explicit variables can shadow them, and they never fall through to a `variableResolver` (§9).
 - **Isolated engines** — every `initializeParser` call is its own engine; `new Parser(globalContext)` is the advanced equivalent (§4).
 - **React: `revalidate`** — `useParserValue` now returns `{ result, loading, error, revalidate }`; `revalidate(updatedData?)` re-parses with the last (or new) data.
-- **New exports** — `defineType`, `isTypeToken`, `ParserCastError`, `variablesPattern`, `ParserPatternCycleError`, and the tree-shakeable `@bou-co/parsing/types` entry point.
+- **New exports** — `defineType`, `TypeToken` and the family classes (`StringType`, …), `isTypeToken`, `isMissing`, `applyCast`, `notAPipe`, `ParserCastError`, `variablesPattern`, `ParserPatternCycleError`, and the tree-shakeable `@bou-co/parsing/types` entry point with its `types/format`, `types/data`, `types/content` and `types/all` subsets.
 
 ### 1. String type identifiers are removed
 
@@ -43,19 +47,21 @@ import { createParser, types } from '../path-to/parser-config';
 const myParser = createParser({
   title: types.string,
   priority: types.number,
-  tags: types.array(types.string),
+  tags: types.array.of(types.string),
 });
 ```
 
-Migration is a find/replace: `'string'` → `types.string`, `'number'` → `types.number`, `'array<x>'` → `types.array(types.x)`, and so on. `initializeParser` now returns `{ createParser, resolve, cacheResult, types }` — re-export `types` (and the rest) from your parser config. Note that `types` is **not** a root export of `@bou-co/parsing`; get it from `initializeParser`, or import the tokens individually from the tree-shakeable `@bou-co/parsing/types` entry point. There is no `types.undefined`; use the `optional` util instead (accessing `types.undefined` throws a migration error rather than silently dropping the key).
+Migration is a find/replace: `'string'` → `types.string`, `'number'` → `types.number`, `'array<x>'` → `types.array.of(types.x)`, and so on. `initializeParser` now returns `{ createParser, resolve, cacheResult, types }` — re-export `types` (and the rest) from your parser config. Note that `types` is **not** a root export of `@bou-co/parsing`; get it from `initializeParser`, or import the tokens individually from the tree-shakeable `@bou-co/parsing/types` entry point. There is no `types.undefined`; use the `optional` util instead (accessing `types.undefined` throws a migration error rather than silently dropping the key).
 
 ### 2. Types now always cast values
 
-Unlike most V2 identifiers (which passed values through untouched), V3 types coerce at runtime: `types.number` turns `'21'` into `21`, `types.date` parses date strings into `Date` instances, and values that cannot be cast throw a `ParserCastError`. The one V2 identifier that already coerced — `'date'`, via `new Date(...)` — becomes stricter: inputs that previously yielded an `Invalid Date` (`''` and `false` included) now throw, while `0` stays a valid epoch number. Behavior on failure is configurable via `initializeParser({ looseCasting })` (`true` passes the original value through with a warning, `'undefined'` drops the value — or applies the token's `default` when one is set). Fields whose input is `undefined`/`null` skip casting and stay optional; tokens with a `default` fill it in instead, and their field becomes non-optional in the inferred type.
+Unlike most V2 identifiers (which passed values through untouched), V3 types coerce at runtime: `types.number` turns `'21'` into `21`, `types.date` parses date strings into `Date` instances, and a value that is present and cannot be cast throws a `ParserCastError`. Missing data is never a failure: `undefined`, `null` and `''` skip casting for **every** type and the key is omitted — or the token's `default` fills it — unless the token is `.required`. (`false` and `0` are values. Note that V2's `'string'` passed `''` through; V3 drops it.) The one V2 identifier that already coerced — `'date'`, via `new Date(...)` — becomes stricter: `false` and unparseable strings now throw, while `0` stays a valid epoch number.
+
+Behaviour on failure is configurable via `looseCasting: true` — globally in `initializeParser`, per `createParser`, or per call: log a warning and drop the value (or apply the default) instead of throwing. `'undefined'` is a deprecated alias of `true`. There is no mode that passes an uncast value through, so the inferred output types are true at runtime in every configuration. A token pins its own flow with `.strict` / `.loose`, and the `onCastError` context option observes every failure before the policy applies.
 
 ### 3. Custom types
 
-Define your own types with `defineType` — pass a casting function or a `{ fn, strict? }` object — and use the result directly as a projection value, with full type inference. There is no registration: custom types are plain values you create and import from anywhere (one-off inline types are fine too). A `strict: true` type always throws on failure regardless of `looseCasting`. For standalone type files, compose from the `@bou-co/parsing/types` entry point (e.g. `export const numbers = array(number);`).
+Define your own types with `defineType` — from a casting function, from a class (`defineType(SkuType)` for `class SkuType extends StringType`, which inherits every `string` accessor), or from a definition object `{ fn, name?, default?, required?, strict?, loose?, extends?, accessors?, methods? }` — and use the result directly as a projection value, with full type inference. Registration is optional: custom types are plain values you import from anywhere (one-off inline types are fine too); registering one under the `types` config at any context level additionally makes it a template pipe. A `strict: true` type always throws on failure regardless of `looseCasting`. For standalone type files, compose from the `@bou-co/parsing/types` entry point (e.g. `export const numbers = array.of(number);`).
 
 ### 4. Isolated parser engines
 
@@ -71,7 +77,7 @@ What this means in practice:
 - **Side effects now run for missing keys.** Value functions, `@combine` resolvers, `context.store` fetches, and `variableResolver` calls inside a nested projection execute even when the input lacks the key. If a nested parser wraps an expensive fetch that should only happen when data exists, opt out with a value function: `child: ({ data }) => (data['child'] ? childParser : undefined)`.
 - **Arrays still require data.** `'@array': true` projections, array literals, and `parser.asArray` values keep their data-driven skip.
 - **Recursive schemas terminate.** Self-referencing (or mutually referencing) parsers resolve the cycle once more with their data-independent fields, then stop — instead of relying on the data running out. Note that recursive schemas built as _literal object cycles_ cannot be hashed for caching; reference parsers through value functions instead.
-- **Scalar-under-object no longer leaks the projection.** A truthy scalar at an object-projection key previously returned the raw projection object (live functions included); it now resolves the projection, with the scalar reachable at `context.parent.data`.
+- **Scalar-under-object no longer leaks the projection.** A truthy scalar at an object-projection key previously returned the raw projection object (live functions included); it now resolves the projection, with the scalar reachable at `context.parent.value` (`context.parent.data` is the parent level's data object).
 - **Legacy type keys fail fast.** A leftover v2 string identifier inside a nested projection now throws even when the input lacks that key.
 - **Custom `generateKey` caveat.** Projection-driven parses always receive `{}` as data, so cache keys built only from projection + data collide across different parents. The default key (which hashes the full call) is unaffected.
 - **Empty-result detection counts keys, not values.** An `after` hook or `@combine` that unconditionally injects keys makes every projection-driven resolution non-empty — hook output is output.
@@ -94,13 +100,13 @@ In V2, a nested **parser** received the whole parent context in its instance-con
 - The `asyncMapObject` util now resolves entries in **parallel** (`Promise.all`) instead of sequentially in key order — side-effecting callbacks lose their serialization guarantee.
 - `getVariableValue` no longer auto-wraps bare names in `{{ }}` — it accepts the active variables syntax, the legacy `{{path}}` form, or a bare expression. Results are equivalent under the default delimiters, and re-delimited syntaxes now work too.
 - Storage callbacks (`generateKey`, `match`, `add`) now receive a context whose `parser` is the engine instance — in V2 it was `undefined` for plain parser calls.
-- `value`, `parent`, `path`, `store`, `resolve`, `pipes`, and `datalessPath` are now **reserved context keys**, written by the engine after your context spreads — custom context properties with those names (declaration-merged or passed via `withContext`/per-call) are silently overwritten. V2 only reserved `parser`, `data`, `key`, `projection`, `variables`, `isRoot`, `index`, `cache`, and `params`.
+- `value`, `parent`, `path`, `store`, `resolve`, `pipes`, and `types` are now **reserved context keys**, written by the engine after your context spreads — custom context properties with those names (declaration-merged or passed via `withContext`/per-call) are silently overwritten; `datalessPath` is set on the parent context during projection-driven resolution and inherited from there, so treat it as reserved too. V2 only reserved `parser`, `data`, `key`, `projection`, `variables`, `isRoot`, `index`, `cache`, and `params`.
 - `parser.asArray` is no longer the parser function itself but a derived variant — `parser.asArray === parser` is now `false`. It still hashes as its base parser, and calling it directly bypasses whole-parse caching.
-- If your `storage` relies on the **default** cache key (no custom `generateKey`), expect a one-time cache invalidation: projection hashes changed when type identifiers became tokens. Storages with their own `generateKey` are unaffected unless they hash the projection. Going forward, token hashes are content-derived — editing a custom type's implementation (or its `strict`/`name`/`default`) intentionally invalidates entries that used it, and nested parsers hash by their own projection.
+- If your `storage` relies on the **default** cache key (no custom `generateKey`), expect a one-time cache invalidation: projection hashes changed when type identifiers became tokens. Storages with their own `generateKey` are unaffected unless they hash the projection. Going forward, token hashes are content-derived — editing a custom type's implementation (or its `name`, `default`, `required`, `strict`/`loose` policy, item type or factory options) intentionally invalidates entries that used it, nested parsers hash by their own projection, and `get()` readers hash by their path and type.
 
 ### 8. Pipes move out of `variables` into `pipes`
 
-Pipe functions are engine-level machinery, not data — they no longer live in the `variables` namespace (which V2 §1 originally introduced). A pipe referenced in a `{{value | pipe}}` expression is now looked up from the new `pipes` config only; a pipe left in `variables` throws a targeted migration error naming the key path and telling you to move the function into `pipes`. Migration is moving the function definitions — the pipe code and the `{{x | pipe}}` usage strings stay identical:
+Pipe functions are engine-level machinery, not data — they no longer live in the `variables` namespace (which V2 §1 originally introduced). A pipe referenced in a `{{value | pipe}}` expression is now looked up from the new `pipes` config only; a pipe left in `variables` throws a targeted migration error naming the key path and telling you to move the function into `pipes` — unless a type of that name exists: pipes resolve from `pipes`, then from types (`email`, `trim`, `round`, `join`, …), then the `variables` catch, so a V2 pipe named like a built-in type or accessor is silently replaced by the type pipe. Grep for those names first. Migration is moving the function definitions — the pipe code and the `{{x | pipe}}` usage strings stay identical:
 
 **V2:**
 
@@ -142,11 +148,30 @@ initializeParser(() => ({
 
 See the README's Patterns section for the full API.
 
+### 10. Release-candidate deltas
+
+Only relevant if you adopted a `3.0.0-rc.*` build before the casting upgrade finished:
+
+| RC form                                            | Now                                                                                  |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `types.array(types.string)`                        | `types.array.of(types.string)` — `types.array(token)` throws                         |
+| `types.array(types.string)({ default: [] })`       | `types.array({ default: [] }).of(types.string)`                                      |
+| `looseCasting: 'undefined'`                        | `looseCasting: true` (alias still accepted, removed in V4)                           |
+| `looseCasting: true` passing the raw value through | removed — failed casts are dropped (or defaulted)                                    |
+| `types.email` lower-casing the address             | kept as written — `.normalized` or `.lowerCase`                                      |
+| `types.tel` → `+3580401234567`                     | kept as written — `.normalized` (`+358401234567`, `(0)` dropped after `+`) / `.href` |
+| `types.text` folding newlines to spaces            | line breaks kept — `.singleLine` folds                                               |
+| `''` cast as a value                               | missing for every type — add `.required` where an empty value must be an error       |
+| `types.string({ default: 'x' })`                   | unchanged — or `types.string.default('x')`                                           |
+| A token in `variables`/`pipes`                     | `was called as a value function or pipe — register types under types`                |
+| `types.x('nope')`                                  | `expected an options object` — `types.x({ default, required, strict, loose })`       |
+| `get(path, from)` only                             | unchanged — plus `get(path, type)` / `(path, from, type)` casting in the engine      |
+
 ### Migrating a live site
 
-Casting means values that silently passed through with a wrong shape in V2 now throw a `ParserCastError`. For a low-risk rollout, migrate with `looseCasting: 'undefined'` plus an `onCastError` reporter to surface those fields first, fix or retype them (`types.any` for intentional raw passthroughs), then remove `looseCasting` to return to the default throwing mode.
+Install the release candidate explicitly (`npm i @bou-co/parsing@v3-rc`; `latest` is still V2). Casting means values that silently passed through with a wrong shape in V2 now throw a `ParserCastError`. For a low-risk rollout, migrate with `looseCasting: true` plus an `onCastError` reporter to surface those fields first, fix or retype them (`types.any` for intentional raw passthroughs), then remove `looseCasting` to return to the default throwing mode.
 
-V3 also fails fast on the most common V2 leftovers instead of silently misbehaving: legacy string type keys (`'string'`, `'array<x>'`, …), pipes left in `variables`, the removed `Parser.parserGlobalContext` / `Parser.createParser` statics, `types.undefined`, and passing a full parser context as a parser's second argument all throw targeted migration errors that name the problem and the fix. These catches are transitional and will be removed in V4.
+V3 also fails fast on the most common V2 leftovers instead of silently misbehaving: legacy string type keys (`'string'`, `'array<x>'`, …), pipes left in `variables`, the removed `Parser.parserGlobalContext` / `Parser.createParser` statics, `types.undefined`, and passing a full parser context as a parser's second argument all throw targeted migration errors that name the problem and the fix. These catches — and the `looseCasting: 'undefined'` alias — are transitional and will be removed in V4. A token passed as a call argument (`types.array(types.x)`) or placed in `variables`/`pipes` also throws a targeted error, but that one is permanent design.
 
 ## V2
 

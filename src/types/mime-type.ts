@@ -54,8 +54,8 @@ export class MimeTypeType extends StringType {
   }
 
   /** The structured-syntax suffix (`json` in `application/ld+json`), or `undefined` */
-  get suffix(): TypeToken<string | undefined> {
-    return this.derive('suffix', (value) => parseMime(value).suffix);
+  get suffix(): StringType {
+    return this.derive('suffix', (value) => parseMime(value).suffix).to(string);
   }
 
   get essence(): StringType {

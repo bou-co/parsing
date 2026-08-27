@@ -171,27 +171,37 @@ const protoDepth = (token: TypeToken): number => {
 // A name declared by two different families gets no root form (qualified names still work).
 const buildRootIndex = (namespace: ParserTypesNamespace): Map<string, RootEntry> => {
   const index = new Map<string, RootEntry>();
-  const collisions = new Map<string, boolean>();
-  const tokens = Object.values(namespace)
-    .filter(isTypeToken)
-    .sort((a, b) => protoDepth(a) - protoDepth(b));
-  for (const token of tokens) {
+  // Registered name of the first owner per member, and every colliding owner — for the warning's remedy
+  const owners = new Map<string, string>();
+  const collisions = new Map<string, { registered: boolean; keys: string[] }>();
+  const tokens = Object.entries(namespace)
+    .filter((entry): entry is [string, TypeToken] => isTypeToken(entry[1]))
+    .sort((a, b) => protoDepth(a[1]) - protoDepth(b[1]));
+  for (const [key, token] of tokens) {
     let proto = Object.getPrototypeOf(token);
     while (proto && proto !== TypeToken.prototype) {
       for (const member of Object.getOwnPropertyNames(proto)) {
         if (member === 'constructor' || member.startsWith('_') || NON_WALKABLE.has(member)) continue;
         const existing = index.get(member);
-        if (!existing) index.set(member, { token, proto });
-        else if (existing.proto !== proto)
-          collisions.set(member, (collisions.get(member) ?? false) || !builtInProtos.has(proto) || !builtInProtos.has(existing.proto));
+        if (!existing) {
+          index.set(member, { token, proto });
+          owners.set(member, key);
+        } else if (existing.proto !== proto) {
+          const collision = collisions.get(member) ?? { registered: false, keys: [owners.get(member) as string] };
+          collision.registered ||= !builtInProtos.has(proto) || !builtInProtos.has(existing.proto);
+          if (!collision.keys.includes(key)) collision.keys.push(key);
+          collisions.set(member, collision);
+        }
       }
       proto = Object.getPrototypeOf(proto);
     }
   }
-  for (const [member, registered] of collisions) {
+  for (const [member, { registered, keys }] of collisions) {
     index.delete(member);
     if (registered)
-      console.warn(`[@bou-co/parsing] Accessor "${member}" is declared by more than one type — use the qualified pipe name (e.g. "string.${member}")`);
+      console.warn(
+        `[@bou-co/parsing] Accessor "${member}" is declared by more than one type — use a qualified pipe name (${keys.map((key) => `"${key}.${member}"`).join(' or ')})`,
+      );
   }
   return index;
 };

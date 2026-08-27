@@ -65,7 +65,7 @@ Mapping:
 | `'undefined'`     | the `optional` util, or omit the key |
 
 **Other string literals still work as constants.** `postType: 'blogPost'` is unaffected — only
-the ten reserved identifiers changed meaning. This is what makes the codemod safe: you're
+the nine reserved identifiers (plus the `array<...>` pattern) changed meaning. This is what makes the codemod safe: you're
 replacing a closed set of exact strings, not all strings.
 
 Two details worth flagging:
@@ -85,7 +85,7 @@ For type files that shouldn't import the engine, use the tree-shakeable entry po
 // my-types.ts
 import { array, number, string, defineType } from '@bou-co/parsing/types';
 
-export const scores = array(number);
+export const scores = array.of(number);
 export const slug = defineType((value) => {
   if (typeof value !== 'string') throw new Error('Invalid slug');
   return value.toLowerCase().replace(/\s+/g, '-');
@@ -93,6 +93,17 @@ export const slug = defineType((value) => {
 ```
 
 These are plain values — importable anywhere, usable with any engine configuration.
+
+### Registering types
+
+v2 casting helpers that lived in `variables` or `pipes` become tokens (`defineType(fn)`) and,
+where templates need them, are registered under `types` — globally
+(`initializeParser({ types: { sku } })`, which also extends the returned namespace), per
+`createParser`, or per call. Registration makes every token a pipe under its name. An accessor
+map under an existing family's name extends that family; a token under a built-in's name
+replaces it with a warning; an accessor map under an unknown name throws; a root accessor name
+declared by two registered families is dropped with a warning (the qualified form still works).
+A token left in `variables` or `pipes` throws a targeted error at first use.
 
 ---
 
@@ -153,8 +164,13 @@ Details:
 
 - `pipes` is configurable at all three levels (global, `createParser`, per-call), like
   `variables`, and lands merged on `context.pipes`.
-- A pipe left in `variables` throws an error naming the key path and telling you to move it.
-  Dotted pipe names (`{{x | fmt.upper}}`) get the same treatment.
+- A pipe left in `variables` throws an error naming the key path and telling you to move it —
+  **unless a type of that name exists**. Lookup order is `pipes` → types (`email`, `slug`, `trim`,
+  `round`, `join`, `split`, `iso`, `year`, …) → the `variables` catch, so a v2 pipe named like a
+  built-in type or root accessor is silently replaced by the type pipe: different output, and a
+  `ParserCastError` instead of the hint. Grep your v2 `variables` for those names first. Dotted
+  pipe names (`{{x | fmt.upper}}`) get the hint too, unless the head is a type name —
+  `variables.date.iso` is shadowed by the `date.iso` accessor.
 - **Pipe _parameters_ that reference variables still resolve from `variables`.**
   `{{x | join:firstName}}` looks up `firstName` in `variables` — those are data references, not
   machinery. This asymmetry is intentional; don't move parameter sources.
@@ -255,7 +271,10 @@ A regular instance context in the second slot is unaffected:
 
 ## 7. Install-level changes
 
-Two package-level changes belong in the same mechanical pass:
+Three package-level changes belong in the same mechanical pass:
+
+- **Install the release candidate explicitly:** `npm i @bou-co/parsing@v3-rc` — the `latest`
+  tag still resolves to v2.
 
 - **`react` moved from a hard dependency to an optional `peerDependency`.** v2 installed react
   for you; v3 doesn't. Anywhere `@bou-co/parsing/react` is imported — or anything relied on
@@ -286,7 +305,7 @@ A workable approach:
    argument to `createParser`, plus nested object literals within them, plus `.extend()`
    arguments. An AST-based transform (ts-morph, jscodeshift) is worth the setup on anything
    larger than a few dozen parsers.
-2. Within those, replace values matching the ten identifiers and the `array<...>` pattern.
+2. Within those, replace values matching the nine identifiers and the `array<...>` pattern.
 3. Add the `types` import to each touched file, sourced from the project's parser config.
 4. Run the type-checker. Tokens are typed values, so a missed replacement in a projection now
    produces a type error at build time in most configurations — the compiler does your
@@ -306,20 +325,25 @@ in CI rather than in production.
 Only relevant if you adopted a `3.0.0-rc.*` build before the casting upgrade. Everything
 chains, and the universal options are also accepted as a call:
 
-| RC form                                            | Now                                                                             |
-| -------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `types.string({ default: 'x' })`                   | unchanged — or `types.string.default('x')`                                      |
-| `types.array(types.string)`                        | `types.array.of(types.string)`                                                  |
-| `types.array(types.string)({ default: [] })`       | `types.array({ default: [] }).of(types.string)`                                 |
-| `looseCasting: 'undefined'`                        | `looseCasting: true` (alias still accepted)                                     |
-| `looseCasting: true` passing the raw value through | removed — failed casts are dropped (or defaulted)                               |
-| `types.email` lower-casing the address             | kept as written — `.normalized` or `.lowerCase`                                 |
-| `types.tel` → `+3580401234567`                     | kept as written — `.normalized` / `.href`                                       |
-| `types.text` folding newlines to spaces            | line breaks kept — `.singleLine` folds                                          |
-| `get(path, from)` only                             | unchanged — plus `get(path, type)` / `(path, from, type)` casting in the engine |
+| RC form                                            | Now                                                                                        |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `types.string({ default: 'x' })`                   | unchanged — or `types.string.default('x')`                                                 |
+| `types.array(types.string)`                        | `types.array.of(types.string)`                                                             |
+| `types.array(types.string)({ default: [] })`       | `types.array({ default: [] }).of(types.string)`                                            |
+| `looseCasting: 'undefined'`                        | `looseCasting: true` (alias still accepted)                                                |
+| `looseCasting: true` passing the raw value through | removed — failed casts are dropped (or defaulted)                                          |
+| `types.email` lower-casing the address             | kept as written — `.normalized` or `.lowerCase`                                            |
+| `types.tel` → `+3580401234567`                     | kept as written — `.normalized` (`+358401234567`, `(0)` dropped after `+`) / `.href`       |
+| `types.text` folding newlines to spaces            | line breaks kept — `.singleLine` folds                                                     |
+| `get(path, from)` only                             | unchanged — plus `get(path, type)` / `(path, from, type)` casting in the engine            |
+| A token placed in `variables`/`pipes`              | `was called as a value function or pipe — register types under types` — move it to `types` |
+| `types.x('nope')`                                  | `expected an options object` — `types.x({ default, required, strict, loose })`             |
 
 `types.array(token)` fails to type-check and throws a targeted error at runtime ("use
-.of(…)"), so it cannot slip through silently. `''` now counts as missing for every type (the
+.of(…)"), so it cannot slip through silently. `get(path, token)` returns a reader the engine
+casts after transformers and pattern resolution under the active policy; `get(path, from, token)`
+awaited standalone casts with a root context and throws like `.cast()`. A bare `Promise`
+(`get(path, from)`) is a valid projection value: awaited once per parser instance, never cast. `''` now counts as missing for every type (the
 key is omitted or the default fills) — add `.required` where an empty value must be an
 error. `ParserType<Out>` / `ParserTypeWithDefault<Out>` remain as aliases of
 `TypeToken<Out>`; `ParserTypeToken` aliases `TypeToken`.

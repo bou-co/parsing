@@ -1,8 +1,9 @@
 # Gotchas
 
-Ordered roughly by how often they bite. Entries marked **[verified]** were confirmed by
-running against the v3 source rather than read from the docs — several are not documented
-anywhere, and a couple contradict what the README implies.
+Ordered roughly by how often they bite. The README carries the same list under `## Gotchas`;
+only the three contributor notes at the end (`export *`, lint, version) stay here — keep the
+two in sync. Entries marked
+**[verified]** were confirmed by running against the v3 source rather than read from the docs.
 
 ## Templating
 
@@ -65,8 +66,8 @@ JSON.parse(JSON.stringify(out))._parsed   // undefined
 { ...out }._parsed                        // undefined
 ```
 
-So spreading, `JSON` round-tripping, `structuredClone`, storing in Redis, or crossing the RSC
-serialization boundary all strip it. Any of those followed by another parse re-runs
+So spreading, `JSON` round-tripping, storing in Redis, or crossing the RSC serialization
+boundary all strip it (`structuredClone` cannot clone the Proxy at all — `DataCloneError`). Any of those followed by another parse re-runs
 transformers and patterns on the content. Usually harmless; occasionally not (see escaping,
 above, and non-deterministic variable resolvers).
 
@@ -108,23 +109,12 @@ behaviour, but a change if you had worked around the old mangling.
 
 ## Casting
 
-### `looseCasting: true` makes declared types dishonest **[verified]**
-
-```ts
-initializeParser({ looseCasting: true });
-await createParser({ n: types.number })({ n: '12px' });
-// → { n: '12px' }, typeof n === 'string', but TypeScript says number
-```
-
-Use `looseCasting: 'undefined'` when output types must stay honest — the fields are optional
-in the inferred type anyway, so dropping is type-safe in a way passing through is not.
-Reserve `true` for migration triage.
-
 ### `types.date` is stricter than v2's `'date'`
 
-Inputs that previously produced an `Invalid Date` now throw — `''` and `false` included. Any
-code relying on getting an Invalid Date back needs a custom type. Note that `0` is **not** one
-of them: it's a valid epoch number and casts to `new Date(0)`.
+Inputs that previously produced an `Invalid Date` now throw — `false` and unparseable strings
+included. `''` does **not** throw: it is missing for every type (key omitted, or the default
+fills; `.required` to fail). `0` is a valid epoch number and casts to `new Date(0)`. Code that
+relied on getting an Invalid Date back needs a custom type.
 
 ### `default` is not cast
 
@@ -174,33 +164,6 @@ consistently. The risk is objects your own code assembles.
 
 Related quirk: **all falsy inputs hash identically** — `0`, `''`, `false`, `null`,
 `undefined`, and `NaN` collapse to one hash, so none of them can distinguish a key.
-
-### Parsers in positional array slots silently misbehave **[verified]**
-
-A positional array projection works with plain projections and silently fails with parsers:
-
-```ts
-createParser({ pair: [{ name: types.string }, { v: types.number }] });
-// → { pair: [{ name: 'x' }, { v: 2 }] }   ✅
-
-createParser({ pair: [parserA, parserB] });
-// → { pair: [{}, {}] }                    ❌ empty objects, no error
-```
-
-The mechanism: a function in a positional slot is treated as a **projection factory** — the
-parser is invoked with the item context as its input and its _parsed output_ becomes the
-projection. For token-only parsers that output is `{}`; a parser with constants or value
-functions produces a nonsense projection built from its own output instead. No warning, no
-throw. Use plain projections in positional slots, or `parser.asArray` when every item shares
-one projection. Root-level positional projections (`createParser([projA, projB])`) work
-correctly.
-
-### Unknown `@`-prefixed keys are silently dropped **[verified]**
-
-Only `'@combine'` is prefix-matched — any key starting with it works (`'@combine:stats'`,
-`'@combine:2'`), which is how you put several combines in one projection. `'@if'` and
-`'@array'` are **exact** matches: a typo like `'@if2'` or `'@arrays'` doesn't error, doesn't
-resolve — the key just vanishes from the output.
 
 ## Projection-driven nesting
 
@@ -265,7 +228,7 @@ being dropped. Hook output is output.
 ### Arrays still require data
 
 `'@array': true`, array literals, and `.asArray` are never conjured without array input. If
-you expected a defaulted empty array, declare it: `tags: types.array(types.string)({ default: [] })`.
+you expected a defaulted empty array, declare it: `tags: types.array({ default: [] }).of(types.string)`.
 
 ### Literal recursive object cycles can't be cached
 
@@ -280,6 +243,33 @@ functions included). It now resolves the projection, with the scalar reachable a
 `context.parent.value` (or `context.parent.data[key]` — `context.parent.data` itself is the
 parent's whole data object).
 
+### Parsers in positional array slots silently misbehave **[verified]**
+
+A positional array projection works with plain projections and silently fails with parsers:
+
+```ts
+createParser({ pair: [{ name: types.string }, { v: types.number }] });
+// → { pair: [{ name: 'x' }, { v: 2 }] }   ✅
+
+createParser({ pair: [parserA, parserB] });
+// → { pair: [{}, {}] }                    ❌ empty objects, no error
+```
+
+The mechanism: a function in a positional slot is treated as a **projection factory** — the
+parser is invoked with the item context as its input and its _parsed output_ becomes the
+projection. For token-only parsers that output is `{}`; a parser with constants or value
+functions produces a nonsense projection built from its own output instead. No warning, no
+throw. Use plain projections in positional slots, or `parser.asArray` when every item shares
+one projection. Root-level positional projections (`createParser([projA, projB])`) work
+correctly.
+
+### Unknown `@`-prefixed keys are silently dropped **[verified]**
+
+Only `'@combine'` is prefix-matched — any key starting with it works (`'@combine:stats'`,
+`'@combine:2'`), which is how you put several combines in one projection. `'@if'` and
+`'@array'` are **exact** matches: a typo like `'@if2'` or `'@arrays'` doesn't error, doesn't
+resolve — the key just vanishes from the output.
+
 ## Context
 
 ### `isRoot` is `false` inside every kind of nesting
@@ -289,13 +279,15 @@ Once-per-parse work guarded by `context.isRoot` will not run inside a nested par
 
 ### Reserved context keys are silently overwritten
 
-`data`, `key`, `projection`, `variables`, `pipes`, `isRoot`, `cache`, `value`, `parent`,
-`path`, `store`, `resolve`, and `datalessPath` are written by the engine _after_ your context
-spreads. A custom context property with one of these names disappears without warning.
+`data`, `key`, `projection`, `variables`, `pipes`, `types`, `isRoot`, `cache`, `value`,
+`parent`, `path`, `store`, and `resolve` are written by the engine _after_ your context
+spreads. `datalessPath` is set on the parent context during projection-driven resolution and
+inherited from there, so a custom one survives — avoid the name anyway. A custom context property with one of these names disappears without warning.
 Namespace your additions.
 
-Two near-misses worth knowing: `parser` is written _before_ the spreads, so custom context can
-override it (a nested cross-engine parser actually sees the parent engine there), and `index`
+Two near-misses worth knowing: `parser` is written _before_ the spreads, so a schema or global
+context can override it (a nested cross-engine parser actually sees the parent engine there;
+an _instance_ context carrying `parser` hits the second-argument migration error), and `index`
 is injected through the instance context only for array items — outside arrays a custom
 `index` survives. `params` is engine-set inside pipe contexts. Treat all of them as reserved
 anyway.
@@ -323,6 +315,13 @@ inherited `.lowerCase`), `tel` keeps the editor's formatting (`.normalized` → 
 scripts are dropped and a purely non-Latin value fails; transliterate in a pre-step with
 `types.string.extend(fn).to(types.slug)`.
 
+### `slug` is ASCII-only — non-Latin input fails
+
+Latin text folds (`Straße in Łódź` → `strasse-in-lodz`); non-Latin scripts are dropped, so
+`Привет 2024` → `2024` and a purely non-Latin value throws `Invalid slug`. Locale rules
+(`ä` → `ae`, romanisation) are a pre-step: `types.string.extend(fn).to(types.slug)` keeps the
+`slug` family. The README's Gotchas entry has the full pipeline.
+
 ### `get(path, token)` casts in the engine — but `resolve` data is the resolve input
 
 `get('x', types.tel)` returns the raw value and carries the token; the parser casts it after
@@ -338,17 +337,24 @@ derivations (`email.domain`, `url.pathname`, `date.iso`, `html.plain`) _are_ `St
 so `.plain.truncate(160)` works; a user `.to()` returning a string is not, unless you
 `.to(types.string)` afterwards.
 
-### `length` has no root pipe name
+### Shared accessor names have no root pipe form
 
-Both `string` and `array` declare `.length`, so `{{ x | length }}` is "Pipe not found" —
-use `string.length` / `array.length`. Built-in collisions are silent by design; a
-registered type colliding with a built-in accessor name logs a warning once.
+A name declared by two families is only reachable qualified: `length` (`string`/`array`),
+`normalized` and `href` (`email`/`tel`), `of` (`array`/`json`). `{{ x | length }}` is
+"Pipe not found" — use `string.length` / `array.length`. Built-in collisions are silent by
+design; a registered type colliding with a built-in accessor name logs a warning once.
+
+### `record.of` drops missing values, `array.of` keeps the slot
+
+`record.of(x)` omits an entry whose value casts to missing; `array.of(x)` keeps the position as
+`undefined` so indices stay stable (`['1', '', '3']` → `[1, undefined, 3]`). Add `.compact` to
+drop the holes.
 
 ### `null` in a fallback chain stops it — and drops the key
 
-`{{ a || null }}` returns `null` (a defined value). As a whole-string projected value that
-`null` is treated as missing: the key is omitted or the token default applies. Inside text it
-splices as `"null"`.
+`{{ a || null }}` returns `null` (a defined value). As a whole-string value under a type token
+it is treated as missing: the key is omitted or the token default applies. Without a token at
+the key the key survives with `null`. Inside text it splices as `"null"`.
 
 ### Type pipes throw unless you write a fallback
 
@@ -359,7 +365,7 @@ splices as `"null"`.
 ### Pipes must live in `pipes`, not `variables`
 
 A function left in `variables` and used as `{{x | fn}}` throws a targeted error naming the key
-path. Pipe _parameters_ that reference variables (`{{x | join:firstName}}`) still resolve from
+path (a transitional `TODO(v4)` catch — unless a type of that name exists, which then wins silently). Pipe _parameters_ that reference variables (`{{x | join:firstName}}`) still resolve from
 `variables` — those are data references, and that asymmetry is intentional.
 
 ### `context.resolve` vs the exported `resolve`
@@ -371,8 +377,9 @@ destructuring: `async ({ resolve }) => resolve('…')`.
 ### Zero-arg `resolve()` recurses inside `resolve()` inputs
 
 Within a function value in a `resolve()` **input** (not a projection), calling `resolve()` with
-no arguments re-resolves the input containing that function. Parse-mode value functions are
-immune because their `value` is raw data.
+no arguments re-resolves the input containing that function — which calls the function again,
+without bound: unguarded, it ends in a stack overflow. Parse-mode value functions are immune
+because their `value` is raw data.
 
 ### `context.resolve(input)` rebinds the built-in heads
 
@@ -434,6 +441,6 @@ typecheck covers three tsconfigs and catches things tests don't.
 
 ### Version state
 
-`3.0.0-dev.x` on the `v3` branch; `2.1.0` is the published `latest`. Seven `TODO(v4)`
-migration catches are load-bearing in v3 and will be removed in v4, so code that depends on
+`3.0.0-rc.x` (npm tag `v3-rc`) on the `v3` branch; `2.1.0` is the published `latest`. Six `TODO(v4)` migration
+catches (seven markers) are load-bearing in v3 and will be removed in v4, so code that depends on
 those error messages is depending on something temporary.
