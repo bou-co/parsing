@@ -285,7 +285,7 @@ describe('parsing', () => {
     });
     expect(data).toBeTruthy();
     expect(data.href).toEqual('https://wearebou.com/careers');
-    expect(data.host).toEqual('bou.co');
+    expect(data.host).toEqual('wearebou.com');
     expect(data.pathname).toEqual('/about');
     expect(data.campaign).toEqual('123');
   });
@@ -309,7 +309,7 @@ describe('parsing', () => {
       undefined: `{{url.notFound | uppercase}}`,
     });
     expect(data).toBeTruthy();
-    expect(data.exists).toEqual('HTTPS://wearebou.com');
+    expect(data.exists).toEqual('HTTPS://WEAREBOU.COM');
     expect(data.undefined).toEqual(undefined);
 
     const data2 = await parser(
@@ -320,7 +320,7 @@ describe('parsing', () => {
       { pipeUndefined: true },
     );
     expect(data2).toBeTruthy();
-    expect(data2.exists).toEqual('HTTPS://wearebou.com');
+    expect(data2.exists).toEqual('HTTPS://WEAREBOU.COM');
     expect(data2.undefined).toEqual('UNDEFINED');
   });
 
