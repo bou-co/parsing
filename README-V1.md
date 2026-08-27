@@ -456,6 +456,6 @@ Result in case above is:
 
 <footer>
 
-Developed by [Bou](https://bou.co/)
+Developed by [Bou](https://wearebou.com/)
 
 </footer>

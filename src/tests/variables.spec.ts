@@ -272,7 +272,7 @@ describe('parsing', () => {
       {
         variables: {
           url: () => {
-            return new URL('/about?campaign=123', 'https://bou.co');
+            return new URL('/about?campaign=123', 'https://wearebou.com');
           },
         },
       },
@@ -284,7 +284,7 @@ describe('parsing', () => {
       campaign: `{{url.searchParams.campaign}}`,
     });
     expect(data).toBeTruthy();
-    expect(data.href).toEqual('https://bou.co/careers');
+    expect(data.href).toEqual('https://wearebou.com/careers');
     expect(data.host).toEqual('bou.co');
     expect(data.pathname).toEqual('/about');
     expect(data.campaign).toEqual('123');
@@ -299,7 +299,7 @@ describe('parsing', () => {
       {
         variables: {
           url: () => {
-            return new URL('/about?campaign=123', 'https://bou.co');
+            return new URL('/about?campaign=123', 'https://wearebou.com');
           },
         },
       },
@@ -309,7 +309,7 @@ describe('parsing', () => {
       undefined: `{{url.notFound | uppercase}}`,
     });
     expect(data).toBeTruthy();
-    expect(data.exists).toEqual('HTTPS://BOU.CO');
+    expect(data.exists).toEqual('HTTPS://wearebou.com');
     expect(data.undefined).toEqual(undefined);
 
     const data2 = await parser(
@@ -320,7 +320,7 @@ describe('parsing', () => {
       { pipeUndefined: true },
     );
     expect(data2).toBeTruthy();
-    expect(data2.exists).toEqual('HTTPS://BOU.CO');
+    expect(data2.exists).toEqual('HTTPS://wearebou.com');
     expect(data2.undefined).toEqual('UNDEFINED');
   });
 
@@ -335,7 +335,7 @@ describe('parsing', () => {
       {
         variables: {
           url: () => {
-            return new URL('/about?campaign=123', 'https://bou.co');
+            return new URL('/about?campaign=123', 'https://wearebou.com');
           },
         },
       },
@@ -345,9 +345,9 @@ describe('parsing', () => {
       undefined: `{{url.notFound | uppercase}}`,
     });
     expect(data).toBeTruthy();
-    expect(data.resolveVariablesResult).toEqual({ origin: 'Nested origin: https://bou.co' });
-    expect(data.resolveVariablesResultString).toEqual('Just origin: https://bou.co');
-    expect(data.getVariableValueResult).toEqual('https://bou.co');
-    expect(data.getVariableValueResultSimple).toEqual('https://bou.co');
+    expect(data.resolveVariablesResult).toEqual({ origin: 'Nested origin: https://wearebou.com' });
+    expect(data.resolveVariablesResultString).toEqual('Just origin: https://wearebou.com');
+    expect(data.getVariableValueResult).toEqual('https://wearebou.com');
+    expect(data.getVariableValueResultSimple).toEqual('https://wearebou.com');
   });
 });
