@@ -34,40 +34,36 @@ describe('get util', () => {
   });
 
   describe('error handling', () => {
-    let debugSpy: jest.SpyInstance;
-
-    beforeEach(() => {
-      debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => undefined);
-    });
-
-    afterEach(() => {
-      debugSpy.mockRestore();
-    });
-
     it('should catch a throwing get() method and return undefined', async () => {
+      const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
       const store = {
         get: () => {
           throw new Error('boom');
         },
       };
       await expect(getFromObject({ store }, 'store.key', {})).rejects.toThrow();
-      expect(debugSpy).toHaveBeenCalledTimes(1);
+      expect(debug).toHaveBeenCalledTimes(1);
+      debug.mockRestore();
     });
 
     it('should catch a throwing intermediate function and return undefined', async () => {
+      const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
       const from = {
         fn: () => {
           throw new Error('boom');
         },
       };
       await expect(getFromObject(from, 'fn.key', {})).rejects.toThrow();
-      expect(debugSpy).toHaveBeenCalledTimes(1);
+      expect(debug).toHaveBeenCalledTimes(1);
+      debug.mockRestore();
     });
 
     it('should return undefined when an intermediate function resolves to null without hitting the catch', async () => {
+      const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
       const from = { fn: () => null };
       await expect(getFromObject(from, 'fn.key', {})).resolves.toBeUndefined();
-      expect(debugSpy).not.toHaveBeenCalled();
+      expect(debug).not.toHaveBeenCalled();
+      debug.mockRestore();
     });
 
     it('should traverse into the object returned by an intermediate function', async () => {
