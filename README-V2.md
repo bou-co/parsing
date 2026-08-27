@@ -1182,6 +1182,6 @@ export const MyComponent = ({ rawProps }) => {
 
 <footer>
 
-Developed by [Bou](https://bou.co/)
+Developed by [Bou](https://wearebou.com/)
 
 </footer>

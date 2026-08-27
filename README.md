@@ -2051,7 +2051,7 @@ By default skills are copied into `.claude/skills/`, where Claude Code picks the
 
 ## Maintainers
 
-Developed and maintained by the [Bou](https://bou.co/) team.
+Developed and maintained by the [Bou](https://wearebou.com/) team.
 
 - Teemu Lahjalahti
 - Anne Kokkonen
