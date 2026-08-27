@@ -1,6 +1,6 @@
 {
   "name": "@bou-co/parsing",
-  "version": "3.0.0-dev.14",
+  "version": "3.0.0-rc.0",
   "type": "module",
   "license": "MIT",
   "scripts": {
@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.json --noEmit && tsc -p src/templates/tsconfig.json --noEmit",
     "build": "npm run test && npm run typecheck && vite build",
     "publish:dev": "npm run build && npm publish --tag dev",
+    "publish:v3-rc": "npm run build && npm publish --tag v3-rc",
     "publish:latest": "npm run build && npm publish"
   },
   "publishConfig": {
