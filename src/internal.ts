@@ -21,7 +21,8 @@ export const getFromObject = async (from: object, path: string, context?: unknow
       return undefined;
     }, from as Promise<VariablesObj>);
   } catch (error) {
-    console.debug('Error in getFromObject function:', error);
-    return undefined;
+    const message = `Error while traversing path "${path}" in object: ${error instanceof Error ? error.message : String(error)}`;
+    console.debug(message);
+    throw new Error(message);
   }
 };
