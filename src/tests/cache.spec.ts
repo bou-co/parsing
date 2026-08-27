@@ -53,7 +53,8 @@ describe('parsing', () => {
     const data = await parser({ description: 'Lorem ipsum' });
     const timeEnd = Date.now();
     console.log('Time taken:', `${timeEnd - timeStart}ms (expected: ~100ms)`);
-    expect(timeEnd - timeStart).toBeGreaterThanOrEqual(100);
+    // A 100ms timer can fire a millisecond early on timer rounding — the point is that the call was not served from cache
+    expect(timeEnd - timeStart).toBeGreaterThanOrEqual(95);
     expect(timeEnd - timeStart).toBeLessThan(200);
     expect(data).toBeTruthy();
     expect(data.title).toEqual('Hello World');
@@ -94,7 +95,8 @@ describe('parsing', () => {
     const data = await parser({ description: 'Lorem ipsum' });
     const timeEnd = Date.now();
     console.log('Time taken:', `${timeEnd - timeStart}ms (expected: ~100ms)`);
-    expect(timeEnd - timeStart).toBeGreaterThanOrEqual(100);
+    // A 100ms timer can fire a millisecond early on timer rounding — the point is that the call was not served from cache
+    expect(timeEnd - timeStart).toBeGreaterThanOrEqual(95);
     expect(timeEnd - timeStart).toBeLessThan(200);
     expect(data).toBeTruthy();
     expect(data.title).toEqual('Hello World');
@@ -122,7 +124,7 @@ describe('parsing', () => {
 
   it('generates different hashes for different type tokens', () => {
     expect(toHash({ value: types.string })).not.toEqual(toHash({ value: types.number }));
-    expect(toHash({ value: types.array(types.string) })).not.toEqual(toHash({ value: types.array(types.number) }));
+    expect(toHash({ value: types.array.of(types.string) })).not.toEqual(toHash({ value: types.array.of(types.number) }));
   });
 
   it('generates different hashes for custom and modified types', () => {
@@ -135,8 +137,8 @@ describe('parsing', () => {
     expect(toHash({ value: emailA })).toEqual(toHash({ value: remadeA }));
 
     // Parameterized arrays include the item implementation identity
-    expect(toHash({ value: types.array(emailA) })).not.toEqual(toHash({ value: types.array(emailB) }));
-    expect(toHash({ value: types.array })).not.toEqual(toHash({ value: types.array(emailA) }));
+    expect(toHash({ value: types.array.of(emailA) })).not.toEqual(toHash({ value: types.array.of(emailB) }));
+    expect(toHash({ value: types.array })).not.toEqual(toHash({ value: types.array.of(emailA) }));
 
     // Strict is part of the identity
     const fn = (value: unknown) => Number(value);
@@ -159,15 +161,48 @@ describe('parsing', () => {
 
   it('generates different hashes for defaulted types and flat parsers', () => {
     // A default is part of the token identity
-    expect(toHash({ value: types.string })).not.toEqual(toHash({ value: types.string({ default: 'x' }) }));
-    expect(toHash({ value: types.string({ default: 'x' }) })).not.toEqual(toHash({ value: types.string({ default: 'y' }) }));
-    expect(toHash({ value: types.string({ default: 'x' }) })).toEqual(toHash({ value: types.string({ default: 'x' }) }));
-    expect(toHash({ value: types.array(types.string) })).not.toEqual(toHash({ value: types.array(types.string)({ default: [] }) }));
+    expect(toHash({ value: types.string })).not.toEqual(toHash({ value: types.string.default('x') }));
+    expect(toHash({ value: types.string.default('x') })).not.toEqual(toHash({ value: types.string.default('y') }));
+    expect(toHash({ value: types.string.default('x') })).toEqual(toHash({ value: types.string.default('x') }));
+    expect(toHash({ value: types.array.of(types.string) })).not.toEqual(toHash({ value: types.array.of(types.string).default([]) }));
 
     // Using a parser flat hashes differently from nesting it
     const nested = createParser({ value: types.string });
     expect(toHash({ nested })).not.toEqual(toHash({ nested: nested.flat }));
     const remade = createParser({ value: types.string });
     expect(toHash({ nested: nested.flat })).toEqual(toHash({ nested: remade.flat }));
+  });
+});
+
+describe('derived token identity', () => {
+  const { types } = initializeParser();
+
+  it('includes accessor names, parameters and implementations in the hash', () => {
+    expect(toHash({ value: types.number.round(2) })).not.toEqual(toHash({ value: types.number.round(3) }));
+    expect(toHash({ value: types.number.round(2) })).toEqual(toHash({ value: types.number.round(2) }));
+    expect(toHash({ value: types.string.upperCase })).not.toEqual(toHash({ value: types.string.lowerCase }));
+    expect(toHash({ value: types.string.upperCase })).not.toEqual(toHash({ value: types.string }));
+    expect(toHash({ value: types.string.strict })).not.toEqual(toHash({ value: types.string.loose }));
+    expect(toHash({ value: types.string.upperCase.default('x') })).not.toEqual(toHash({ value: types.string.upperCase }));
+    expect(toHash({ value: types.string({ default: 'x' }) })).toEqual(toHash({ value: types.string.default('x') }));
+    expect(toHash({ value: types.string.required })).not.toEqual(toHash({ value: types.string }));
+  });
+
+  it('hashes to(fn) and extend(fn) by their source, stable across re-creation', () => {
+    const a = types.string.to((value) => value.length);
+    const b = types.string.to((value) => value.length);
+    const c = types.string.to((value) => value.length + 1);
+    expect(toHash({ a })).toEqual(toHash({ a: b }));
+    expect(toHash({ a })).not.toEqual(toHash({ a: c }));
+    expect(toHash({ a: types.string.extend((value) => value.trim()) })).not.toEqual(toHash({ a: types.string.to((value) => value.trim()) }));
+    expect(toHash({ a: types.string.to(types.array.of(types.number)) })).not.toEqual(toHash({ a: types.string.to(types.array.of(types.string)) }));
+  });
+
+  it('distinguishes user accessor implementations', () => {
+    const one = defineType({ extends: types.string, accessors: { part: (value) => value.split('@')[0] } });
+    const two = defineType({ extends: types.string, accessors: { part: (value) => value.split('@')[1] } });
+    expect(toHash({ value: one.part })).not.toEqual(toHash({ value: two.part }));
+    const remade = defineType({ extends: types.string, accessors: { part: (value) => value.split('@')[0] } });
+    expect(toHash({ value: one.part })).toEqual(toHash({ value: remade.part }));
   });
 });

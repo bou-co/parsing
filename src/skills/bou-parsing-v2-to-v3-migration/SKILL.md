@@ -32,7 +32,7 @@ step can hide them.
    inventory tells you how big the Tier 2 audit is.
 2. **Tier 1 codemod.** Type strings → tokens, pipes → `pipes`, remove static usage. See
    `references/mechanical.md`. Run the type-checker; it catches most of this statically.
-3. **Turn on triage mode.** Set `looseCasting: 'undefined'` plus an `onCastError` reporter
+3. **Turn on triage mode.** Set `looseCasting: true` plus an `onCastError` reporter
    before running anything against real data. This converts what would be a wall of thrown
    `ParserCastError`s into a list of fields to fix. See `references/rollout.md`.
 4. **Tier 2 audit.** Walk the checklist in `references/behavioural.md`. This is the part that
@@ -53,7 +53,7 @@ v3 fails fast on the common v2 leftovers. When one of these appears, this is the
 | Error message contains                                                                                           | Cause                                                                                                                          | Fix                                                              |
 | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
 | `Legacy type string 'string'` (or `number`, `boolean`, `date`, `object`, `array`, `any`, `unknown`, `undefined`) | A v2 string identifier used as a projection value                                                                              | `types.string` etc. Error names the key path                     |
-| `Legacy type string 'array<string>'`                                                                             | v2 array identifier                                                                                                            | `types.array(types.string)`                                      |
+| `Legacy type string 'array<string>'`                                                                             | v2 array identifier                                                                                                            | `types.array.of(types.string)`                                   |
 | `There is no types.undefined in v3`                                                                              | `types.undefined` accessed                                                                                                     | Use the `optional` util, or omit the key                         |
 | `Pipe "x" at "key" is defined in \`variables\``                                                                  | Pipe function left in the `variables` namespace                                                                                | Move the function into the `pipes` config                        |
 | `Pipe "x" not found at "key"`                                                                                    | Pipe genuinely missing                                                                                                         | Register it in `pipes`                                           |

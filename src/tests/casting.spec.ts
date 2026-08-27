@@ -36,7 +36,8 @@ describe('casting', () => {
   it('fails to cast invalid numbers', async () => {
     const parser = createParser({ value: types.number });
     await expect(parser({ value: '12px' })).rejects.toThrow(ParserCastError);
-    await expect(parser({ value: '' })).rejects.toThrow(ParserCastError);
+    // The empty string is missing, never a cast failure
+    expect(await parser({ value: '' })).toEqual({});
     await expect(parser({ value: { nested: true } })).rejects.toThrow(ParserCastError);
   });
 
@@ -127,7 +128,7 @@ describe('casting', () => {
   });
 
   it('applies the type default when a variable resolves to undefined', async () => {
-    const parser = createParser({ age: types.number({ default: 18 }) });
+    const parser = createParser({ age: types.number.default(18) });
     const data = await parser({ age: '{{user.age}}' }, { variables: { user: {} } });
     expect(data.age).toEqual(18);
   });
@@ -146,5 +147,33 @@ describe('casting', () => {
     const parser = createTransformingParser({ amount: t.number });
     const data = await parser({ amount: { raw: '42' } });
     expect(data.amount).toEqual(42);
+  });
+});
+
+describe('missing values', () => {
+  const { createParser, types } = initializeParser();
+
+  it("treats undefined, null and '' as missing for every type — never a failure", async () => {
+    const parser = createParser({ s: types.string, n: types.number, b: types.boolean, d: types.date, e: types.email, o: types.oneOf('a', 'b') });
+    expect(await parser({ s: '', n: null, b: undefined, d: '', e: '', o: '' })).toEqual({});
+    expect(await parser({ s: '', n: '', b: '', d: null, e: null, o: null })).toEqual({});
+  });
+
+  it('keeps false, 0 and whitespace as present values', async () => {
+    const parser = createParser({ b: types.boolean, n: types.number, s: types.string, t: types.text });
+    expect(await parser({ b: false, n: 0, s: ' ', t: 'x' })).toEqual({ b: false, n: 0, s: ' ', t: 'x' });
+    await expect(parser({ n: ' ' })).rejects.toThrow(ParserCastError);
+  });
+
+  it('fills defaults for missing values, including the empty string', async () => {
+    const parser = createParser({ title: types.string({ default: 'Untitled' }), count: types.number.default(0) });
+    expect(await parser({ title: '', count: null })).toEqual({ title: 'Untitled', count: 0 });
+  });
+
+  it('only a required token complains about missing values', async () => {
+    const parser = createParser({ title: types.string.required, slug: types.string({ required: true }), free: types.string });
+    await expect(parser({ title: '', slug: 'x' })).rejects.toThrow('Parser cast error at "title": cannot cast value to "string" — Missing required value');
+    await expect(parser({ title: 'x', slug: null })).rejects.toThrow('at "slug"');
+    expect(await parser({ title: 'a', slug: 'b', free: '' })).toEqual({ title: 'a', slug: 'b' });
   });
 });

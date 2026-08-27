@@ -16,8 +16,12 @@ import {
   ParserResolveFunction,
   ContextResolveFunction,
   CacheResultValue,
+  DefaultParserTypes,
+  ParserTypesConfig,
+  RegisteredTypes,
 } from './parser-types';
-import { applyCast, assertNotLegacyTypeKey, isTypeToken, ParserTypeToken, types } from './parser-casting';
+import { applyCast, assertNotLegacyTypeKey, isTypeToken, TypeToken, types } from './parser-casting';
+import { mergeTypes, ParserTypesNamespace } from './types/namespace';
 import {
   CompiledPatternRegistry,
   compilePatternRegistry,
@@ -42,9 +46,17 @@ export class Parser {
   private initializingGlobalContext = false;
   private globalContext: ParserGlobalContext | ParserGlobalContextFn;
   private patternRegistry?: CompiledPatternRegistry;
+  private typesNamespace: ParserTypesNamespace;
 
   constructor(globalContext: ParserGlobalContext | ParserGlobalContextFn = {} as ParserGlobalContext) {
     this.globalContext = globalContext;
+    // Function-form global contexts register their types at first parse (pipe-visible only)
+    this.typesNamespace = typeof globalContext === 'function' ? types : mergeTypes(types, globalContext.types);
+  }
+
+  /** The engine's type namespace: built-ins plus everything registered through the global context */
+  public get types(): ParserTypesNamespace {
+    return this.typesNamespace;
   }
 
   // TODO(v4): remove migration catches — assigning the removed v2 statics would otherwise silently no-op
@@ -69,6 +81,7 @@ export class Parser {
     if (typeof this.globalContext === 'function') {
       this.initializingGlobalContext = true;
       this.globalContext = await this.globalContext();
+      this.typesNamespace = mergeTypes(types, this.globalContext.types);
     }
     this.initializingGlobalContext = false;
     return this.globalContext;
@@ -164,6 +177,9 @@ export class Parser {
     // If the current value does not exist, return it as is
     if (!current) return current;
 
+    // Type tokens are parse concerns — never walked into
+    if (isTypeToken(current)) return current;
+
     // If the current value is an object, resolve each entry and await only the asynchronous ones
     if (typeof current === 'object') {
       const entries = Object.entries(current);
@@ -208,6 +224,7 @@ export class Parser {
       isRoot: true,
       variables,
       pipes,
+      types: mergeTypes(this.typesNamespace, instanceContext?.types),
       data: input,
       value: input,
       cache: mergeObjects(globalContext?.cache, instanceContext?.cache),
@@ -262,9 +279,16 @@ export class Parser {
   private resolveWithParentContext = (input: unknown, parentContext: ParserContext, instanceContext?: ParserInstanceContext): Promise<unknown> => {
     const variables = { ...parentContext.variables, ...instanceContext?.variables, current: input };
     const pipes = { ...parentContext.pipes, ...instanceContext?.pipes };
-    const context: ParserContext = { ...parentContext, ...instanceContext, variables, pipes, data: input, value: input } satisfies Partial<
-      ParserContext<unknown>
-    > as any;
+    const resolvedTypes = mergeTypes(parentContext.types ?? this.typesNamespace, instanceContext?.types);
+    const context: ParserContext = {
+      ...parentContext,
+      ...instanceContext,
+      variables,
+      pipes,
+      types: resolvedTypes,
+      data: input,
+      value: input,
+    } satisfies Partial<ParserContext<unknown>> as any;
     context.store = (key, fn, options) => this.storeValue(context, key, fn, options);
     context.resolve = this.createContextResolve(context);
     return this.resolveNode(input, context);
@@ -284,9 +308,10 @@ export class Parser {
   // Unlike parse, transformers apply at every nesting level since there is no projection to scope them
   private resolveNode = async (value: unknown, context: ParserContext): Promise<unknown> => {
     if (value instanceof Promise) return this.resolveNode(await value, context);
+    // Type tokens and parsers are parse concerns — pass through untouched
+    if (isTypeToken(value)) return value;
     if (typeof value === 'function') {
-      // Branded functions (type tokens, parsers) are parse concerns — pass through untouched
-      if ('_type' in value || '_parser' in value) return value;
+      if ('_parser' in value) return value;
       const result = await (value as (context: ParserContext) => unknown)(context);
       return this.resolveNode(result, context);
     }
@@ -360,6 +385,9 @@ export class Parser {
       if (parserContext) Object.assign(pipes, parserContext.pipes);
       if (instanceContext) Object.assign(pipes, instanceContext.pipes);
 
+      // Set after the spreads so a raw per-level config never leaks in as the merged namespace
+      const resolvedTypes = mergeTypes(this.typesNamespace, parentContext.types, parserContext?.types, instanceContext.types);
+
       let contextBase: ParserContext = {
         parser: this,
         ...globalContext,
@@ -369,6 +397,7 @@ export class Parser {
         isRoot,
         variables,
         pipes,
+        types: resolvedTypes,
         data,
         // Explicit so a per-key value from parentContext never leaks into this level
         value: data,
@@ -423,7 +452,7 @@ export class Parser {
       const promises = entries.map(async ([key, value]): Promise<undefined | [string, unknown]> => {
         const context: ParserContext = { ...contextBase, key, value: data?.[key] };
         context.resolve = this.createContextResolve(context);
-        let castToken: ParserTypeToken | undefined;
+        let castToken: TypeToken | undefined;
 
         const getValue = async (): Promise<undefined | [string, unknown]> => {
           if (key.startsWith('@')) {
@@ -479,13 +508,14 @@ export class Parser {
           // TODO(v4): remove migration catch
           if (typeof value === 'string') assertNotLegacyTypeKey(value, context);
 
+          if (isTypeToken(value)) {
+            castToken = value;
+            return [key, data?.[key]];
+          }
+
           if (value instanceof Function) {
             if (value === typed) return [key, data[key]];
             if (value === optional) return [key, data[key]];
-            if (isTypeToken(value)) {
-              castToken = value;
-              return [key, data?.[key]];
-            }
             if ('_parser' in value) {
               const input = data?.[key];
               const projection = 'projection' in value ? (value as { projection?: unknown }).projection : undefined;
@@ -676,6 +706,7 @@ export class Parser {
           ...instanceContext,
           variables,
           pipes,
+          types: mergeTypes(this.typesNamespace, parserContext?.types, instanceContext?.types),
           data,
           projection: projectionFn.projection,
           cache,
@@ -696,11 +727,28 @@ export class Parser {
   };
 }
 
-export const initializeParser = (addGlobalContext?: ParserGlobalContext | ParserGlobalContextFn) => {
+export interface InitializedParser<T> {
+  createParser: Parser['createParser'];
+  resolve: Parser['resolve'];
+  cacheResult: Parser['cacheResult'];
+  /** Built-in types plus everything registered via the global context's `types` (object form) */
+  types: T;
+}
+
+/**
+ * Create an isolated parser engine. Registering `types` in the (object-form) global context
+ * extends the returned namespace — `types.productCode` — and makes every registered type
+ * available as a pipe in templates.
+ */
+export function initializeParser<const T extends ParserTypesConfig>(
+  addGlobalContext: ParserGlobalContext & { types: T },
+): InitializedParser<RegisteredTypes<DefaultParserTypes, T>>;
+export function initializeParser(addGlobalContext?: ParserGlobalContext | ParserGlobalContextFn): InitializedParser<DefaultParserTypes>;
+export function initializeParser(addGlobalContext?: ParserGlobalContext | ParserGlobalContextFn): InitializedParser<unknown> {
   const engine = new Parser(addGlobalContext || ({} as ParserGlobalContext));
   const { createParser, resolve, cacheResult } = engine;
-  return { createParser, resolve, cacheResult, types };
-};
+  return { createParser, resolve, cacheResult, types: engine.types };
+}
 
 export const resolveVariables = async <T>(current: T, context: ParserContext): Promise<T> => {
   return Parser.resolveVariables(current, context);

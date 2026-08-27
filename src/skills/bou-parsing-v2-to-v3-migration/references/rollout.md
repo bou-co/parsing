@@ -14,7 +14,7 @@ Before running against real data, set:
 
 ```ts
 export const { createParser, resolve, cacheResult, types } = initializeParser({
-  looseCasting: 'undefined',
+  looseCasting: true,
   onCastError: (error) => {
     telemetry.report('parser-cast-error', {
       path: error.path, // e.g. 'article.author.joinedAt'
@@ -25,7 +25,7 @@ export const { createParser, resolve, cacheResult, types } = initializeParser({
 });
 ```
 
-`looseCasting: 'undefined'` drops uncastable values (applying the token's `default` when one
+`looseCasting: true` drops uncastable values (applying the token's `default` when one
 exists) instead of throwing. `onCastError` fires _before_ the failure policy is applied, so you
 see every failure regardless of what happens next. Setting it also replaces the default console
 warning, which keeps logs readable.
@@ -46,7 +46,7 @@ Run your real traffic (or a representative sample of production data) through th
 | The mapping was wrong                      | Fix the projection or the upstream data |
 | The field genuinely carries arbitrary data | `types.any`                             |
 | The field is optional and sometimes absent | Nothing — `undefined` never fails       |
-| The field should have a fallback           | `types.x({ default: … })`               |
+| The field should have a fallback           | `types.x.default(…)`                    |
 | The input needs lenient coercion           | A custom `defineType`                   |
 | Bad data must never pass                   | `defineType({ fn, strict: true })`      |
 

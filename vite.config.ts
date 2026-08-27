@@ -1,7 +1,19 @@
-import { cpSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { cpSync, readdirSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import dts from 'unplugin-dts/vite';
+
+// Every non-spec file under src/types is its own entry so single-type imports (`@bou-co/parsing/types/format/currency`) resolve and tree-shake
+const typeEntries = Object.fromEntries(
+  readdirSync(resolve(import.meta.dirname, 'src/types'), { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts'))
+    .map((entry) => {
+      const name = relative(resolve(import.meta.dirname, 'src'), join(entry.parentPath, entry.name))
+        .replace(/\\/g, '/')
+        .replace(/\.ts$/, '');
+      return [name, `${name}.ts`];
+    }),
+);
 
 export default defineConfig({
   root: resolve(import.meta.dirname, 'src'),
@@ -33,7 +45,7 @@ export default defineConfig({
       formats: ['es', 'cjs'],
       entry: {
         index: 'index.ts',
-        types: 'types.ts',
+        ...typeEntries,
         'react/index': 'react/index.ts',
         'templates/localize': 'templates/localize.ts',
         'cli/index': 'cli/index.ts',
@@ -41,7 +53,7 @@ export default defineConfig({
     },
     rolldownOptions: {
       treeshake: true,
-      external: [/^node:/, /^(path|fs|url|crypto)(\/.*)?$/, /^react(\/.*)?$/, /^react-dom(\/.*)?$/],
+      external: [/^node:/, /^(path|fs|url|crypto)(\/.*)?$/, /^react(\/.*)?$/, /^react-dom(\/.*)?$/, /^(sanitize-html|ultrahtml|marked)(\/.*)?$/],
       optimization: { inlineConst: true },
       output: {
         banner: (chunk) => (chunk.name === 'cli/index' ? '#!/usr/bin/env node' : ''),

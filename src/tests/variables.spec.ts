@@ -446,3 +446,50 @@ describe('built-in context variables', () => {
     expect((data.contextual as AppObject)['custom']).toEqual(hello);
   });
 });
+
+describe('expression grammar in templates', () => {
+  const { createParser, types } = initializeParser({
+    variables: { name: 'bob', when: '2024-05-15T10:30:00.000Z', tags: ['a', 'b'] },
+    pipes: { up: ({ value }) => String(value).toUpperCase(), echo: ({ params }) => JSON.stringify(params), nothing: () => undefined },
+  });
+
+  it('chains pipes and pipes literals', async () => {
+    const parser = createParser({ a: types.string, b: types.string });
+    expect(await parser({ a: '{{ name | up | truncate:2 }}', b: '{{ "lit" | up }}' })).toEqual({ a: 'B…', b: 'LIT' });
+  });
+
+  it('keeps quoted params intact and parses the new literals', async () => {
+    const parser = createParser({ a: types.string, b: types.string, c: types.string, d: types.string });
+    expect(
+      await parser({
+        a: '{{ name | echo:"HH:mm":"a | b" }}',
+        b: '{{ tags | join:"" }}',
+        c: '{{ name | echo:-1.5:true:null }}',
+        d: '{{ name | echo:"say \\"hi\\"" }}',
+      }),
+    ).toEqual({
+      a: '["HH:mm","a | b"]',
+      b: 'ab',
+      c: '[-1.5,true,null]',
+      d: '["say \\"hi\\""]',
+    });
+  });
+
+  it('continues the fallback chain when a pipe yields undefined, and honours null/undefined literals', async () => {
+    const parser = createParser({ a: types.string, b: types.string, c: types.string, d: types.string.default('dflt') });
+    // A whole-string null resolves to null, which the projection treats as missing (so the key is dropped and defaults apply)
+    expect(
+      await parser({
+        a: '{{ name | nothing || "fallback" }}',
+        b: '{{ missing || undefined || "last" }}',
+        c: '{{ missing || null }}',
+        d: '{{ missing || null }}',
+      }),
+    ).toEqual({
+      a: 'fallback',
+      b: 'last',
+      d: 'dflt',
+    });
+    expect(await parser({ c: 'is {{ missing || null }}' })).toEqual({ c: 'is null', d: 'dflt' });
+  });
+});

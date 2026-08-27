@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getFromObject } from './internal';
-import { buildKeyPath } from './parser-casting';
+import { evaluateExpression } from './parser-expression';
 import { ParserContext, ParserPattern, ParserPatternCacheMode, ParserPatternsConfig, PatternResolveInput } from './parser-types';
 
 export const PATTERN_REGISTRY = Symbol('@bou-co/parsing:pattern-registry');
@@ -206,62 +206,11 @@ const resolvePattern = (pattern: CompiledPattern, path: string, match: PatternMa
   return promise;
 };
 
-const LITERAL_STRING = /^".+"$/;
-const LITERAL_NUMBER = /^\d+$/;
-const LITERAL_BOOLEAN = /^false$|^true$/;
-
-// The shared expression grammar: || fallback chains, quoted/numeric/boolean literals and | pipe:params.
-// Dot paths are not split here — path semantics belong to the pattern's resolve
-const evaluateExpression = async (pattern: CompiledPattern, expression: string, match: PatternMatch, context: ParserContext): Promise<unknown> => {
-  const parts = expression.split('||').map((item) => item.trim());
-
-  for (const part of parts) {
-    const [candidate, pipeConfig] = part.split('|').map((item) => item.trim());
-
-    const handlePipe = async (value: unknown) => {
-      if (!pipeConfig) return value;
-      const [pipeName, ...pipeParams] = pipeConfig.split(':').map((item) => item.trim());
-      const pipe = await getFromObject(context.pipes ?? {}, pipeName);
-      if (!pipe) {
-        // TODO(v4): remove migration catch
-        const legacy = await getFromObject(context.variables ?? {}, pipeName);
-        if (typeof legacy === 'function') {
-          throw new Error(
-            `[@bou-co/parsing] Pipe "${pipeName}" at "${buildKeyPath(context)}" is defined in \`variables\` — v3 looks pipes up from the \`pipes\` config only. Move the function into \`pipes\`.`,
-          );
-        }
-        throw new Error(`[@bou-co/parsing] Pipe "${pipeName}" not found at "${buildKeyPath(context)}"`);
-      }
-      if (typeof pipe !== 'function') throw new Error(`[@bou-co/parsing] Pipe "${pipeName}" at "${buildKeyPath(context)}" is not a function`);
-      const params = await Promise.all(
-        pipeParams.map(async (param) => {
-          if (LITERAL_STRING.test(param)) return param.slice(1, -1);
-          if (LITERAL_NUMBER.test(param)) return parseInt(param, 10);
-          if (LITERAL_BOOLEAN.test(param)) return param === 'true';
-          const paramValue = await getFromObject(context.variables, param, context);
-          if (typeof paramValue === 'function') return await paramValue(context);
-          return paramValue;
-        }),
-      );
-      return await pipe({ ...context, data: value, value, params: params.length ? params : undefined });
-    };
-
-    // Literals resolve before the pipe, so they can never be piped
-    if (LITERAL_STRING.test(candidate)) return candidate.slice(1, -1);
-    if (LITERAL_NUMBER.test(candidate)) return parseInt(candidate, 10);
-    if (LITERAL_BOOLEAN.test(candidate)) return candidate === 'true';
-
-    const value = await resolvePattern(pattern, candidate, match, context);
-    if (value !== undefined || context.pipeUndefined) return handlePipe(value);
-  }
-  return undefined;
-};
-
 const evaluateMatch = (match: PatternMatch, context: ParserContext): Promise<unknown> => {
   const { pattern, groups } = match;
   const expression = groups[1] ?? groups[0];
   if (!pattern.expressions) return resolvePattern(pattern, expression, match, context);
-  return evaluateExpression(pattern, expression, match, context);
+  return evaluateExpression(expression, context, (candidate) => resolvePattern(pattern, candidate, match, context));
 };
 
 const evaluateAndRescan = async (match: PatternMatch, context: ParserContext, guard?: PatternGuard): Promise<unknown> => {
@@ -332,5 +281,5 @@ export const evaluateVariableExpression = (input: string, context: ParserContext
   const execGroups = (groups ?? Object.assign([input, input], { index: 0, input })) as RegExpExecArray;
   const match: PatternMatch = { pattern, raw: input, groups: execGroups, start: 0, end: input.length };
   if (!pattern.expressions) return resolvePattern(pattern, expression, match, context);
-  return evaluateExpression(pattern, expression, match, context);
+  return evaluateExpression(expression, context, (candidate) => resolvePattern(pattern, candidate, match, context));
 };

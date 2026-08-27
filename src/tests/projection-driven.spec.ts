@@ -16,7 +16,7 @@ describe('projection-driven resolution', () => {
 
     it('applies type-token defaults inside nested objects without data', async () => {
       const parser = createParser({
-        settings: { theme: types.string({ default: 'light' }), depth: types.number({ default: 2 }) },
+        settings: { theme: types.string.default('light'), depth: types.number.default(2) },
       });
       const result = await parser({});
       expect(result.settings).toEqual({ theme: 'light', depth: 2 });

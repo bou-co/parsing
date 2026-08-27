@@ -4,14 +4,16 @@ Condensed signature lookup. For behaviour and use cases see `features.md`.
 
 ## Entry points
 
-| Import path                   | Contains                                                                    |
-| ----------------------------- | --------------------------------------------------------------------------- |
-| `@bou-co/parsing`             | `initializeParser`, `Parser`, utils, errors, types-as-types                 |
-| `@bou-co/parsing/types`       | Every built-in token individually + `defineType`. Tree-shakeable, no engine |
-| `@bou-co/parsing/react`       | `useParserValue`                                                            |
-| `@bou-co/parsing/templates/*` | Shipped templates, e.g. `templates/localize`                                |
+| Import path                   | Contains                                                                                      |
+| ----------------------------- | --------------------------------------------------------------------------------------------- |
+| `@bou-co/parsing`             | `initializeParser`, `Parser`, utils, errors, types-as-types                                   |
+| `@bou-co/parsing/types`       | Every built-in token and class individually + `defineType`. Tree-shakeable, no engine         |
+| `@bou-co/parsing/types/*`     | Opt-in subsets `format`, `data`, `content`, `all`, or a single type (`types/format/currency`) |
+| `@bou-co/parsing/react`       | `useParserValue`                                                                              |
+| `@bou-co/parsing/templates/*` | Shipped templates, e.g. `templates/localize`                                                  |
 
-Node `^20.19.0 || >=22.12.0`. React is an optional peer dependency.
+Node `^20.19.0 || >=22.12.0`. React, `sanitize-html`, `ultrahtml` and `marked` are optional
+peer dependencies (the last three only for `types/content`).
 
 ## Core functions
 
@@ -23,19 +25,20 @@ Creates an isolated engine. `config` is an object, or a sync/async function retu
 
 Config keys:
 
-| Key                | Type                                            | Scope                  | Notes                                                            |
-| ------------------ | ----------------------------------------------- | ---------------------- | ---------------------------------------------------------------- |
-| `variables`        | object                                          | global/schema/instance | Values, functions, nested objects                                |
-| `pipes`            | object                                          | global/schema/instance | Pipe functions for expressions                                   |
-| `patterns`         | object                                          | **global only**        | Custom inline syntaxes; `variables` key customises the built-in  |
-| `variableResolver` | `(name, ctx, cache) => unknown`                 | global                 | On-demand lookup; `cache(v)` opts into the engine-lifetime store |
-| `transformers`     | `{ [name]: { when, then } }`                    | global                 | Whole-value replacement                                          |
-| `storage`          | `{ match, add, generateKey?, remove?, clear? }` | global                 | Cache backend (`StorageLike`)                                    |
-| `cache`            | `ParserCachingOptions`                          | global/schema/instance | `{ enabled, ...your options }`                                   |
-| `looseCasting`     | `false \| true \| 'undefined'`                  | global/schema/instance | Cast failure policy                                              |
-| `onCastError`      | `(error, ctx) => void`                          | global/schema/instance | Observe `ParserCastError`                                        |
-| `before` / `after` | `(ctx) => ctx`                                  | global/schema/instance | Lifecycle hooks                                                  |
-| `pipeUndefined`    | boolean                                         | any                    | Run pipes on `undefined` values                                  |
+| Key                | Type                                            | Scope                  | Notes                                                                                                                     |
+| ------------------ | ----------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `variables`        | object                                          | global/schema/instance | Values, functions, nested objects                                                                                         |
+| `pipes`            | object                                          | global/schema/instance | Pipe functions for expressions                                                                                            |
+| `types`            | `{ [name]: token \| factory \| accessorMap }`   | global/schema/instance | Register types: on the namespace (global object form) and as pipes at every level; accessor maps extend a built-in family |
+| `patterns`         | object                                          | **global only**        | Custom inline syntaxes; `variables` key customises the built-in                                                           |
+| `variableResolver` | `(name, ctx, cache) => unknown`                 | global                 | On-demand lookup; `cache(v)` opts into the engine-lifetime store                                                          |
+| `transformers`     | `{ [name]: { when, then } }`                    | global                 | Whole-value replacement                                                                                                   |
+| `storage`          | `{ match, add, generateKey?, remove?, clear? }` | global                 | Cache backend (`StorageLike`)                                                                                             |
+| `cache`            | `ParserCachingOptions`                          | global/schema/instance | `{ enabled, ...your options }`                                                                                            |
+| `looseCasting`     | `boolean`                                       | global/schema/instance | `true`: log and drop failed casts (`'undefined'` is a deprecated alias)                                                   |
+| `onCastError`      | `(error, ctx) => void`                          | global/schema/instance | Observe `ParserCastError`                                                                                                 |
+| `before` / `after` | `(ctx) => ctx`                                  | global/schema/instance | Lifecycle hooks                                                                                                           |
+| `pipeUndefined`    | boolean                                         | any                    | Run pipes on `undefined` values                                                                                           |
 
 ### `createParser(projection, options?)`
 
@@ -79,11 +82,16 @@ Advanced form of `initializeParser`, when you need the engine instance itself. T
 
 From `initializeParser().types`, or individually from `@bou-co/parsing/types`.
 
-`string` · `number` · `boolean` · `date` · `object` · `array` · `any` · `unknown`
+`string` · `number` · `boolean` · `date` · `object` · `array` · `any` · `unknown` · `text` ·
+`email` · `url` · `slug` · `color` · `tel` · `mimeType` · `json` · `unique(item)` ·
+`oneOf(...values)` · `pattern(regex)`
 
-- `types.array(token)` — per-item casting; nests
-- `types.x({ default: v })` — fill-in value, makes the field non-optional
-- No `types.undefined` — accessing it throws
+- `types.array.of(token)` — per-item casting; nests. `types.json.of(token)` decodes then casts
+- Universal chain: `.default(v)` (non-optional field) · `.required` (missing = failure, non-optional) · `.strict` · `.loose` · `.extend(fn)` (same family) · `.to(fn)` / `.to(token)` (new output / composition) · `.cast(value)`; or call the token: `types.x({ default, required, strict, loose })`
+- Accessors per family — see `basics.md`; string-valued derivations are `StringType`s
+- Classes: `TypeToken`, `StringType`, `NumberType`, `BooleanType`, `DateType`, `ObjectType`, `ArrayType`, `TextType`, `EmailType`, `UrlType`, `SlugType`, `ColorType`, `TelType`, `MimeTypeType`, `JsonType`, `OneOfType`, `PatternType`
+- Subsets: `types/format` (`formatDate`, `currency`, `percent`, `time`, `duration`, `money`), `types/data` (`record`, `schema`, `coords`, `locale`), `types/content` (`html`, `markdown`, `sanitizeHtmlAdapter`, `ultrahtmlAdapter`, `markedAdapter`), `types/all`
+- No `types.undefined` — accessing it throws. Tokens are callable with an options object only; types are never call parameters (`.of()`)
 
 See the casting table in `basics.md`.
 
@@ -130,32 +138,39 @@ interface PatternResolveInput {
 Inside a delimited pattern's delimiters:
 
 ```
-expression := candidate ( '||' candidate )* ( '|' pipeName ( ':' param )* )?
-candidate  := dotted.path | "string" | integer | true | false | ...
-param      := "string" | integer | true | false | variableName
+expression  := alternative ( '||' alternative )*
+alternative := candidate ( '|' pipe )*
+pipe        := name ( ':' param )*
+candidate   := literal | dotted.path | ...
+param       := literal | variableName
+literal     := "string" | -?digits(.digits)? | true | false | null | undefined
 ```
 
-One pipe per expression (a second is silently discarded), and it binds to its own fallback
-branch. First **defined** candidate wins (`false`/`0`/`''`/`null` stop the chain). Literals:
-double quotes and integers only — no floats, negatives, or single quotes. `{{...}}` returns
-the full merged variables object. Pipe params resolve from `context.variables` only. Escape a
-whole match with a preceding backslash.
+Splitting is quote-aware (`"a | b:c"` stays one literal; `\"` escapes). Pipes chain; each
+binds to its own fallback branch. First **defined** result wins (`false`/`0`/`''`/`null` stop
+the chain; a pipe chain yielding `undefined` continues it). `name` is an explicit pipe, else a
+type (`email`, `date.iso`, root accessor `upperCase`, factory `oneOf:"a":"b"`). `{{...}}`
+returns the full merged variables object. Pipe params resolve from `context.variables` only.
+Escape a whole match with a preceding backslash.
 
 ## Utilities
 
-| Export             | Signature                                                                                                                                                                             |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `defineType`       | `(fn \| { fn, strict?, name?, default? }) => token`                                                                                                                                   |
-| `isTypeToken`      | `(v) => v is ParserTypeToken`                                                                                                                                                         |
-| `typed<T>`         | Type-only marker; passes raw value through uncast                                                                                                                                     |
-| `optional`         | Marks a key optional without a type                                                                                                                                                   |
-| `condition`        | `(when, then) => { when, then }`                                                                                                                                                      |
-| `get`              | `(path) => (ctx) => Promise<T>` \| `(path, from) => Promise<T>`                                                                                                                       |
-| `toHash`           | `(data) => string` — deterministic, but **key-order sensitive** (see gotchas)                                                                                                         |
-| `asDate`           | `(v: string \| number) => Date \| undefined` — `undefined` for falsy input; unparseable input yields an `Invalid Date`, not `undefined`                                               |
-| `mergeObjects`     | `(a, b) => merged`                                                                                                                                                                    |
-| `resolveVariables` | `(input, context) => Promise<T>` — deep pattern resolution only (no transformers/casting); needs a caller-supplied `ParserContext`, which is why `context.resolve` is the usual entry |
-| `getVariableValue` | `(expression, context) => Promise<T>` — evaluates one variable expression; accepts the active variables syntax, the legacy `{{path}}` form, or a bare expression (v3 no longer auto-wraps bare names in `{{ }}`)                                                    |
+| Export             | Signature                                                                                                                                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `defineType`       | `(fn \| Class \| { fn, name?, default?, required?, strict?, loose?, extends?, accessors?, methods? }, options?) => token` — `defineType(Class, options?)` is the factory form of `new`; with `extends`, `fn` refines the parent's output and its accessors are inherited |
+| `isMissing`        | `(v) => boolean` — `undefined`, `null` or `''`                                                                                                                                                                                                                           |
+| `isTypeToken`      | `(v) => v is TypeToken`                                                                                                                                                                                                                                                  |
+| `applyCast`        | `(value, token, context?, { fallback? }?) => Promise<unknown>` — cast with the failure policy applied                                                                                                                                                                    |
+| `notAPipe`         | `(factory) => factory` — mark a token-parameter factory so templates never call it                                                                                                                                                                                       |
+| `typed<T>`         | Type-only marker; passes raw value through uncast                                                                                                                                                                                                                        |
+| `optional`         | Marks a key optional without a type                                                                                                                                                                                                                                      |
+| `condition`        | `(when, then) => { when, then }`                                                                                                                                                                                                                                         |
+| `get`              | `(path) => (ctx) => Promise<T>` \| `(path, from) => Promise<T>`                                                                                                                                                                                                          |
+| `toHash`           | `(data) => string` — deterministic, but **key-order sensitive** (see gotchas)                                                                                                                                                                                            |
+| `asDate`           | `(v: string \| number) => Date \| undefined` — `undefined` for falsy input; unparseable input yields an `Invalid Date`, not `undefined`                                                                                                                                  |
+| `mergeObjects`     | `(a, b) => merged`                                                                                                                                                                                                                                                       |
+| `resolveVariables` | `(input, context) => Promise<T>` — deep pattern resolution only (no transformers/casting); needs a caller-supplied `ParserContext`, which is why `context.resolve` is the usual entry                                                                                    |
+| `getVariableValue` | `(expression, context) => Promise<T>` — evaluates one variable expression; accepts the active variables syntax, the legacy `{{path}}` form, or a bare expression (v3 no longer auto-wraps bare names in `{{ }}`)                                                         |
 
 ## Errors
 

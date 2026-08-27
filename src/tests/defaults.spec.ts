@@ -4,21 +4,21 @@ import { defineType, ParserCastError } from '../parser-casting';
 describe('type defaults', () => {
   it('applies the default when the input is undefined', async () => {
     const { createParser, types } = initializeParser();
-    const parser = createParser({ displayName: types.string({ default: 'List item' }) });
+    const parser = createParser({ displayName: types.string.default('List item') });
     const data = await parser({ other: true });
     expect(data.displayName).toEqual('List item');
   });
 
   it('applies the default when the input is null', async () => {
     const { createParser, types } = initializeParser();
-    const parser = createParser({ displayName: types.string({ default: 'List item' }) });
+    const parser = createParser({ displayName: types.string.default('List item') });
     const data = await parser({ displayName: null });
     expect(data.displayName).toEqual('List item');
   });
 
   it('keeps valid input values untouched', async () => {
     const { createParser, types } = initializeParser();
-    const parser = createParser({ displayName: types.string({ default: 'List item' }), count: types.number({ default: 0 }) });
+    const parser = createParser({ displayName: types.string.default('List item'), count: types.number.default(0) });
     const data = await parser({ displayName: 'Hello', count: '5' });
     expect(data.displayName).toEqual('Hello');
     expect(data.count).toEqual(5);
@@ -26,25 +26,16 @@ describe('type defaults', () => {
 
   it('applies the default when a failed cast resolves to undefined', async () => {
     const onCastError = vi.fn();
-    const { createParser, types } = initializeParser({ looseCasting: 'undefined', onCastError });
-    const parser = createParser({ count: types.number({ default: 0 }) });
+    const { createParser, types } = initializeParser({ looseCasting: true, onCastError });
+    const parser = createParser({ count: types.number.default(0) });
     const data = await parser({ count: 'abc' });
     expect(data.count).toEqual(0);
     expect(onCastError).toHaveBeenCalledWith(expect.any(ParserCastError), expect.anything());
   });
 
-  it('does not apply the default with looseCasting: true (original value wins)', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const { createParser, types } = initializeParser({ looseCasting: true });
-    const parser = createParser({ count: types.number({ default: 0 }) });
-    const data = await parser({ count: 'abc' });
-    expect(data.count).toEqual('abc');
-    warn.mockRestore();
-  });
-
   it('still throws by default when casting fails', async () => {
     const { createParser, types } = initializeParser();
-    const parser = createParser({ count: types.number({ default: 0 }) });
+    const parser = createParser({ count: types.number.default(0) });
     await expect(parser({ count: 'abc' })).rejects.toThrow(ParserCastError);
   });
 
@@ -67,8 +58,8 @@ describe('type defaults', () => {
   it('supports defaults on bare and parameterized array types', async () => {
     const { createParser, types } = initializeParser();
     const parser = createParser({
-      raw: types.array({ default: [] }),
-      tags: types.array(types.string)({ default: ['none'] }),
+      raw: types.array.default([]),
+      tags: types.array.of(types.string).default(['none']),
     });
     const data = await parser({ other: true });
     expect(data.raw).toEqual([]);
@@ -89,14 +80,41 @@ describe('type defaults', () => {
   it('does not cast the default value itself', async () => {
     const { createParser, types } = initializeParser();
     const marker = { reason: 'missing' };
-    const parser = createParser({ meta: types.object({ default: marker }) });
+    const parser = createParser({ meta: types.object.default(marker) });
     const data = await parser({ other: true });
     expect(data.meta).toBe(marker);
   });
 
-  it('still rejects invalid token arguments', () => {
+  it('chains with accessors — the default applies at the end of the chain', async () => {
+    const { createParser, types } = initializeParser();
+    const parser = createParser({ year: types.date.year.default(1970), shout: types.string.upperCase.default('NONE') });
+    const data = await parser({ other: true });
+    expect(data.year).toEqual(1970);
+    expect(data.shout).toEqual('NONE');
+    const filled = await parser({ year: '2024-05-15', shout: 'hi' });
+    expect(filled.year).toEqual(2024);
+    expect(filled.shout).toEqual('HI');
+  });
+
+  it('exposes the default value on the token', () => {
     const { types } = initializeParser();
-    expect(() => (types.string as unknown as (arg: unknown) => unknown)('nope')).toThrow('does not accept arguments');
-    expect(() => (types.array as unknown as (arg: unknown) => unknown)('nope')).toThrow('expects a type token or an options object');
+    expect(types.number.default(3).defaultValue).toEqual(3);
+    expect(types.number.defaultValue).toBeUndefined();
+  });
+
+  it('accepts the options-object form, identical to the chain', async () => {
+    const { createParser, types } = initializeParser();
+    const parser = createParser({
+      a: types.string({ default: 'x' }),
+      b: types.array({ default: ['none'] }).of(types.string),
+      c: types.array.of(types.string)({ default: ['none'] }),
+      d: types.date.year({ default: 1970 }),
+    });
+    expect(await parser({})).toEqual({ a: 'x', b: ['none'], c: ['none'], d: 1970 });
+    expect(await parser({ a: '', b: [1], c: null, d: '2024-05-15' })).toEqual({ a: 'x', b: ['1'], c: ['none'], d: 2024 });
+    expect(String(types.string({ default: 'x' }))).toEqual(String(types.string.default('x')));
+    expect(types.string({ default: 'x' }).defaultValue).toEqual('x');
+    expect(types.string({})).not.toBe(types.string);
+    expect(types.string()).toBe(types.string);
   });
 });

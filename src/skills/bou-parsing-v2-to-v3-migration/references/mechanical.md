@@ -42,7 +42,7 @@ import { createParser, types } from '../path-to/parser-config';
 const myParser = createParser({
   title: types.string,
   priority: types.number,
-  tags: types.array(types.string),
+  tags: types.array.of(types.string),
   meta: types.object,
   published: types.date,
 });
@@ -58,8 +58,8 @@ Mapping:
 | `'date'`          | `types.date`                         |
 | `'object'`        | `types.object`                       |
 | `'array'`         | `types.array`                        |
-| `'array<string>'` | `types.array(types.string)`          |
-| `'array<number>'` | `types.array(types.number)`          |
+| `'array<string>'` | `types.array.of(types.string)`       |
+| `'array<number>'` | `types.array.of(types.number)`       |
 | `'any'`           | `types.any`                          |
 | `'unknown'`       | `types.unknown`                      |
 | `'undefined'`     | the `optional` util, or omit the key |
@@ -200,7 +200,7 @@ server configuration next to a lenient client one.
 export const { createParser, types } = initializeParser({ storage: redisStorage, cache: { enabled: true } });
 
 // client-config.ts
-export const { createParser, types } = initializeParser({ looseCasting: 'undefined' });
+export const { createParser, types } = initializeParser({ looseCasting: true });
 ```
 
 Parsers stay permanently bound to their creating engine, and nesting across configurations is
@@ -300,3 +300,22 @@ entirely reasonable and avoids the codemod's own bug surface.
 files one more time after the transform. A leftover in a nested projection that rarely receives
 data used to be harmless; in v3 it throws on every parse of that parser, so you want to find it
 in CI rather than in production.
+
+## 9. Early v3 release candidates: casting call forms
+
+Only relevant if you adopted a `3.0.0-rc.*` build before the casting upgrade. Everything
+chains, and the universal options are also accepted as a call:
+
+| RC form                                            | Now                                               |
+| -------------------------------------------------- | ------------------------------------------------- |
+| `types.string({ default: 'x' })`                   | unchanged — or `types.string.default('x')`        |
+| `types.array(types.string)`                        | `types.array.of(types.string)`                    |
+| `types.array(types.string)({ default: [] })`       | `types.array({ default: [] }).of(types.string)`   |
+| `looseCasting: 'undefined'`                        | `looseCasting: true` (alias still accepted)       |
+| `looseCasting: true` passing the raw value through | removed — failed casts are dropped (or defaulted) |
+
+`types.array(token)` fails to type-check and throws a targeted error at runtime ("use
+.of(…)"), so it cannot slip through silently. `''` now counts as missing for every type (the
+key is omitted or the default fills) — add `.required` where an empty value must be an
+error. `ParserType<Out>` / `ParserTypeWithDefault<Out>` remain as aliases of
+`TypeToken<Out>`; `ParserTypeToken` aliases `TypeToken`.

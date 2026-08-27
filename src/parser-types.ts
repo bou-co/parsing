@@ -1,5 +1,8 @@
 import type { Parser } from './parser';
-import type { ParserCastError } from './parser-casting';
+import type { ParserCastError, ParserTypeDefaulted, TypeToken } from './type-token';
+export type { TypeTokenOptions, ParserTypeRequired } from './type-token';
+import type { ArrayType } from './types/array';
+import type { ParserTypesConfig, ParserTypesNamespace } from './types/namespace';
 import { CommonContext, CreateContext, FunctionalContext, GlobalContext, InstanceContext, ParserCachingOptions } from './expandable-types';
 
 // Util types
@@ -91,6 +94,8 @@ export interface ParserGlobalContext extends CommonContext, GlobalContext {
   transformers?: ParserContextTransformers;
   patterns?: ParserPatternsConfig;
   pipes?: ParserContextPipes;
+  /** Types to register: tokens and factories by name, or accessor maps extending a built-in family. Available as `types.x` and as pipes */
+  types?: ParserTypesConfig;
   variableResolver?: (variableName: string, context: ParserContext, cache: CacheValueFn) => Promise<unknown> | unknown;
   cache?: ParserCachingOptions;
   looseCasting?: LooseCasting;
@@ -102,6 +107,8 @@ export type ParserGlobalContextFn = () => ParserGlobalContext | Promise<ParserGl
 export interface CreateParserContext extends CommonContext, CreateContext {
   variables?: ParserContextVariables;
   pipes?: ParserContextPipes;
+  /** Types registered for this parser — available as pipes in its templates */
+  types?: ParserTypesConfig;
   cache?: ParserCachingOptions;
   looseCasting?: LooseCasting;
   onCastError?: OnCastError;
@@ -110,6 +117,8 @@ export interface CreateParserContext extends CommonContext, CreateContext {
 export interface ParserInstanceContext extends CommonContext, InstanceContext {
   variables?: ParserContextVariables;
   pipes?: ParserContextPipes;
+  /** Types registered for this call — available as pipes in its templates */
+  types?: ParserTypesConfig;
   cache?: ParserCachingOptions;
   looseCasting?: LooseCasting;
   onCastError?: OnCastError;
@@ -135,6 +144,8 @@ export interface ParserContext<DATA = AppObject, PARAMS = unknown[]>
   variables: AppObject;
   /** Merged dictionary of global, schema and instance pipe functions */
   pipes?: ParserContextPipes;
+  /** Merged type namespace (built-ins + every registered level) — what templates resolve type pipes from */
+  types?: ParserTypesNamespace;
   /** Index of the current item when parsing an array */
   index?: number;
   /** Context of the parent level, forming a chain up to the root */
@@ -165,37 +176,16 @@ export type OnCastError = (error: ParserCastError, context: ParserContext) => vo
 
 export type ParserTypeFunction<Out = unknown> = (value: unknown, context: ParserContext) => Out | Promise<Out>;
 
-export interface ParserTypeObject<Out = unknown> {
-  fn: ParserTypeFunction<Out>;
-  strict?: boolean;
-  // Distinguishes types sharing a factory-made fn (closures are invisible to hashing); also shown in cast errors
-  name?: string;
-  default?: Out;
-}
+/** A type token: `TypeToken<Out>` or any family subclass (`StringType`, ...). Kept as an alias for annotations like `ParserType<string>` */
+export type ParserType<Out = unknown> = TypeToken<Out>;
 
-export type ParserTypeDefinition<Out = unknown> = ParserTypeFunction<Out> | ParserTypeObject<Out>;
+/** A token carrying a default — its projected field is non-optional */
+export type ParserTypeWithDefault<Out = unknown> = TypeToken<Out> & ParserTypeDefaulted;
 
-// `default` stays required so type tokens never match this signature (keeps types.array(types.x) on the item overload)
-export interface ParserTypeOptions<Out = unknown> {
-  default: Out;
-}
+export type ArrayParserType = ArrayType;
 
-export interface ParserType<Out = unknown> {
-  (options: ParserTypeOptions<Out>): ParserTypeWithDefault<Out>;
-  (value: unknown, context: ParserContext): Out | Promise<Out>;
-  readonly _type: string;
-  readonly strict?: boolean;
-  // Type-level phantom carrying the output type — never present at runtime
-  readonly [PARSER_TYPE_OUTPUT]: Out;
-}
-
-export interface ParserTypeWithDefault<Out = unknown> extends ParserType<Out> {
-  // Type-level phantom marking the field non-optional in the output — never present at runtime
-  readonly [PARSER_TYPE_DEFAULTED]: true;
-}
-
-// Brand-only view of ParserType used in ParserProjectionValue: adding a second callable
-// member to that union would break contextual typing of plain value functions
+// Brand-only view of a token used in ParserProjectionValue: adding a callable member to that
+// union would break contextual typing of plain value functions
 export interface ParserTypeLike {
   readonly _type: string;
   readonly [PARSER_TYPE_OUTPUT]: unknown;
@@ -213,20 +203,8 @@ export interface ParserFlatLike {
   readonly projection: object;
 }
 
-export type ArrayParserType = ParserType<unknown[]> & {
-  <Item>(item: ParserType<Item>): ParserType<Item[]>;
-};
-
-export interface DefaultParserTypes {
-  readonly string: ParserType<string>;
-  readonly number: ParserType<number>;
-  readonly boolean: ParserType<boolean>;
-  readonly date: ParserType<Date>;
-  readonly object: ParserType<AppObject>;
-  readonly array: ArrayParserType;
-  readonly any: ParserType<any>;
-  readonly unknown: ParserType<unknown>;
-}
+export type { DefaultParserTypes, ParserTypesConfig, ParserTypesNamespace, ParserTypeFactory, ParserTypeAccessorMap, RegisteredTypes } from './types/namespace';
+export type { ParserTypeObject, ParserTypeDefinition } from './type-token';
 
 // Utility types
 
@@ -337,15 +315,17 @@ export type ParserFunction<T extends object> = {
   projection: T;
 };
 
-export type ResolvedValue<T> = T extends string
-  ? string
-  : T extends (...args: any) => infer R
-    ? ResolvedValue<Awaited<R>>
-    : T extends readonly (infer I)[]
-      ? ResolvedValue<I>[]
-      : T extends object
-        ? { [K in keyof T]: ResolvedValue<T[K]> }
-        : T;
+export type ResolvedValue<T> = T extends { readonly [PARSER_TYPE_OUTPUT]: any }
+  ? T
+  : T extends string
+    ? string
+    : T extends (...args: any) => infer R
+      ? ResolvedValue<Awaited<R>>
+      : T extends readonly (infer I)[]
+        ? ResolvedValue<I>[]
+        : T extends object
+          ? { [K in keyof T]: ResolvedValue<T[K]> }
+          : T;
 
 // Recursive so function values get contextual typing, like ParserProjection does for createParser
 export type ResolveInput =

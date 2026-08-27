@@ -288,19 +288,19 @@ describe('parsing', () => {
 
   it('should be able to resolve projection driven output in reasonable time', async () => {
     const seoParser = createParser({
-      title: types.string({ default: 'Untitled' }),
+      title: types.string.default('Untitled'),
       description: types.string,
       index: true,
     });
-    const brandParser = createParser({ brand: 'bou', locale: types.string({ default: 'en' }) });
+    const brandParser = createParser({ brand: 'bou', locale: types.string.default('en') });
 
     const pageParser = createParser({
-      title: types.string({ default: 'Untitled page' }),
+      title: types.string.default('Untitled page'),
       slug: types.string,
       seo: seoParser,
       branding: brandParser.flat,
       hero: {
-        heading: types.string({ default: 'Welcome' }),
+        heading: types.string.default('Welcome'),
         cta: { label: 'Read more', url: types.string },
         background: types.string,
       },

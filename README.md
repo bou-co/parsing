@@ -16,13 +16,15 @@ content comes out joined, templated, cached, and typed.
 ## Key capabilities at a glance
 
 - **Field picking**: select only the keys you need from any input shape
-- **Type casting**: declared types are enforced at runtime: `types.number` turns `'21'` into `21`, with strict or loose failure handling
-- **Custom types**: define reusable validation/casting types (emails, slugs, date shapes) once, use them like built-ins
+- **Type casting**: declared types are enforced at runtime: `types.number` turns `'21'` into `21`, with exactly two failure flows (throw, or drop and log)
+- **Use-case types**: `email`, `url`, `slug`, `color`, `tel`, `mimeType`, `json`, `oneOf`, `pattern` and a CMS-friendly `text` ship in, with chainable accessors (`types.date.iso`, `types.number.round(2)`, `types.url.pathname`)
+- **Custom types**: `defineType` or `class Sku extends StringType` — extend a built-in and inherit its whole accessor surface
+- **Types as pipes**: every type, built-in or registered, is a template pipe under the same name: `{{ price | round:2 }}`, `{{ contact | email || "n/a" }}`
 - **Value transformation**: sync or async functions, static constants, derived values
 - **Nested structures**: objects, arrays, and reusable sub-parsers compose naturally
 - **Conditional fields**: `@if` blocks add or override fields based on runtime conditions
 - **Data merging**: `@combine` fetches secondary data and merges it into the output
-- **Variable interpolation**: `{{variable}}` templates with fallbacks, pipes, and async resolvers
+- **Variable interpolation**: `{{variable}}` templates with fallbacks, chained pipes, and async resolvers
 - **Patterns**: define your own inline syntaxes (e.g. `$products.count`) resolved from any string; variables are just the built-in one
 - **Transformers**: global hooks that auto-convert matching values (e.g. localisation objects)
 - **Lifecycle hooks**: `before`/`after` callbacks for shared context setup and post-processing
@@ -36,7 +38,10 @@ content comes out joined, templated, cached, and typed.
 - [Basic Usage](#basic-usage)
   - [Defining the data you want](#defining-the-data-you-want)
   - [Types & casting](#types--casting)
+    - [The built-in catalogue](#the-built-in-catalogue)
+    - [Accessors](#accessors)
     - [Default values](#default-values)
+    - [Failure behaviour](#failure-behaviour)
   - [Adding and modifying values](#adding-and-modifying-values)
   - [Nested data structures](#nested-data-structures)
     - [The projection is the point of truth](#the-projection-is-the-point-of-truth)
@@ -47,8 +52,12 @@ content comes out joined, templated, cached, and typed.
   - [Transformers vs patterns](#transformers-vs-patterns)
 - [Advanced Usage](#advanced-usage)
   - [Custom types & casting options](#custom-types--casting-options)
+    - [Extending types](#extending-types)
+    - [Registering types](#registering-types)
     - [Loose casting](#loose-casting)
-    - [Strict types](#strict-types)
+    - [Strict and loose types](#strict-and-loose-types)
+    - [Opt-in type subsets](#opt-in-type-subsets)
+    - [Content types & security](#content-types--security)
   - [Multiple parser configurations](#multiple-parser-configurations)
   - [Merging data](#merging-data)
   - [Variables](#variables)
@@ -57,6 +66,7 @@ content comes out joined, templated, cached, and typed.
   - [Expressions & pipes](#expressions--pipes)
     - [Fallbacks & literals](#fallbacks--literals)
     - [Pipes](#pipes)
+    - [Types as pipes](#types-as-pipes)
     - [Escaping](#escaping)
   - [Resolving values without parsing](#resolving-values-without-parsing)
     - [Function values & the contextual `resolve`](#function-values--the-contextual-resolve)
@@ -213,7 +223,7 @@ const result = await myParser(rawDataFromApi);
 
 Every `types.*` entry both **types** the output and **casts** the value at runtime: the declared type is guaranteed in the result, not just suggested to TypeScript.
 
-The `types` object with all built-ins is returned by `initializeParser`. Re-export it from your parser config alongside `createParser` (as shown in [Get Started](#get-started)). The same built-ins are also individually importable from the tree-shakeable `@bou-co/parsing/types` entry point, which is ideal for standalone type files. Custom types are created with `defineType` and used directly in projections, no registration involved. See [Custom types & casting options](#custom-types--casting-options).
+The `types` namespace with all built-ins is returned by `initializeParser`. Re-export it from your parser config alongside `createParser` (as shown in [Get Started](#get-started)). The same built-ins are also individually importable from the tree-shakeable `@bou-co/parsing/types` entry point, which is ideal for standalone type files. Custom types are created with `defineType` (or by extending a type class) and used directly in projections; registering them is optional and only needed to use them as [pipes](#types-as-pipes). See [Custom types & casting options](#custom-types--casting-options).
 
 ```ts
 import { createParser, types } from '../path-to/parser-config';
@@ -222,7 +232,9 @@ const myParser = createParser({
   age: types.number,
   active: types.boolean,
   published: types.date,
-  tags: types.array(types.string),
+  tags: types.array.of(types.string),
+  contact: types.email,
+  website: types.url,
 });
 
 const result = await myParser({
@@ -230,6 +242,8 @@ const result = await myParser({
   active: 'true', // boolean-like string
   published: '2026-01-01', // date string
   tags: ['ts', 42], // mixed array
+  contact: 'Bob@Example.COM',
+  website: 'HTTPS://Example.com/a/../docs',
 });
 
 /* Result:
@@ -237,12 +251,28 @@ const result = await myParser({
   "age": 21,
   "active": true,
   "published": Date('2026-01-01T00:00:00.000Z'),
-  "tags": ["ts", "42"]
+  "tags": ["ts", "42"],
+  "contact": "bob@example.com",
+  "website": "https://example.com/docs"
 }
 */
 ```
 
-The built-in types cast conservatively: only lossless, unambiguous conversions are performed.
+Every type is configured by **chaining**, left to right: `types.string.default('Untitled')`, `types.number.round(2)`, `types.date.iso`, `types.array.of(types.number).unique`. Accessors without parameters are properties, parameterised ones are methods, and the inferred type of the field follows the last link of the chain (`types.date.year` is a `number`). The universal options — `default`, `required`, `strict`, `loose` — are also accepted as an **options object** by calling the token, so both of these are the same token:
+
+```ts
+title: types.string({ default: 'Untitled' }),
+title: types.string.default('Untitled'),
+
+tags: types.array({ default: [] }).of(types.number),
+tags: types.array.of(types.number).default([]),
+```
+
+Types are never parameters of a call: items go through `.of()` (`types.array.of(types.string)`), composition through `.to()`.
+
+#### The built-in catalogue
+
+The core types cast conservatively: only lossless, unambiguous conversions are performed.
 
 | Type                          | Accepted inputs                                                                       | Fails on                          |
 | ----------------------------- | ------------------------------------------------------------------------------------- | --------------------------------- |
@@ -251,25 +281,94 @@ The built-in types cast conservatively: only lossless, unambiguous conversions a
 | `types.boolean`               | booleans; `1`/`0`; `'true'`/`'false'` (case-insensitive)                              | other numbers/strings             |
 | `types.date`                  | `Date` instances; parseable date strings and epoch numbers                            | unparseable values                |
 | `types.object`                | plain objects (validated, passed through)                                             | arrays, primitives                |
-| `types.array`                 | arrays (passed through); `types.array(types.x)` also casts each item                  | non-arrays                        |
+| `types.array`                 | arrays (passed through); `types.array.of(types.x)` also casts each item               | non-arrays                        |
 | `types.any` / `types.unknown` | anything (pure pass-through, never fails)                                             | —                                 |
 
-`undefined` and `null` values always skip casting and are omitted from the output, so declared fields stay optional. When a present value cannot be cast, the parser throws a `ParserCastError` by default. See [Custom types & casting options](#custom-types--casting-options) for loose modes and defining your own types.
+The use-case types are always available too, with no configuration and no dependencies. Every one of them documents what it accepts, what it normalises, and what it rejects, because the normalisation is what surprises people:
 
-#### Default values
+| Type                     | Output    | Accepts                                                                   | Normalises to                                                                               | Rejects                                                   |
+| ------------------------ | --------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `types.text`             | `string`  | everything `string` does                                                  | trimmed, whitespace collapsed to single spaces; an empty result counts as **missing**       | what `string` rejects                                     |
+| `types.email`            | `string`  | `local@domain.tld` shapes                                                 | the **whole address lower-cased** (local part included)                                     | anything else                                             |
+| `types.url`              | `string`  | absolute URLs, exactly like `new URL()`                                   | `href` (host lower-cased, path resolved, `..` collapsed)                                    | relative paths (`/about`, `//cdn…`) — see `.base()` below |
+| `types.slug`             | `string`  | any string                                                                | diacritics stripped, lower-cased, everything else becomes `-` (`Hyvää yötä` → `hyvaa-yota`) | strings with no URL-safe characters left                  |
+| `types.color`            | `string`  | `#abc`, `#aabbcc`, `#aabbccdd`, `rgb()`/`rgba()`, `hsl()`/`hsla()`        | lower-case hex: `#rrggbb`, or `#rrggbbaa` when translucent                                  | named colours, malformed values                           |
+| `types.tel`              | `string`  | digits with spaces, dashes, dots, parentheses and an optional leading `+` | separators stripped, `+` kept: `+358 (0)40-123 4567` → `+3580401234567`                     | fewer than 7 or more than 15 digits; letters              |
+| `types.mimeType`         | `string`  | `type/subtype+suffix; params` (IANA media types)                          | type parts lower-cased, `; key=value` spacing normalised                                    | anything without a `type/subtype`                         |
+| `types.json`             | `unknown` | JSON strings; non-strings pass through                                    | `JSON.parse`d; compose `.of(inner)` for a real output type                                  | invalid JSON                                              |
+| `types.unique(item)`     | `T[]`     | arrays                                                                    | deduplicated like a `Set` (SameValueZero), order kept, returned as a **plain array**        | non-arrays, failing items                                 |
+| `types.oneOf(...values)` | union     | one of the given literals; numeric/boolean members also as strings        | the matching member                                                                         | anything else (the error lists the allowed values)        |
+| `types.pattern(regex)`   | `string`  | strings matching the regex                                                | unchanged, or the **named-group map** when the regex has named groups                       | non-matches (the error names the regex)                   |
 
-Every type accepts an options object with a `default`, used whenever the field would otherwise end up `undefined`: missing input (`undefined`/`null`) as well as failed casts resolved to `undefined` under `looseCasting: 'undefined'`. A field with a default is therefore never `undefined`, and its inferred output type is non-optional:
+`types.tel` is shape-only and explicitly not country-aware: it validates the E.164 length, not that a number exists in any dialling plan. `types.url` is absolute-only because that is what the platform does; CMS link fields that hold relative paths pair with `types.url.base('https://site.com')`, which mirrors `new URL(value, base)`:
+
+```ts
+const linkParser = createParser({
+  href: types.url.base('https://site.com'), // '/about' → 'https://site.com/about', absolute links pass through
+  path: types.url.base('https://site.com').pathname,
+});
+```
+
+`types.json` is about input **encoding** (a string that needs decoding), while a dictionary shape is about **output**: `types.json.of(types.record.of(types.number))` (with `record` from [`types/data`](#opt-in-type-subsets)) decodes a `'{"a": "1"}'` string into `{ a: 1 }`, typed `Record<string, number>`.
+
+#### Accessors
+
+An accessor returns a differently typed token, so inference follows it. Two kinds exist: a **transform** returns the same type in a different form and keeps chaining (`types.string.trim.upperCase.truncate(80)`), a **derivation** extracts or reinterprets part of the value and changes its type (`types.date.year` → `number`). Names are nouns describing the output, and families ship whole, never sampled.
+
+| Family     | Transforms (same type)                                                                                                                             | Derivations                                                                                                                                                  |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `string`   | `.upperCase` `.lowerCase` `.capitalize` `.titleCase` `.camel` `.pascal` `.kebab` `.snake` `.trim` `.truncate(n, ellipsis = true)` `.replace(a, b)` | `.length` → number · `.split(sep)` → `string[]`                                                                                                              |
+| `number`   | `.round(decimals = 0)` `.floor` `.ceil` `.abs` `.clamp(min, max)`                                                                                  | —                                                                                                                                                            |
+| `date`     | —                                                                                                                                                  | `.iso` `.isoDate` (`YYYY-MM-DD`) `.timestamp` · `.year` `.month` (**1–12**) `.day` `.hours` `.minutes` `.seconds` (UTC)                                      |
+| `array`    | `.of(item)` `.unique` `.compact` `.reverse`                                                                                                        | `.first` `.last` → item · `.length` → number · `.join(sep = ',')` → string                                                                                   |
+| `email`    | all of `string`                                                                                                                                    | `.local` `.domain`                                                                                                                                           |
+| `url`      | all of `string` · `.base(url)`                                                                                                                     | `.protocol` `.origin` `.host` `.hostname` `.port` `.pathname` `.search` `.hash` · `.params` → `Record<string, string>` (a repeated key keeps its last value) |
+| `color`    | all of `string`                                                                                                                                    | `.hex` `.rgb` `.hsl` · `.channels` → `{ r, g, b }` · `.alpha` → number                                                                                       |
+| `tel`      | all of `string`                                                                                                                                    | `.href` (`tel:+…`)                                                                                                                                           |
+| `mimeType` | all of `string`                                                                                                                                    | `.type` `.subtype` `.suffix` `.essence`                                                                                                                      |
+| `json`     | `.of(inner)` (keeps `inner`'s family)                                                                                                              | —                                                                                                                                                            |
+
+Inheritance is uniform: every string-based type — `text`, `email`, `slug`, `url`, `color`, `tel`, `mimeType`, `pattern`, and anything you build on `string` — exposes the full `string` set, and string-valued derivations (`email.domain`, `url.pathname`, `date.iso`, `array.join()`) are strings too, so `types.email.domain.upperCase` works. Some combinations are meaningless (`types.email.kebab`); that is fine, and better than a table of which type supports what. `.clamp` bounds a value rather than rejecting it, `.round` is decimal-safe (`1.005` → `1.01`), `.truncate` keeps the result within `n` characters including the `…`, and `.unique` compares like a `Set`.
+
+An accessor **inherits its base type's failure**: `types.email.domain` on an invalid email fails at the email cast and never returns a partial or a best guess. Accessors also cast first: `types.string.upperCase` on the number `12` yields `'12'`.
+
+Two accessors deliberately do not exist: `.int` on `number` (ambiguous between rounding and rejecting — use `.round()`) and `.sort` on `array` (JavaScript's default sort is lexicographic and the resulting bug is silent).
+
+#### Missing values and defaults
+
+Missing data is the everyday reality of CMS-backed pages, so casting never punishes it: a value that is **missing** — `undefined`, `null`, or the empty string `''` (never `false` or `0`) — skips the cast and the key is left out of the output, for every type. Only a value that is present _and does not fit_ is a cast failure. `types.text` additionally treats whitespace-only strings as missing.
+
+`.default(value)` (or `{ default: value }`) fills in whenever the field would otherwise end up `undefined`: missing input, a type that reports the value as missing, and failed casts under a non-throwing policy. A field with a default is therefore never `undefined`, and its inferred output type is non-optional:
 
 ```ts
 const myParser = createParser({
   title: types.string, // → string | undefined
-  displayName: types.string({ default: 'List item' }), // → string
-  retries: types.number({ default: 0 }), // → number
-  tags: types.array(types.string)({ default: [] }), // → string[]
+  displayName: types.text.default('List item'), // → string ('' and '   ' also become 'List item')
+  retries: types.number.default(0), // → number
+  tags: types.array.of(types.string).default([]), // → string[]
+  year: types.date.year.default(1970), // → number, the default sits at the end of the chain
 });
 ```
 
-The default is returned as-is (it is not cast; TypeScript already enforces it matches the output type) and also works with `defineType` via the object form: `defineType({ fn, default })`. It never masks hard failures: without `looseCasting`, a present-but-invalid value still throws, and `strict` types always do.
+The default is returned as-is (it is not cast; TypeScript already enforces it matches the output type) and also works with `defineType` via `{ fn, default }`. It never masks hard failures: under the default policy a present-but-invalid value still throws, and `.strict` types always do.
+
+When a field genuinely must be there, say so with `.required` (or `{ required: true }`): a missing value then fails like any other cast failure — thrown by default, dropped and logged under `looseCasting`, always thrown with `.strict` — and the field is non-optional in the inferred type:
+
+```ts
+const pageParser = createParser({
+  title: types.text.required, // '' or a missing title is an error
+  slug: types.slug({ required: true, strict: true }), // and always throws, even under looseCasting
+});
+```
+
+#### Failure behaviour
+
+Exactly two flows exist across the whole system, at the cast site and when a type runs as a [pipe](#types-as-pipes):
+
+1. **Throw.** A `ParserCastError` with the key path, the type name, and the received value. The default.
+2. **Log and undefined.** The value is dropped (the key is omitted from the output, or `.default()` fills it) and a warning is logged unless `onCastError` observes it.
+
+A failure is a value that is present and does not fit — or a missing value on a `.required` token. `looseCasting: true` switches a context to the second flow; a token can pin either flow for itself with `.strict` (always throw) or `.loose` (always undefined, silently). Because an uncast value never passes through, the inferred output types are true at runtime in every configuration. See [Loose casting](#loose-casting).
 
 ### Adding and modifying values
 
@@ -396,7 +495,7 @@ const myParser = createParser({
   title: types.string,
   meta: {
     version: 3, // constant, always present
-    theme: types.string({ default: 'light' }), // default, always present
+    theme: types.string.default('light'), // default, always present
     description: types.string, // needs data, omitted without it
   },
 });
@@ -521,20 +620,11 @@ Remember that for the common case you rarely define either: the built-in variabl
 
 ### Custom types & casting options
 
-Create your own types with `defineType`: a casting function `(value, context) => output` (sync or async) that returns the cast value or throws when the input is invalid. The result is a type token used **directly** in projections; there is no registration step, and one-off types are perfectly fine:
+Create your own types with `defineType`: a casting function `(value, context) => output` (sync or async) that returns the cast value or throws when the input is invalid. The result is a type token used **directly** in projections; one-off types are perfectly fine, and registration is only needed to use a type as a [pipe](#types-as-pipes):
 
 ```ts
 // my-types.ts, a standalone types file, no parser needed
 import { array, number, defineType } from '@bou-co/parsing/types';
-
-export const email = defineType(async (value, context) => {
-  if (typeof value !== 'string') throw new Error('Invalid email (not a string)');
-
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(value)) throw new Error('Invalid email (not a valid email format)');
-
-  return value;
-});
 
 export const dmy = defineType(async (value, context) => {
   const date = value instanceof Date ? value : new Date(value as string | number);
@@ -543,39 +633,101 @@ export const dmy = defineType(async (value, context) => {
 });
 
 // reusable combinations are just values too
-export const numbers = array(number); // → number[]
+export const numbers = array.of(number); // → number[]
 ```
 
 ```ts
 import { createParser } from '../path-to/parser-config';
-import { email, dmy, numbers } from '../path-to/my-types';
+import { dmy, numbers } from '../path-to/my-types';
 
 const myParser = createParser({
-  email, // → string
   date: dmy, // → { day: number; month: number; year: number }
   scores: numbers, // → number[]
 });
 ```
 
-The `@bou-co/parsing/types` entry point exports every built-in token individually (`string`, `number`, `boolean`, `date`, `object`, `array`, `any`, `unknown`) plus `defineType`, is tree-shakeable, and never pulls in the parser engine, so shared type files stay lightweight and work with any parser configuration.
+The `@bou-co/parsing/types` entry point exports every built-in token and class individually plus `defineType`, is tree-shakeable (named imports keep only the types you use), and never pulls in the parser engine, so shared type files stay lightweight and work with any parser configuration.
+
+#### Extending types
+
+A type can be **built from another type**, inheriting its casting behaviour and its whole accessor surface. This is the load-bearing case behind `types.text`, which is not a sibling of `string` but `string` plus CMS tidying, and it is how your own types get the full chain for free. Two styles produce exactly the same kind of object; pick whichever reads naturally to you.
+
+The functional style: `defineType` with `extends`. The parent's cast runs first, `fn` refines its output (so `value` is already a `string` below), `accessors` add property accessors and `methods` add parameterised ones:
+
+```ts
+import { defineType, types } from '@bou-co/parsing/types';
+
+export const productCode = defineType({
+  name: 'productCode',
+  extends: types.string,
+  fn: (value) => {
+    if (!/^P\d{4}$/.test(value)) throw new Error('Invalid product code');
+    return value;
+  },
+  accessors: { number: (code) => Number(code.slice(1)) }, // types.productCode.number → number
+  methods: { prefixed: (prefix: string) => (code) => `${prefix}${code}` }, // types.productCode.prefixed('#')
+});
+
+productCode.upperCase; // inherited from string
+productCode.default('P0000').number; // own accessors survive default/strict/loose
+```
+
+The class style, for the same result, with `super.cast` giving you the parent's coercion (a cast may return `undefined` to say "treat as missing"). `defineType(Class)` is the factory that turns the class into a token — the same call the built-ins use — and takes the options object too:
+
+```ts
+import { StringType, type ParserContext } from '@bou-co/parsing/types';
+
+export class SkuType extends StringType {
+  override async cast(value: unknown, context?: ParserContext) {
+    const text = await super.cast(value, context);
+    if (text === undefined) return undefined;
+    if (!/^[A-Z]+-\d+$/i.test(text)) throw new Error('Invalid SKU');
+    return text.toUpperCase();
+  }
+  get vendor() {
+    return this.derive('vendor', (sku) => sku.split('-')[0]); // memoised, hashed by name + implementation
+  }
+}
+
+export const sku = defineType(SkuType);
+export const requiredSku = defineType(SkuType, { required: true });
+```
+
+Inline, inside a projection, the universal chain covers the small cases: `.extend(fn)` keeps the family (a transform: `types.text.extend((v) => v.replace(/\s+/g, ' '))` is still a `text`), `.to(fn)` derives a new output (`types.slug.to((v) => v.length)` is a `number`), and `.to(token)` composes two casts while keeping the target's family (`types.json.to(types.array.of(types.number)).unique`). Every token also has `.cast(value)` for standalone use, which throws on failure.
+
+Types hash into cache keys by their implementation (accessor names, parameters and function sources included), so caching stays correct when a type changes. When a **factory** creates several types from one function (closures are invisible to hashing), give each a `name` to keep their cache identities apart; the name also shows up in `ParserCastError`.
+
+#### Registering types
+
+Registering a type puts it on the `types` namespace **and** makes it available as a pipe under the same name. Registration follows the three context levels; at the global (object form) level it also extends the returned namespace, with full typing:
+
+```ts
+import { initializeParser } from '@bou-co/parsing';
+import { formatTypes } from '@bou-co/parsing/types/format';
+import { productCode } from './my-types';
+
+export const { createParser, types } = initializeParser({
+  types: {
+    ...formatTypes, // an opt-in subset
+    productCode, // types.productCode, and '{{ code | productCode }}'
+    date: { relative: (value: Date) => timeAgo(value) }, // an accessor map extends the built-in date: types.date.relative
+  },
+});
+```
+
+Namespace registration deep-merges: an accessor map under an existing family's name adds accessors (annotate the value parameter, `(value: Date)`, for a typed accessor), a token or factory under a new name adds a type, and a token under a built-in's name replaces it with a warning. Schema-level (`createParser(projection, { types })`) and instance-level (`parser(data, { types })`) registrations reach the pipe layer as well. A function-form global context can register types too, but they are pipe-visible only, since the returned namespace has to exist synchronously.
 
 #### Loose casting
 
-By default a failed cast throws a `ParserCastError` (with the failing key path, target type, and received value). Set `looseCasting` to relax this globally, or per parser / per call, since it is a regular context option:
+By default a failed cast throws a `ParserCastError` (with the failing key path, target type, and received value). Set `looseCasting: true` to switch to the other flow — log a warning and drop the value, so the key is omitted or the token's `.default()` fills it — globally, or per parser / per call, since it is a regular context option:
 
 ```ts
 export const { createParser, types } = initializeParser({
-  looseCasting: true, // default is false: pass the original value through and log a warning
+  looseCasting: true, // default is false: log a warning and drop the value
 });
 ```
 
-```ts
-export const { createParser, types } = initializeParser({
-  looseCasting: 'undefined', // return undefined instead (the key is omitted from the output)
-});
-```
-
-> Note: with `looseCasting: true` the declared output types become best-effort: the runtime may pass through an uncast original value that TypeScript still types as the declared type. Use `'undefined'` if the output types should stay fully honest (the fields are optional in the inferred type anyway).
+There is no mode that passes an uncast original value through, so the declared output types are true in every configuration (the fields are optional in the inferred type anyway).
 
 To observe cast failures (e.g. for telemetry) instead of relying on the console warning, register an `onCastError` callback. It receives the `ParserCastError` (with `path`, `type`, and `received`) before the failure policy is applied, and replaces the default warning when set. Like `looseCasting`, it can be set globally, per parser, or per call.
 
@@ -586,23 +738,72 @@ export const { createParser, types } = initializeParser({
 });
 ```
 
-#### Strict types
+#### Strict and loose types
 
-A type marked `strict` always throws on failure, even when `looseCasting` is enabled. Use it for values where silently passing bad data through is never acceptable. Pass an object definition `{ fn, strict }` to `defineType`:
+A token can pin its own failure flow regardless of `looseCasting`. `.strict` always throws, for values where silently dropping bad data is never acceptable; `.loose` never throws (the value becomes `undefined`, then the default, silently — `onCastError` still fires), for fields that are nice to have:
 
 ```ts
-import { defineType } from '@bou-co/parsing/types';
+createParser({
+  brandColor: types.color.strict, // throws on bad input even under looseCasting: true
+  avatar: types.url.loose, // omitted on bad input even under the default policy
+  score: types.number.loose.default(0),
+});
+```
 
-export const hexColor = defineType({
-  fn: (value) => {
-    if (typeof value !== 'string' || !/^#[0-9a-f]{6}$/i.test(value)) throw new Error('Invalid hex color');
-    return value;
+The object form of `defineType` accepts `strict: true` for the same effect.
+
+#### Opt-in type subsets
+
+The opinionated and the heavy types live behind their own import paths, so the default surface stays scannable and nothing unused reaches a bundle. Each subset is a plain object that spreads into a registration, and every type in it works as a pipe once registered:
+
+| Import                          | Contents                                                                                                                                                              |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@bou-co/parsing/types/format`  | `formatDate(format?, timezone?, locale?)`, `currency(code?, locale?)`, `percent(digits?, locale?)`, `time`, `duration` (+ `.iso`), `money` (+ `.amount`, `.currency`) |
+| `@bou-co/parsing/types/data`    | `record.of(value)`, `schema(validator)`, `coords` (+ `.lat`, `.lng`), `locale` (+ `.language`, `.region`)                                                             |
+| `@bou-co/parsing/types/content` | `html(adapter)`, `markdown(parser, sanitiser)` with `.plain`, and the adapters — the only path that touches peer dependencies                                         |
+| `@bou-co/parsing/types/all`     | `format` + `data` (never the content types)                                                                                                                           |
+
+Single types import directly too (`@bou-co/parsing/types/format/currency`).
+
+`formatDate` is Angular `DatePipe` compatible — the presets (`short`, `mediumDate`, `longTime`, …) and the token set (`y`, `MMMM`, `LLLL` standalone month, `EEEE`, `HH:mm`, `a`, `z`, `Z`, `O`, `w`, `W`, `Y`, `S`, `'quoted'` literals) — built on `Intl.DateTimeFormat`, so every locale the runtime supports works without shipping locale data. IANA zones (`Europe/Helsinki`) are recommended; Angular's numeric offsets (`+0430`) are accepted as a fixed shift. The locale defaults to the context's `currentLocale`/`defaultLocale` (the [localize](#global-localization-via-transformers) fields), then `en-US`.
+
+`schema(validator)` accepts anything implementing [Standard Schema](https://standardschema.dev) — Zod 4, Valibot, ArkType — and infers its output type. The answer to "can I do complex validation" is "bring your schema", never a refinement API of our own:
+
+```ts
+import { z } from 'zod';
+import { schema } from '@bou-co/parsing/types/data';
+
+const parser = createParser({
+  settings: schema(z.object({ theme: z.enum(['light', 'dark']) })), // → { theme: 'light' | 'dark' }
+});
+```
+
+#### Content types & security
+
+`html` and `markdown` do not implement sanitisation: they adapt to an established sanitiser, and the choice is yours. Two adapters ship, the peer packages are optional (installing `@bou-co/parsing` never installs them), and a missing one produces an error naming the package to install:
+
+```ts
+import { html, markdown, markedAdapter, sanitizeHtmlAdapter, ultrahtmlAdapter } from '@bou-co/parsing/types/content';
+
+export const { createParser, types } = initializeParser({
+  types: {
+    html: html(sanitizeHtmlAdapter()), // options pass straight through: sanitizeHtmlAdapter({ allowedTags: [...] })
+    markdown: markdown(markedAdapter(), sanitizeHtmlAdapter()),
   },
-  strict: true,
 });
 
-// createParser({ brandColor: hexColor }) throws on bad input even under looseCasting: true
+createParser({
+  body: types.html, // safe HTML string
+  teaser: types.html.plain.truncate(160), // stripped to text
+  notes: types.markdown, // rendered and sanitised
+});
 ```
+
+- **`sanitizeHtmlAdapter`** (`sanitize-html`) is the recommended default: the most configurable (`transformTags`, `exclusiveFilter`, allow-listed inline `style` properties) and, decisively for a security control, actively maintained. Around 60 KB gzipped, server-oriented.
+- **`ultrahtmlAdapter`** (`ultrahtml`) is the light option for edge runtimes, workers and the browser at under 2 KB. Its sanitizer follows the HTML Sanitizer API's element model, so the adapter adds the attribute policy: event handlers and `javascript:`/`data:` URLs are always dropped, plus a conservative element drop-list unless you pass `allowElements`. Its release cadence is the concern; the adapter shape is the contingency, and the browser-native Sanitizer API becomes a zero-dependency adapter once it is broadly available.
+- `isomorphic-dompurify` is deliberately not offered: it needs jsdom on the server and accumulates DOM state in long-running processes. A user-written adapter is a few lines if you already sanitise with DOMPurify in the browser.
+
+Zero-config behaviour is the safe one for both adapters, and **Markdown output always passes through the sanitiser** — Markdown permits raw HTML, so rendering without sanitising is an XSS hole. Guidance, not enforcement: rich text from your own CMS editors is semi-trusted and the light adapter is a reasonable choice; genuinely user-generated content (comments, profiles) warrants the hardened one. A `css` type is not shipped: CSS sanitisation is its own specialist discipline, and inline-style allow-listing in `sanitize-html` covers the realistic CMS need.
 
 ### Multiple parser configurations
 
@@ -619,7 +820,7 @@ export const { createParser, types } = initializeParser({
 ```ts
 // client-config.ts
 export const { createParser, types } = initializeParser({
-  looseCasting: 'undefined', // render what we can, drop what we can't
+  looseCasting: true, // render what we can, drop what we can't
 });
 ```
 
@@ -775,19 +976,18 @@ The resolver is called with the **head segment only** (`{{user.name}}` calls it 
 
 ### Expressions & pipes
 
-Everything between the delimiters of a variable (`{{ here }}`) is an **expression**, and the same grammar is shared by any custom [pattern](#patterns) that declares its own delimiters. Expressions stay deliberately small: fallback chains, literals, and a single pipe. No loops, no conditionals, no arbitrary code.
+Everything between the delimiters of a variable (`{{ here }}`) is an **expression**, and the same grammar is shared by any custom [pattern](#patterns) that declares its own delimiters. Expressions stay deliberately small: fallback chains, literals, and pipes. No loops, no conditionals, no arbitrary code.
 
 #### Fallbacks & literals
 
-Chain candidates with `||`; they evaluate left to right and the first **defined** value wins. Only `undefined` falls through: `false`, `0`, and `''` are valid results and stop the chain.
+Chain candidates with `||`; they evaluate left to right and the first **defined** value wins. Only `undefined` falls through: `false`, `0`, `''` and `null` are valid results and stop the chain.
 
-Literals can appear as fallback candidates or as pipe parameters:
+Literals can appear as candidates or as pipe parameters:
 
-- **Strings** in double quotes: `"Guest"`
-- **Numbers** (integers): `42`
+- **Strings** in double quotes: `"Guest"`, `""`, `"say \"hi\""`. Quoted text may contain `|`, `:` and single quotes (`"MMM d 'at' HH:mm"`), which is what date patterns need.
+- **Numbers**: `42`, `-1.5`
 - **Booleans**: `true` / `false`
-
-A literal in the value position is returned exactly as written. A pipe after a literal does not apply.
+- **`null`** and **`undefined`**
 
 ```ts
 const rawDataFromCMS = {
@@ -797,9 +997,11 @@ const rawDataFromCMS = {
 };
 ```
 
+A whole-string expression returns its value raw, so `'{{ missing || null }}'` in a projected key resolves to `null` — which the projection treats as missing (the key is dropped, or the token default applies).
+
 #### Pipes
 
-A pipe transforms the resolved value inline: `{{value | pipe}}`, or with parameters, `{{value | pipe:param1:param2}}`. One pipe per expression. Parameters may be literals or variable names (resolved from `variables`).
+A pipe transforms the resolved value inline: `{{value | pipe}}`, or with parameters, `{{value | pipe:param1:param2}}`. Pipes chain left to right (`{{ price | round:2 | currency:"EUR" }}`), a literal candidate can be piped, and parameters may be literals or variable names (resolved from `variables`).
 
 Pipe functions are plain value functions registered under the `pipes` config, at the global, schema, or instance level, exactly like variables, with the more specific level winning on a name collision. Each pipe is called with the parser context, where `data` (and `value`) is the resolved value being piped and `params` holds the parsed parameters:
 
@@ -811,22 +1013,48 @@ export const { createParser, types } = initializeParser({
     user: { firstName: 'john' },
   },
   pipes: {
-    uppercase: ({ data }) => String(data).toUpperCase(),
-    truncate: ({ data, params: [length = 50] = [] }) => String(data).slice(0, length),
+    displayName: async ({ data }) => (await fetchProfile(String(data))).displayName,
   },
 });
 
 const parser = createParser({ user: types.string, teaser: types.string });
 
 const result = await parser({
-  user: 'Hello {{user.firstName || "Guest" | uppercase}}!',
+  user: 'Hello {{user.firstName || "Guest" | upperCase}}!',
   teaser: '{{article.teaser | truncate:120}}',
 });
 
 /* result.user === 'Hello JOHN!' */
 ```
 
-When a value resolves to `undefined`, its pipe is skipped and the fallback chain moves on; set `pipeUndefined: true` in the context to run pipes on `undefined` values anyway.
+When a value resolves to `undefined`, its pipes are skipped and the fallback chain moves on; set `pipeUndefined: true` in the context to run pipes on `undefined` values anyway. When a pipe chain _yields_ `undefined`, the chain moves on as well.
+
+Casting types are the shallow end of this: simple, usually pure, no configuration, and available in every template without writing a pipe (next section). Pipes are the deep end, where the work gets advanced — resolving a display name from a UID, reaching into per-request context, coordinating a fetch. That is a difference of convention and complexity, not capability: types receive the context and may be async too. The one hard difference is inference — if a value needs to be typed in the projection output, it has to be a type.
+
+#### Types as pipes
+
+Every casting type is automatically a pipe under the same name, with the same parameters. The projection form and the template form are two syntaxes over one implementation, and a name learned in one works in the other unchanged:
+
+```ts
+createParser({
+  publishedAt: types.date.iso, // projection
+  meta: types.string,
+});
+// '{{ event.date | date.iso }}'   ← template, same behaviour, same name
+```
+
+- **Qualified names** are always available: `date.iso`, `number.round:2`, `url.base:"https://site.com"`, `email.domain`, `email.loose`. Parameters attach to the last member.
+- **Root names** exist for every accessor whose name is unique across families: `upperCase`, `round:2`, `unique`, `join:", "`, `iso`, `domain`. The root form carries its base type's cast — `{{ someNumber | upperCase }}` casts to string first, then upper-cases, which is what a template author expects. A name declared by two families (`length` on `string` and `array`) has no root form and needs the qualified one; a registered type that introduces such a collision logs a warning. Explicit `pipes` always win over type names.
+- **Parameterised types** take their parameters as pipe parameters: `{{ status | oneOf:"draft":"published" }}`, `{{ code | pattern:"^P\\d{4}$" }}`. Types whose parameters are tokens (`unique(item)`, `array.of`, `schema`) cannot be called from a template; `{{ tags | unique }}` resolves to the `array.unique` accessor instead.
+- **Registered types** are pipes at whichever level they were registered — global, schema, or instance.
+
+Because a type can fail, a template expression can now **validate**:
+
+```ts
+'{{ profile.contact | email || "hello@example.com" }}';
+```
+
+The failure policy is the same as at the cast site — throw by default, undefined under `looseCasting: true`, `.strict`/`.loose` pinned per token — with one deliberate addition: a written `||` fallback is the author's stated policy for that expression, so a failed cast yields `undefined` and the chain continues, even under the throwing policy. `{{ contact | email }}` alone still throws by default; `{{ contact | email || undefined }}` or `{{ contact | email.loose }}` say "undefined is fine" without a replacement. `onCastError` observes every failure either way.
 
 #### Escaping
 
@@ -1835,21 +2063,25 @@ Advanced structural controls available as keys within your schema definition.
 
 ### Built-in Types
 
-The `types` object (returned by `initializeParser` and also available as individual named exports from the tree-shakeable `@bou-co/parsing/types` entry point) provides casting types for standard properties:
+The `types` namespace (returned by `initializeParser`, also available as individual named exports from the tree-shakeable `@bou-co/parsing/types` entry point) provides casting types for standard properties, all configured by chaining:
 
 - **Primitives**: `types.string`, `types.number`, `types.boolean`, `types.date`, `types.object`, `types.any`, `types.unknown`.
-- **Arrays**: `types.array` (pass-through validation) or per-item casting via `types.array(types.string)`, `types.array(types.number)`, including nesting (`types.array(types.array(types.number))`).
-- **Custom types**: created anywhere with `defineType` and used directly as projection values. See [Custom types & casting options](#custom-types--casting-options).
+- **Arrays**: `types.array` (pass-through validation) or per-item casting via `types.array.of(types.string)`, including nesting (`types.array.of(types.array.of(types.number))`); `types.unique(item)` for deduplicated arrays.
+- **Use cases**: `types.text`, `types.email`, `types.url`, `types.slug`, `types.color`, `types.tel`, `types.mimeType`, `types.json`, `types.oneOf(...values)`, `types.pattern(regex)`.
+- **Universal chain** on every token: `.default(value)`, `.required`, `.strict`, `.loose`, `.extend(fn)`, `.to(fn | token)`, `.cast(value)`; plus `name` and `id`. The same options are accepted as an object: `types.x({ default, required, strict, loose })`.
+- **Classes**: `TypeToken`, `StringType`, `NumberType`, `BooleanType`, `DateType`, `ObjectType`, `ArrayType`, `TextType`, `EmailType`, `UrlType`, `SlugType`, `ColorType`, `TelType`, `MimeTypeType`, `JsonType`, `OneOfType`, `PatternType` — for `class Mine extends StringType`.
+- **Custom types**: created anywhere with `defineType` or a class and used directly as projection values; registered through the `types` config to become pipes. See [Custom types & casting options](#custom-types--casting-options).
+- **Opt-in subsets**: `@bou-co/parsing/types/format`, `types/data`, `types/content`, `types/all`. See [Opt-in type subsets](#opt-in-type-subsets).
 
-Every type casts its value at runtime after variables and transformers have resolved; `undefined`/`null` values skip casting and are omitted, unless the type carries a `default` (`types.string({ default: 'x' })`), which fills in whenever the field would end up `undefined` and makes it non-optional. Failed casts throw a `ParserCastError` unless `looseCasting` allows them through. See [Types & casting](#types--casting) for the full casting table and [Default values](#default-values).
+Every type casts its value at runtime after variables and transformers have resolved; missing values (`undefined`, `null`, `''`) skip casting and are omitted, unless the type carries a `.default()`, which fills in whenever the field would end up `undefined` and makes it non-optional, or is `.required`, which makes a missing value a failure. Failed casts throw a `ParserCastError` unless `looseCasting` (or a `.loose` token) drops the value instead. See [Types & casting](#types--casting) for the full catalogue and accessor tables.
 
-> **Migration note:** the v2 string identifiers (`title: 'string'`, `items: 'array<string>'`, …) are no longer supported: using one as a projection value throws a migration error at runtime. Other string literals still work as constants.
+> **Migration note:** the v2 string identifiers (`title: 'string'`, `items: 'array<string>'`, …) are no longer supported: using one as a projection value throws a migration error at runtime. Other string literals still work as constants. The early v3 release-candidate form `types.array(types.x)` is `types.array.of(types.x)`.
 
 ### Utility Functions
 
 #### `defineType(definition)`
 
-Creates a standalone reusable type from a casting function or `{ fn, strict?, name?, default? }` object, with the output type inferred from `fn`. The result is used directly as a projection value. Exported from both the package root and `@bou-co/parsing/types`.
+Creates a standalone reusable type from a casting function, from a type class (`defineType(SkuType, options?)`), or from a definition object `{ fn, name?, default?, required?, strict?, loose?, extends?, accessors?, methods? }`, with the output type inferred from `fn` (or from `extends`, whose cast runs first and whose accessors are inherited). The result is used directly as a projection value. Exported from both the package root and `@bou-co/parsing/types`. See [Extending types](#extending-types).
 
 ```ts
 import { defineType } from '@bou-co/parsing/types';
@@ -1972,31 +2204,31 @@ const article = await articleParser(raw);
 
 ### Feature overview
 
-| Aspect                              | Zod                                             | Bou Parsing                                                 |
-| ----------------------------------- | ----------------------------------------------- | ----------------------------------------------------------- |
-| Primary job                         | validate that data matches a schema             | project raw data into a new shape                           |
-| Schema style                        | chained builders (`z.object(...)`)              | plain-object projections                                    |
-| Validation & casting                | core feature: `z.coerce`, codecs (`z.codec()`)  | final pipeline stage; every `types.*` token casts           |
-| Custom types                        | `.refine()`, `.transform()`, `z.custom()`       | `defineType` (sync/async, `strict`)                         |
-| Default values                      | `.default()`                                    | `types.x({ default })`, field becomes non-optional          |
-| Type inference                      | `z.infer<>`, `z.input<>`/`z.output<>`           | inferred from the projection literal                        |
-| Composition                         | `.extend()`, `.pick()`, `.omit()`, `.partial()` | `.extend()`, `.flat`, `.asArray`, nested parsers            |
-| Conditional shapes                  | unions, `z.discriminatedUnion`                  | `@if`, dynamic projections                                  |
-| Recursive schemas                   | first-class, recursive type inference           | lazy value functions, no recursive inference                |
-| Field picking / derived values      | `.pick()` / `.omit()` for shape¹                | the core concept²                                           |
-| Async                               | opt-in (`.parseAsync()`)                        | async-native, all keys resolve in parallel                  |
-| Error handling                      | full issue array, non-throwing `safeParse`      | throws on first cast failure; `looseCasting`, `onCastError` |
-| Standard Schema & JSON Schema       | implements both                                 | —                                                           |
-| Size & performance                  | ~2 kb core, `z.compile()` AOT³                  | parallel resolution, server-side caching                    |
-| React                               | via ecosystem resolvers                         | `useParserValue` hook                                       |
-| Ecosystem                           | huge, the standard                              | focused; meta-framework level API capabilities              |
-| Sub-queries / merging external data | —                                               | `@combine`, value functions, `.flat`                        |
-| Context (per-request values)        | —                                               | global / schema / instance levels                           |
-| Templating & custom patterns        | —⁴                                              | `{{variables}}`, pipes, pattern API                         |
-| Global value transformers           | —⁵                                              | `transformers` config, shipped localize                     |
-| Lifecycle hooks                     | —                                               | `before` / `after`                                          |
-| Caching                             | —                                               | pluggable storage, whole-parse cache, `context.store`       |
-| Schema-less resolution              | —                                               | `resolve()` on plain values                                 |
+| Aspect                              | Zod                                             | Bou Parsing                                                                                                  |
+| ----------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Primary job                         | validate that data matches a schema             | project raw data into a new shape                                                                            |
+| Schema style                        | chained builders (`z.object(...)`)              | plain-object projections                                                                                     |
+| Validation & casting                | core feature: `z.coerce`, codecs (`z.codec()`)  | final pipeline stage; every `types.*` token casts                                                            |
+| Custom types                        | `.refine()`, `.transform()`, `z.custom()`       | `defineType` / `class … extends StringType`, chainable accessors                                             |
+| Default values                      | `.default()`                                    | `.default()` / `{ default }`, field becomes non-optional; missing input is never an error unless `.required` |
+| Type inference                      | `z.infer<>`, `z.input<>`/`z.output<>`           | inferred from the projection literal                                                                         |
+| Composition                         | `.extend()`, `.pick()`, `.omit()`, `.partial()` | `.extend()`, `.flat`, `.asArray`, nested parsers                                                             |
+| Conditional shapes                  | unions, `z.discriminatedUnion`                  | `@if`, dynamic projections                                                                                   |
+| Recursive schemas                   | first-class, recursive type inference           | lazy value functions, no recursive inference                                                                 |
+| Field picking / derived values      | `.pick()` / `.omit()` for shape¹                | the core concept²                                                                                            |
+| Async                               | opt-in (`.parseAsync()`)                        | async-native, all keys resolve in parallel                                                                   |
+| Error handling                      | full issue array, non-throwing `safeParse`      | throws on first cast failure; `looseCasting`, `onCastError`                                                  |
+| Standard Schema & JSON Schema       | implements both                                 | consumes Standard Schema via `schema()` (`types/data`)                                                       |
+| Size & performance                  | ~2 kb core, `z.compile()` AOT³                  | parallel resolution, server-side caching                                                                     |
+| React                               | via ecosystem resolvers                         | `useParserValue` hook                                                                                        |
+| Ecosystem                           | huge, the standard                              | focused; meta-framework level API capabilities                                                               |
+| Sub-queries / merging external data | —                                               | `@combine`, value functions, `.flat`                                                                         |
+| Context (per-request values)        | —                                               | global / schema / instance levels                                                                            |
+| Templating & custom patterns        | —⁴                                              | `{{variables}}`, pipes, pattern API                                                                          |
+| Global value transformers           | —⁵                                              | `transformers` config, shipped localize                                                                      |
+| Lifecycle hooks                     | —                                               | `before` / `after`                                                                                           |
+| Caching                             | —                                               | pluggable storage, whole-parse cache, `context.store`                                                        |
+| Schema-less resolution              | —                                               | `resolve()` on plain values                                                                                  |
 
 <sub>¹ Derived values are not the focus; `.transform()` can reshape output.</sub><br>
 <sub>² There is no rename directive; renaming happens through value functions or `get('a.b')`.</sub><br>
@@ -2019,13 +2251,13 @@ The tail of that table is the point, so here it is in plain words:
 
 None of this comes from plugins. Everything is core API built on the same context system, so when the built-ins are not enough, you extend the same machinery yourself instead of hunting for third-party packages. That is what "meta-framework level API capabilities" means in the table above.
 
-To be equally clear about the other direction, Zod has things Bou Parsing does not. It implements the Standard Schema spec, so it drops straight into tRPC, TanStack Form, and anything else that speaks it. It converts schemas to JSON Schema (fed by its metadata registries), reports every problem at once through `ZodError` and the non-throwing `safeParse`, and its ~2 kb core with AOT-compiled hot paths is hard to beat when validation is all you need.
+To be equally clear about the other direction, Zod has things Bou Parsing does not. It implements the Standard Schema spec, so it drops straight into tRPC, TanStack Form, and anything else that speaks it (Bou Parsing sits on the other side of that contract: `schema(zodSchema)` consumes any Standard Schema inside a projection). It converts schemas to JSON Schema (fed by its metadata registries), reports every problem at once through `ZodError` and the non-throwing `safeParse`, and its ~2 kb core with AOT-compiled hot paths is hard to beat when validation is all you need. Leaf-level chaining (`types.string.default('x')`) does not change the contrast in schema style: the projection itself is still a plain object, and chaining only ever configures one leaf.
 
 ### Which one to use
 
 - **Lean towards Zod** when you are validating untrusted input at a boundary: form submissions, request bodies, environment variables. Same if you need JSON Schema output or the ecosystem around it (tRPC, react-hook-form, and friends).
 - **Lean towards Bou Parsing** in the data layer: shaping CMS content, aggregating multiple APIs on the server, computing or fetching per-field values, templating editor content, caching the results.
-- **They compose.** Validate a request body with Zod at the edge, then project it (and everything it references) onward with a parser. Use Zod when the output you want is an error report; lean on Bou Parsing when the output is the data your UI renders.
+- **They compose**, as an API rather than advice. Validate a request body with Zod at the edge, then project it (and everything it references) onward with a parser; or drop a Zod schema straight into a projection with `schema()` where a field genuinely needs schema validation. Use Zod when the output you want is an error report; lean on Bou Parsing when the output is the data your UI renders.
 
 ---
 

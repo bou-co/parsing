@@ -41,7 +41,12 @@ nested parser manually from inside a value function. Passing a full parser conte
 ## Types and casting
 
 Every `types.*` entry both types the output and casts the value at runtime. Casts are
-conservative — only lossless, unambiguous conversions happen.
+conservative — only lossless, unambiguous conversions happen. Tokens are configured by
+**chaining** (`types.string.default('x')`, `types.number.round(2)`, `types.date.iso`,
+`types.array.of(types.string).unique`) — no-parameter accessors are properties, parameterised
+ones are methods — or by calling the token with an **options object** for the universal
+options: `types.string({ default: 'x', required: true, strict: true })` ≡ the chain. Items go
+through `.of()`, never as call parameters (`types.array(x)` from early RCs is `.of(x)`).
 
 | Type                          | Accepts                                                                                                                      | Fails on                           |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
@@ -51,10 +56,31 @@ conservative — only lossless, unambiguous conversions happen.
 | `types.date`                  | `Date` instances; parseable date strings; epoch numbers (incl. `0`)                                                          | unparseable values (`''`, `false`) |
 | `types.object`                | any non-array object (`Date`, `Map`, class instances pass through)                                                           | arrays, primitives                 |
 | `types.array`                 | arrays (passed through)                                                                                                      | non-arrays                         |
-| `types.array(types.x)`        | arrays, casting each item with `x`                                                                                           | non-arrays; any failing item       |
+| `types.array.of(types.x)`     | arrays, casting each item with `x`                                                                                           | non-arrays; any failing item       |
 | `types.any` / `types.unknown` | anything (pure pass-through)                                                                                                 | never fails                        |
+| `types.text`                  | what `string` does; trims, collapses whitespace, `''` → **missing**                                                          | what `string` rejects              |
+| `types.email`                 | `local@domain.tld`; lower-cases the **whole** address                                                                        | anything else                      |
+| `types.url`                   | absolute URLs (`new URL()`), normalised `href`; `.base(url)` for relative fields                                             | `/relative`, `//protocol-relative` |
+| `types.slug`                  | any string → diacritics stripped, lower-case, `-` separated                                                                  | nothing URL-safe left              |
+| `types.color`                 | hex / `rgb()` / `hsl()` → lower-case `#rrggbb[aa]`                                                                           | named colours, malformed           |
+| `types.tel`                   | separators stripped, optional `+`, 7–15 digits (shape only, not country-aware)                                               | wrong length, letters              |
+| `types.mimeType`              | `type/subtype+suffix; params`, lower-cased                                                                                   | no `type/subtype`                  |
+| `types.json`                  | JSON strings parsed, non-strings pass; `.of(inner)` for a typed result                                                       | invalid JSON                       |
+| `types.unique(item)`          | arrays, deduplicated like a `Set`, returned as a plain array                                                                 | non-arrays                         |
+| `types.oneOf(...v)`           | one of the literals (numeric/boolean members also as strings); union type                                                    | anything else                      |
+| `types.pattern(re)`           | matching strings; named groups → group map                                                                                   | non-matches                        |
 
-Nesting works: `types.array(types.array(types.number))`.
+Accessor families (transforms keep the type and chain; derivations change it): `string`
+`.upperCase .lowerCase .capitalize .titleCase .camel .pascal .kebab .snake .trim .truncate(n)
+.replace(a, b)` / `.length .split(sep)`; `number` `.round(n) .floor .ceil .abs .clamp(min, max)`;
+`date` `.iso .isoDate .timestamp .year .month (1–12) .day .hours .minutes .seconds` (UTC);
+`array` `.of(item) .unique .compact .reverse` / `.first .last .length .join(sep)`; `email`
+`.local .domain`; `url` `.protocol .origin .host .hostname .port .pathname .search .params .hash`;
+`color` `.hex .rgb .hsl .channels .alpha`; `tel` `.href`; `mimeType` `.type .subtype .suffix
+.essence`. Every string-based type (and every string-valued derivation) has the full `string`
+set. An accessor fails at the base cast — never a partial. Universal on every token:
+`.default(v) .required .strict .loose .extend(fn) .to(fn | token) .cast(value)`, and the
+options object `({ default, required, strict, loose })`.
 
 There is **no `types.undefined`** — accessing it throws a migration error. Use the
 `optional` util or just omit the key.
@@ -64,198 +90,53 @@ individually from `@bou-co/parsing/types`:
 
 ```ts
 import { string, number, array, defineType } from '@bou-co/parsing/types';
-export const scores = array(number); // reusable combinations are just values
+export const scores = array.of(number); // reusable combinations are just values
 ```
 
 That entry point is tree-shakeable and never pulls in the engine, so shared type files stay
-light and work against any engine configuration.
+light and work against any engine configuration. Opt-in subsets: `@bou-co/parsing/types/format`
+(`formatDate`, `currency`, `percent`, `time`, `duration`, `money`), `types/data` (`record`,
+`schema`, `coords`, `locale`), `types/content` (`html`, `markdown` + sanitiser adapters, peer
+deps), `types/all` (format + data). Register them: `initializeParser({ types: { ...formatTypes } })`.
 
 ### Failure behaviour
 
-A present-but-uncastable value throws `ParserCastError`, carrying `path`, `type`, `key`,
-`received`, and `cause`. `looseCasting` relaxes this — see `features.md`. A type created
-with `{ strict: true }` always throws regardless of `looseCasting`.
+Exactly two flows. A present-but-uncastable value throws `ParserCastError` (carrying `path`,
+`type`, `key`, `received`, `cause`) — or, under `looseCasting: true`, is logged and dropped
+(the key is omitted / the default fills). Nothing ever passes through uncast, so inferred
+types are true at runtime. Per token: `.strict` always throws, `.loose` always drops
+(silently; `onCastError` still fires). `defineType({ strict: true })` is the object-form
+equivalent.
 
-`undefined`/`null` never fail: they skip casting and the key is omitted.
+**Missing never fails.** `undefined`, `null` and `''` (not `false`, not `0`) skip casting for
+every type and the key is omitted (or the default fills). The only exception is `.required`
+/ `{ required: true }`: a missing value then fails like any other failure (thrown by
+default, dropped under `looseCasting`, always thrown with `.strict`), and the field is
+non-optional in the inferred type.
 
 ## Default values
 
-Every token accepts an options object with `default`:
+Every token has `.default(value)`:
 
 ```ts
 createParser({
   title: types.string, // → string | undefined
-  displayName: types.string({ default: 'Item' }), // → string
-  retries: types.number({ default: 0 }), // → number
-  tags: types.array(types.string)({ default: [] }), // → string[]
+  displayName: types.text.default('Item'), // → string; '' and '  ' also become 'Item'
+  retries: types.number.default(0), // → number
+  tags: types.array.of(types.string).default([]), // → string[]
+  year: types.date.year.default(1970), // → number — the default goes at the END of a chain
 });
 ```
 
-The default applies whenever the field would end up `undefined` — missing input, or a failed
-cast resolved to `undefined` under `looseCasting: 'undefined'`. It is returned **as-is and
-not cast** (TypeScript already enforces it matches). It never masks hard failures: without
-`looseCasting`, a present-but-invalid value still throws, and `strict` types always do.
+The default applies whenever the field would end up `undefined` — missing input (`''`
+included), a cast that reports "missing" (`text` on whitespace), or a failed cast under
+`looseCasting: true` / `.loose`. It
+is returned **as-is and not cast** (TypeScript already enforces it matches). It never masks
+hard failures: under the default policy a present-but-invalid value still throws, and
+`.strict` types always do.
 
 Its most important side effect is on the type: a defaulted field is non-optional in the
 inferred output, which removes a whole class of `?.` from consuming code.
-
-## Value functions
-
-A value function receives the `ParserContext` and may be sync or async. All keys resolve in
-parallel, so async functions don't serialise.
-
-```ts
-createParser({
-  // read the raw value at this key
-  price: ({ value }) => Number(value) * 1.24,
-
-  // read anywhere in the current level's data
-  slug: ({ data }) => slugify(data.title),
-
-  // async sub-query
-  author: async ({ data }) => (await fetch(`/authors/${data.authorId}`)).json(),
-
-  // return another parser to parse a value conditionally
-  child: ({ data }) => (data['child'] ? childParser : undefined),
-
-  // resolve the current raw value's templates on demand
-  total: async ({ resolve }) => (await resolve<number>()) * 5,
-});
-```
-
-Returning `undefined` omits the key. Returning a parser causes that parser to run against
-the appropriate data — which is how you make a nested parse conditional. Returning a **type
-token** applies it as a cast to the raw value at the key, so a function can pick the type
-dynamically: `flag: ({ data }) => (data.kind === 'strict' ? types.boolean : types.string)`.
-
-## The ParserContext object
-
-Passed to every value function, transformer, pipe, hook, and pattern resolver.
-
-| Field          | Meaning                                                                                                        |
-| -------------- | -------------------------------------------------------------------------------------------------------------- |
-| `data`         | Raw input at the **current nesting level**. `{}` during projection-driven resolution                           |
-| `value`        | The raw incoming value at this key (`data?.[key]`). Never eagerly resolved                                     |
-| `key`          | The key currently being evaluated                                                                              |
-| `index`        | Numeric index when inside an array                                                                             |
-| `isRoot`       | `true` only at the actual root — `false` inside every kind of nesting                                          |
-| `parent`       | The enclosing level's context, chaining to the root (`undefined` at root)                                      |
-| `path`         | Chain of projection references from root to here                                                               |
-| `datalessPath` | Present **only** during projection-driven resolution — how a value function detects it is running without data |
-| `projection`   | The active projection at this level                                                                            |
-| `variables`    | Merged global + schema + instance variables, plus `current` (root input)                                       |
-| `pipes`        | Merged pipe functions                                                                                          |
-| `params`       | Inside a pipe: resolved parameters after the pipe name; `undefined` if none                                    |
-| `resolve`      | Contextual `resolve` that inherits active context. Zero-arg form resolves `context.value`                      |
-| `store`        | `store(key, fn, options?)` — get-or-compute caching for one value                                              |
-| `storage`      | Direct access to the configured storage backend                                                                |
-| `cache`        | Merged caching options                                                                                         |
-| `parser`       | The underlying `Parser` instance                                                                               |
-| `onCastError`  | The configured cast-error observer, if any                                                                     |
-| `looseCasting` | The active loose-casting policy                                                                                |
-
-Custom properties added via `withContext`, hooks, or instance context also live here. Type
-them with module augmentation:
-
-```ts
-declare module '@bou-co/parsing' {
-  interface CommonContext {
-    currentLocale?: string;
-  }
-}
-```
-
-**Reserved keys** — written by the engine _after_ your context spreads, so custom properties
-with these names are silently overwritten: `data`, `key`, `projection`, `variables`, `pipes`,
-`isRoot`, `cache`, `value`, `parent`, `path`, `store`, `resolve`, `datalessPath`. Treat
-`parser`, `index`, and `params` as reserved too (`parser` is engine-set _before_ the spreads,
-`index` is injected for array items, `params` inside pipes).
-
-## Nesting
-
-Three ways, with different semantics:
-
-```ts
-createParser({
-  // 1. Inline nested projection — resolves against data.details
-  details: { desc: types.string, level: types.number },
-
-  // 2. Nested parser — parses data.seo with its own engine binding and context
-  seo: seoParser,
-
-  // 3. Flattened parser — parses data.seo, merges fields into the parent, drops 'seo'
-  seo: seoParser.flat,
-});
-```
-
-A nested parser stays bound to the engine that created it: it keeps its own transformers,
-whole-parse cache storage, and variable cache, while parent context values still merge down
-(on collisions the parent's values win). That's what makes cross-configuration composition
-safe.
-
-`.flat` behaves like `@combine`: merged fields override same-named regular keys and are typed
-optional. The result must be an object — `.flat` on array data throws.
-
-Schema-level `cache` options do **not** flow into nested parsers; each brings its own
-`createParser` cache config. Per-call cache still propagates.
-
-## Arrays
-
-```ts
-createParser({
-  // Inline: apply the rest of this projection to each item
-  tags: { '@array': true, name: types.string, label: ({ index }) => `#${index}` },
-
-  // Parser variant: parse each item
-  authors: authorParser.asArray,
-
-  // Positional: a different projection per index.
-  // Use plain projections here — parsers in positional slots resolve to {} (see gotchas.md)
-  pair: [{ name: types.string }, { v: types.number }],
-});
-```
-
-Arrays expose `index` on the context. Unlike object projections, all three array forms
-**require array input** and are skipped when it's missing — they are never produced
-projection-driven.
-
-`parser.asArray` is a derived variant, not the parser itself: `parser.asArray !== parser`.
-It still hashes as its base parser (`String(parser.asArray) === String(parser)`), and calling
-it directly bypasses whole-parse caching — see `caching.md`.
-
-## Type inference and optionality
-
-The output type is derived from the projection literal. There is nothing to write and no
-generic to pass.
-
-```ts
-const parser = createParser({
-  title: types.string,
-  count: types.number({ default: 0 }),
-  tags: types.array(types.string),
-  kind: typed<'a' | 'b'>,
-});
-
-type Out = ParserReturnValue<typeof parser>;
-// { title?: string; count: number; tags?: string[]; kind?: 'a' | 'b' }
-```
-
-Rules:
-
-- Plain type tokens → optional
-- Tokens with `default` → required
-- Constants → their literal type
-- Value functions → their return type (annotate the function if inference is too wide)
-- Nested projections → recursively inferred, optional
-- `.flat` merged fields → optional
-
-`typed<T>` forces a specific type where a token can't express it; it passes `data[key]`
-through **without casting**, so it's a type assertion, not a guarantee.
-
-Two things break inference honesty, both worth knowing: `looseCasting: true` can leave a
-runtime value that doesn't match the declared type, and a transformer or pattern that
-reshapes a value (localize collapsing an object to a string) makes the inferred type
-inaccurate. Neither is a bug — they're the cost of runtime extensibility.
 
 ## The three context levels
 

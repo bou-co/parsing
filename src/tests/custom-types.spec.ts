@@ -33,7 +33,7 @@ describe('custom types', () => {
 
   it('supports standalone type files composed from the types entry point', async () => {
     // Simulates a user-repo my-types.ts: aliases and customs built with no engine involved
-    const numbers = array(number);
+    const numbers = array.of(number);
     const shout = defineType((value) => `${String(value)}!`);
 
     const a = initializeParser({ variables: { who: 'a' } });
@@ -53,6 +53,6 @@ describe('custom types', () => {
   it('shares token identity between the types entry point and initializeParser', () => {
     const { types } = initializeParser();
     expect(string).toBe(types.string);
-    expect(array(number)).toBe(types.array(types.number));
+    expect(array.of(number)).toBe(types.array.of(types.number));
   });
 });

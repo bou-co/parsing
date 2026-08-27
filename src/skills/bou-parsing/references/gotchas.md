@@ -300,6 +300,45 @@ is injected through the instance context only for array items — outside arrays
 `index` survives. `params` is engine-set inside pipe contexts. Treat all of them as reserved
 anyway.
 
+### Calling a token takes an options object, never a type
+
+`types.string({ default: 'x' })` and `types.string.default('x')` are the same token. But
+`types.array(types.string)` (an early v3 RC form) throws — items go through `.of()`. A token
+placed in `pipes` or `variables` gets called with a context and throws a targeted error:
+register it under `types`. Use `.cast(value)` for a standalone cast.
+
+### The empty string is missing
+
+`''` skips casting for every type, like `undefined`/`null`: `{ title: '' }` yields no `title`
+(or its default). `false` and `0` are values. Only `.required` tokens fail on missing input,
+and `types.text` also treats whitespace-only strings as missing.
+
+### `.to(fn)` leaves the family; `.extend(fn)` keeps it
+
+`types.string.to((v) => v.length)` is a base `TypeToken<number>` with no string accessors —
+correct, it's a number. `types.text.extend(fn)` is still a `text`. String-valued built-in
+derivations (`email.domain`, `url.pathname`, `date.iso`, `html.plain`) _are_ `StringType`s,
+so `.plain.truncate(160)` works; a user `.to()` returning a string is not, unless you
+`.to(types.string)` afterwards.
+
+### `length` has no root pipe name
+
+Both `string` and `array` declare `.length`, so `{{ x | length }}` is "Pipe not found" —
+use `string.length` / `array.length`. Built-in collisions are silent by design; a
+registered type colliding with a built-in accessor name logs a warning once.
+
+### `null` in a fallback chain stops it — and drops the key
+
+`{{ a || null }}` returns `null` (a defined value). As a whole-string projected value that
+`null` is treated as missing: the key is omitted or the token default applies. Inside text it
+splices as `"null"`.
+
+### Type pipes throw unless you write a fallback
+
+`{{ contact | email }}` throws on an invalid email under the default policy, exactly like
+`contact: types.email` would. `{{ contact | email || "n/a" }}` falls back; `|| undefined` or
+`email.loose` for "undefined is fine".
+
 ### Pipes must live in `pipes`, not `variables`
 
 A function left in `variables` and used as `{{x | fn}}` throws a targeted error naming the key

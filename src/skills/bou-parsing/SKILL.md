@@ -20,7 +20,7 @@ surprises people:
 
 ```ts
 const parser = createParser({
-  title: types.string, // cast from data.title
+  title: types.text, // cast from data.title (string + CMS tidying)
   slug: ({ data }) => slugify(data.title), // derived
   postType: 'blogPost', // constant
   author: async ({ data }) => fetchAuthor(data.authorId), // sub-query
@@ -42,21 +42,23 @@ Every parser is async and resolves all keys in parallel. Its natural home is the
 
 This table is the core of the API. Anything in the left column is a legal projection value:
 
-| Value                                  | Behaviour                                                                  |
-| -------------------------------------- | -------------------------------------------------------------------------- |
-| `types.string`, `types.number`, …      | Read `data[key]`, cast at runtime, infer the type                          |
-| `types.array(types.x)`                 | Validate array, cast each item                                             |
-| `types.x({ default: v })`              | Fill in `v` when the field would be `undefined`; makes it **non-optional** |
-| A custom `defineType(...)` token       | Same, with your casting/validation function                                |
-| A literal (`'blogPost'`, `42`, `true`) | Constant, passed through as-is                                             |
-| `(context) => value`                   | Value function; sync or async; receives `ParserContext`                    |
-| `{ … }`                                | Nested projection                                                          |
-| `{ '@array': true, … }`                | Nested projection applied per array item                                   |
-| Another parser                         | Nested parse of `data[key]`                                                |
-| `parser.asArray`                       | Nested parse per array item                                                |
-| `parser.flat`                          | Parse `data[key]`, **merge fields into parent**, drop the key              |
-| `cacheResult(keyTemplate, fn)`         | Value function whose result is cached in storage                           |
-| `typed<T>`                             | Type-only annotation, passes `data[key]` through                           |
+| Value                                            | Behaviour                                                                                |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `types.string`, `types.email`, …                 | Read `data[key]`, cast at runtime, infer the type                                        |
+| `types.array.of(types.x)`                        | Validate array, cast each item                                                           |
+| `types.x.default(v)` / `types.x({ default: v })` | Fill in `v` when the field would be `undefined`; makes it **non-optional**               |
+| `types.x.required` / `{ required: true }`        | A missing value (`undefined`/`null`/`''`) is a failure; non-optional in the type         |
+| `types.date.iso`, `types.number.round(2)`        | Chained accessor: casts, then derives/transforms; inferred type follows the chain        |
+| A custom `defineType(...)` token                 | Same, with your casting/validation function (extend a built-in to inherit its accessors) |
+| A literal (`'blogPost'`, `42`, `true`)           | Constant, passed through as-is                                                           |
+| `(context) => value`                             | Value function; sync or async; receives `ParserContext`                                  |
+| `{ … }`                                          | Nested projection                                                                        |
+| `{ '@array': true, … }`                          | Nested projection applied per array item                                                 |
+| Another parser                                   | Nested parse of `data[key]`                                                              |
+| `parser.asArray`                                 | Nested parse per array item                                                              |
+| `parser.flat`                                    | Parse `data[key]`, **merge fields into parent**, drop the key                            |
+| `cacheResult(keyTemplate, fn)`                   | Value function whose result is cached in storage                                         |
+| `typed<T>`                                       | Type-only annotation, passes `data[key]` through                                         |
 
 Directive keys (`'@if'`, `'@combine'`, `'@array'`) are structural, not values — see
 `references/features.md`. `@combine` is prefix-matched (`'@combine:stats'` works, several per
@@ -69,7 +71,7 @@ Every projected key runs through four stages **in this order**:
 1. **Pick** — read the raw value, or run the value function / nested parser
 2. **Transformers** — global `when`/`then` hooks may replace the whole value
 3. **Patterns** — strings are scanned for `{{variable}}` (and any custom pattern) and spliced
-4. **Cast** — the `types.*` token casts the final value
+4. **Cast** — the `types.*` token casts the final value (accessors run after the base cast)
 
 Most confusion about "why is my value the wrong shape" is a pipeline-order question. Two
 consequences worth holding onto:
@@ -89,9 +91,10 @@ The rules that determine optionality:
 
 - A plain `types.x` field is `T | undefined` (optional). The library assumes any value may
   be absent.
-- `types.x({ default: v })` makes it `T` (non-optional).
-- `undefined`/`null` input **skips casting entirely** and the key is omitted from the
-  output — it does not throw and does not become `null`.
+- `types.x.default(v)` makes it `T` (non-optional). `types.text` reports `''` as missing, so its default fires on empty CMS strings.
+- `undefined`/`null`/`''` input is **missing**: it skips casting entirely and the key is
+  omitted from the output — it does not throw and does not become `null`. `false` and `0`
+  are values. Only `.required` tokens fail on missing input.
 - A nested projection whose every field depended on missing data resolves to `{}` and the
   **whole key is dropped**.
 

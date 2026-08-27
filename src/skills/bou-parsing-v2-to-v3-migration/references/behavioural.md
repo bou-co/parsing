@@ -30,7 +30,7 @@ const parser = createParser({
   title: types.string,
   meta: {
     version: 3, // constant
-    theme: types.string({ default: 'light' }), // default
+    theme: types.string.default('light'), // default
     description: types.string, // needs data
   },
 });

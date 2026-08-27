@@ -61,7 +61,7 @@ lookup can't accidentally trigger an external fetch.
 ### Expressions, fallbacks, and pipes
 
 Everything inside the delimiters is an _expression_. The grammar is deliberately tiny:
-fallback chains, literals, one pipe. No loops, no conditionals, no arbitrary code.
+fallback chains, literals, chained pipes. No loops, no conditionals, no arbitrary code.
 
 **Fallbacks** chain with `||`, left to right; the first **defined** value wins. Only
 `undefined` falls through — `false`, `0`, `''`, and even `null` are valid results that stop
@@ -73,26 +73,25 @@ the chain (unlike JavaScript's `||`).
 '{{flags.showBanner || false}}';
 ```
 
-Literals: double-quoted strings, integers, `true`/`false` — no floats, negative numbers, or
-single quotes (those parse as variable paths), and a literal containing `||` splits as a
-fallback. A literal in the value position is returned exactly as written, and a pipe after a
-literal does not apply.
+Literals: double-quoted strings (may contain `|`, `:`, single quotes; `\"` escapes; `""` is
+the empty string), numbers (`42`, `-1.5`), `true`/`false`, `null`, `undefined`. A literal
+candidate can be piped (`{{ "x" | upperCase }}`). A whole-string `{{ a || null }}` resolves
+to `null`, which a projected key treats as missing.
 
-**Pipes** transform the resolved value inline: `{{value | pipe}}` or
-`{{value | pipe:p1:p2}}`. One pipe per expression — a second `| pipe` is silently discarded —
-and the pipe binds to its own fallback branch: in `{{a || b | upper}}` only the `b` branch is
-piped. Parameters may be literals or variable names; parameter names resolve from
+**Pipes** transform the resolved value inline: `{{value | pipe}}`,
+`{{value | pipe:p1:p2}}`, and they **chain**: `{{ price | round:2 | currency:"EUR" }}`. A
+pipe binds to its own fallback branch: in `{{a || b | upper}}` only the `b` branch is piped.
+Parameters may be literals or variable names; parameter names resolve from
 `context.variables` only (no `data.*`/`ctx.*` heads, no `variableResolver`).
 
 ```ts
 initializeParser({
   variables: { user: { firstName: 'john' } },
   pipes: {
-    uppercase: ({ data }) => String(data).toUpperCase(),
-    truncate: ({ data, params: [len = 50] = [] }) => String(data).slice(0, len),
+    displayName: async ({ data }) => (await fetchProfile(String(data))).displayName,
   },
 });
-// '{{user.firstName || "Guest" | uppercase}}' → 'JOHN'
+// '{{user.firstName || "Guest" | upperCase}}' → 'JOHN'   (upperCase is the string type's accessor)
 // '{{article.teaser | truncate:120}}'
 ```
 
@@ -101,8 +100,24 @@ used as a pipe throws a targeted error. Pipes are configurable at all three cont
 Inside a pipe, `data` (and `value`) is the piped value and `params` holds the parsed
 parameters.
 
-When a value resolves to `undefined`, its pipe is skipped and the fallback chain moves on.
-Set `pipeUndefined: true` in context to run pipes on `undefined` anyway.
+When a value resolves to `undefined`, its pipes are skipped and the fallback chain moves on.
+Set `pipeUndefined: true` in context to run pipes on `undefined` anyway. When a pipe chain
+_yields_ `undefined`, the fallback chain moves on too.
+
+**Types are pipes.** Every casting type — built-in or registered via `types` at any level — is
+a pipe under the same name with the same parameters. Qualified names always work
+(`date.iso`, `number.round:2`, `url.base:"https://x"`, `email.domain`, `email.loose`;
+parameters attach to the last member); root names exist for accessors unique across families
+(`upperCase`, `round:2`, `unique`, `join:", "`) and carry the base cast (`{{ 12 | upperCase }}`
+→ `'12'`). `length` exists on both `string` and `array`, so only `string.length` /
+`array.length` work. Explicit `pipes` shadow type names. Literal-parameter factories work
+(`oneOf:"a":"b"`, `pattern:"^x$"`); token-parameter ones (`unique(item)`, `schema`) don't.
+
+Failure in a type pipe follows the cast-site policy (throw by default, drop under
+`looseCasting: true`, `.strict`/`.loose` pinned) with one addition — **a written `||`
+fallback wins**: `{{ contact | email || "n/a" }}` yields `"n/a"` on an invalid email even
+under the throwing policy. `{{ contact | email }}` alone throws; `{{ contact | email || undefined }}`
+or `{{ contact | email.loose }}` say "undefined is fine". `onCastError` fires either way.
 
 **Escaping:** a backslash directly before a match suppresses it and is consumed —
 `\{{name}}` outputs `{{name}}`. `\\` before a match yields a literal backslash and the match
@@ -377,7 +392,7 @@ makes every projection-driven resolution non-empty — hook output counts as out
 parser's hook runs first, then the extension's, which receives the context the base hook
 returned (identical function references are deduped). All other context keys keep the normal
 deep-merge semantics (nested objects like `variables` merge, the extension wins on scalars) —
-only `before`/`after` chain. There is no way to *remove* a base hook by extending; create a
+only `before`/`after` chain. There is no way to _remove_ a base hook by extending; create a
 separate parser if you need the hook gone.
 
 ---

@@ -43,19 +43,24 @@ export function get<T = unknown>(path: string, from?: AppObject) {
  * @param objects - The objects to merge with the base schema.
  * @returns A new object that combines the base object with the provided objects.
  */
+const isPlainObject = (value: unknown): value is AppObject => {
+  if (typeof value !== 'object' || value === null) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
+
 export const mergeObjects = <T = AppObject>(...objects: (AppObject | undefined)[]): T => {
   return objects
     .filter((obj) => obj !== undefined)
     .reduce((acc, object) => {
       Object.entries(object).forEach(([key, value]) => {
-        if (typeof value === 'object' && value !== null) {
-          if (Array.isArray(value)) {
-            if (!Array.isArray(acc[key])) acc[key] = [];
-            acc[key] = [...acc[key], ...value];
-          } else {
-            acc[key] = mergeObjects(acc[key] || {}, value);
-          }
+        if (Array.isArray(value)) {
+          if (!Array.isArray(acc[key])) acc[key] = [];
+          acc[key] = [...acc[key], ...value];
+        } else if (isPlainObject(value)) {
+          acc[key] = mergeObjects(acc[key] || {}, value);
         } else {
+          // Class instances (type tokens, Date, URL, ...) are atomic — recursing would strip their prototype
           acc[key] = value;
         }
       });
