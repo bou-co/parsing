@@ -4,7 +4,7 @@ export const getFromObject = async (from: object, path: string, context?: unknow
     if (!from) return undefined;
     const keys = path.split('.');
     // Go through each key in the path
-    return keys.reduce(async (acc, key): Promise<VariablesObj> => {
+    return await keys.reduce(async (acc, key): Promise<VariablesObj> => {
       // Resolve asynchronous accumulator
       let current = await acc;
       // If the current value is not an object or is null, return undefined
