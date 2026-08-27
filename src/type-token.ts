@@ -375,7 +375,8 @@ const composeTokens = (parent: TypeToken, target: TypeToken): TypeToken => {
   defineHidden(token, '_state', {
     ...target._state,
     id: undefined,
-    name: `${parent.name}.to(${target.name})`,
+    // Composing onto a bare family root (`.to(string)`) only retypes the value — the parent's name stays the readable one
+    name: target.id === target._state.base ? parent.name : `${parent.name}.to(${target.name})`,
     derived: { parent, key: 'to', params: [], source: target.id },
   } satisfies TypeTokenState);
   return token;

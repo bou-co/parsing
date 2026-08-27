@@ -286,21 +286,21 @@ The core types cast conservatively: only lossless, unambiguous conversions are p
 
 The use-case types are always available too, with no configuration and no dependencies. Every one of them documents what it accepts, what it normalises, and what it rejects, because the normalisation is what surprises people:
 
-| Type                     | Output    | Accepts                                                                   | Normalises to                                                                               | Rejects                                                   |
-| ------------------------ | --------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `types.text`             | `string`  | everything `string` does                                                  | trimmed, whitespace collapsed to single spaces; an empty result counts as **missing**       | what `string` rejects                                     |
-| `types.email`            | `string`  | `local@domain.tld` shapes                                                 | the **whole address lower-cased** (local part included)                                     | anything else                                             |
-| `types.url`              | `string`  | absolute URLs, exactly like `new URL()`                                   | `href` (host lower-cased, path resolved, `..` collapsed)                                    | relative paths (`/about`, `//cdn…`) — see `.base()` below |
-| `types.slug`             | `string`  | any string                                                                | diacritics stripped, lower-cased, everything else becomes `-` (`Hyvää yötä` → `hyvaa-yota`) | strings with no URL-safe characters left                  |
-| `types.color`            | `string`  | `#abc`, `#aabbcc`, `#aabbccdd`, `rgb()`/`rgba()`, `hsl()`/`hsla()`        | lower-case hex: `#rrggbb`, or `#rrggbbaa` when translucent                                  | named colours, malformed values                           |
-| `types.tel`              | `string`  | digits with spaces, dashes, dots, parentheses and an optional leading `+` | separators stripped, `+` kept: `+358 (0)40-123 4567` → `+3580401234567`                     | fewer than 7 or more than 15 digits; letters              |
-| `types.mimeType`         | `string`  | `type/subtype+suffix; params` (IANA media types)                          | type parts lower-cased, `; key=value` spacing normalised                                    | anything without a `type/subtype`                         |
-| `types.json`             | `unknown` | JSON strings; non-strings pass through                                    | `JSON.parse`d; compose `.of(inner)` for a real output type                                  | invalid JSON                                              |
-| `types.unique(item)`     | `T[]`     | arrays                                                                    | deduplicated like a `Set` (SameValueZero), order kept, returned as a **plain array**        | non-arrays, failing items                                 |
-| `types.oneOf(...values)` | union     | one of the given literals; numeric/boolean members also as strings        | the matching member                                                                         | anything else (the error lists the allowed values)        |
-| `types.pattern(regex)`   | `string`  | strings matching the regex                                                | unchanged, or the **named-group map** when the regex has named groups                       | non-matches (the error names the regex)                   |
+| Type                     | Output    | Accepts                                                                                                                             | Normalises to                                                                                                                                                 | Rejects                                                         |
+| ------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `types.text`             | `string`  | everything `string` does                                                                                                            | textarea-style tidying: trimmed, line endings `\n`, spaces/tabs collapsed, extra blank lines folded; **line breaks kept**; nothing left counts as **missing** | what `string` rejects                                           |
+| `types.email`            | `string`  | `local@domain.tld` shapes                                                                                                           | trimmed, **case kept as written** (`.normalized` lower-cases, `.href` → `mailto:`)                                                                            | anything else                                                   |
+| `types.url`              | `string`  | absolute URLs, exactly like `new URL()`                                                                                             | `href` (host lower-cased, path resolved, `..` collapsed)                                                                                                      | relative paths (`/about`, `//cdn…`) — see `.base()` below       |
+| `types.slug`             | `string`  | any string                                                                                                                          | ASCII slug: Latin letters folded/transliterated, lower-cased, everything else becomes `-` (`Hyvää yötä` → `hyvaa-yota`) — see [Slugs](#slugs)                 | strings with no URL-safe characters left (non-Latin-only input) |
+| `types.color`            | `string`  | `#abc`, `#aabbcc`, `#aabbccdd`, `rgb()`/`rgba()`, `hsl()`/`hsla()`                                                                  | lower-case hex: `#rrggbb`, or `#rrggbbaa` when translucent                                                                                                    | named colours, malformed values                                 |
+| `types.tel`              | `string`  | digits with spaces, dashes, dots, slashes, parentheses, an optional leading `+` and an optional extension (`ext. 12`, `x12`, `#12`) | **kept as written** (trimmed) — `.normalized` → `+3580401234567`, `.href` → `tel:+3580401234567;ext=12`                                                       | fewer than 3 or more than 15 digits; letters                    |
+| `types.mimeType`         | `string`  | `type/subtype+suffix; params` (IANA media types)                                                                                    | type parts lower-cased, `; key=value` spacing normalised                                                                                                      | anything without a `type/subtype`                               |
+| `types.json`             | `unknown` | JSON strings; non-strings pass through                                                                                              | `JSON.parse`d; compose `.of(inner)` for a real output type                                                                                                    | invalid JSON                                                    |
+| `types.unique(item)`     | `T[]`     | arrays                                                                                                                              | deduplicated like a `Set` (SameValueZero), order kept, returned as a **plain array**                                                                          | non-arrays, failing items                                       |
+| `types.oneOf(...values)` | union     | one of the given literals; numeric/boolean members also as strings                                                                  | the matching member                                                                                                                                           | anything else (the error lists the allowed values)              |
+| `types.pattern(regex)`   | `string`  | strings matching the regex                                                                                                          | unchanged, or the **named-group map** when the regex has named groups                                                                                         | non-matches (the error names the regex)                         |
 
-`types.tel` is shape-only and explicitly not country-aware: it validates the E.164 length, not that a number exists in any dialling plan. `types.url` is absolute-only because that is what the platform does; CMS link fields that hold relative paths pair with `types.url.base('https://site.com')`, which mirrors `new URL(value, base)`:
+`types.tel` is the display form: it validates the shape (3–15 digits plus the usual separators) and keeps the editor's formatting, so the same raw field feeds both the visible label and the link — `phoneTitle: get('phoneNumber', types.tel), phoneLink: get('phoneNumber', types.tel.href)` (see [`get`](#getpath-from-type)). It is explicitly not country-aware: no dialling plan is checked and `00`/`011` prefixes are not rewritten to `+`. `types.email` follows the same idea — the address is kept as written (the local part is technically case-sensitive), with `.normalized` for a lower-cased comparison key and `.href` for the `mailto:` link. `types.url` is absolute-only because that is what the platform does; CMS link fields that hold relative paths pair with `types.url.base('https://site.com')`, which mirrors `new URL(value, base)`:
 
 ```ts
 const linkParser = createParser({
@@ -310,6 +310,26 @@ const linkParser = createParser({
 ```
 
 `types.json` is about input **encoding** (a string that needs decoding), while a dictionary shape is about **output**: `types.json.of(types.record.of(types.number))` (with `record` from [`types/data`](#opt-in-type-subsets)) decodes a `'{"a": "1"}'` string into `{ a: 1 }`, typed `Record<string, number>`.
+
+#### Slugs
+
+`types.slug` produces an ASCII slug (`[a-z0-9]` words joined by single `-`) in the most script-neutral way that works **without locale data**. The steps, in order:
+
+1. trim;
+2. transliterate the Latin letters Unicode decomposition cannot fold: `ß` → `ss`, `æ` → `ae`, `œ` → `oe`, `ø` → `o`, `ł` → `l`, `đ`/`ð` → `d`, `þ` → `th`, `ħ` → `h`, `ŧ` → `t`, `ŋ` → `n`, `ı` → `i`;
+3. NFKD normalisation and removal of every combining mark — `Hyvää yötä` → `hyvaa yota`, `Łódź` → `lodz`, `crème brûlée` → `creme brulee`, `Tiếng Việt` → `tieng viet`, fullwidth and ligature forms fold too;
+4. lower-case;
+5. every run of anything outside `a-z0-9` becomes one `-`, leading and trailing `-` removed;
+6. nothing left → `Invalid slug`.
+
+Two limits are deliberate. **Non-Latin scripts** (Cyrillic, Greek, CJK, Arabic, …) have no ASCII form and are dropped, so `Привет 2024` → `2024` and a value made only of them **fails** rather than silently becoming `-`. And **locale conventions** are not applied: German prefers `ä` → `ae`, some sites want `&` → `and`, and romanising Cyrillic is a per-language table. Those belong in a pre-step composed in front of `slug` — `.to(types.slug)` keeps the `slug` family, so every accessor still chains:
+
+```ts
+const germanSlug = types.string.replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').to(types.slug);
+const russianSlug = types.string.extend(romanise).to(types.slug); // your own transliteration first
+const suffixed = types.slug.extend((value) => `${value}-2024`); // post-processing keeps the family too
+const validated = types.pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/); // validate only, never normalise
+```
 
 #### Accessors
 
@@ -321,10 +341,11 @@ An accessor returns a differently typed token, so inference follows it. Two kind
 | `number`   | `.round(decimals = 0)` `.floor` `.ceil` `.abs` `.clamp(min, max)`                                                                                  | —                                                                                                                                                            |
 | `date`     | —                                                                                                                                                  | `.iso` `.isoDate` (`YYYY-MM-DD`) `.timestamp` · `.year` `.month` (**1–12**) `.day` `.hours` `.minutes` `.seconds` (UTC)                                      |
 | `array`    | `.of(item)` `.unique` `.compact` `.reverse`                                                                                                        | `.first` `.last` → item · `.length` → number · `.join(sep = ',')` → string                                                                                   |
-| `email`    | all of `string`                                                                                                                                    | `.local` `.domain`                                                                                                                                           |
+| `text`     | all of `string` · `.singleLine`                                                                                                                    | `.characterCount` `.wordCount` `.lineCount` `.readingTime(wpm = 200)` → number · `.lines` `.paragraphs` → `string[]`                                         |
+| `email`    | all of `string` · `.normalized` (lower-cased)                                                                                                      | `.local` `.domain` · `.href` (`mailto:…`)                                                                                                                    |
 | `url`      | all of `string` · `.base(url)`                                                                                                                     | `.protocol` `.origin` `.host` `.hostname` `.port` `.pathname` `.search` `.hash` · `.params` → `Record<string, string>` (a repeated key keeps its last value) |
 | `color`    | all of `string`                                                                                                                                    | `.hex` `.rgb` `.hsl` · `.channels` → `{ r, g, b }` · `.alpha` → number                                                                                       |
-| `tel`      | all of `string`                                                                                                                                    | `.href` (`tel:+…`)                                                                                                                                           |
+| `tel`      | all of `string` · `.normalized` (`+` and digits only)                                                                                              | `.href` (`tel:+…;ext=…`) · `.extension`                                                                                                                      |
 | `mimeType` | all of `string`                                                                                                                                    | `.type` `.subtype` `.suffix` `.essence`                                                                                                                      |
 | `json`     | `.of(inner)` (keeps `inner`'s family)                                                                                                              | —                                                                                                                                                            |
 
@@ -336,7 +357,7 @@ Two accessors deliberately do not exist: `.int` on `number` (ambiguous between r
 
 #### Missing values and defaults
 
-Missing data is the everyday reality of CMS-backed pages, so casting never punishes it: a value that is **missing** — `undefined`, `null`, or the empty string `''` (never `false` or `0`) — skips the cast and the key is left out of the output, for every type. Only a value that is present _and does not fit_ is a cast failure. `types.text` additionally treats whitespace-only strings as missing.
+Missing data is the everyday reality of CMS-backed pages, so casting never punishes it: a value that is **missing** — `undefined`, `null`, or the empty string `''` (never `false` or `0`) — skips the cast and the key is left out of the output, for every type. Only a value that is present _and does not fit_ is a cast failure. Think of `types.string` as the raw value of an `<input>` — only the exact `''` is missing and nothing else is touched (`'  '` is a value) — and `types.text` as a `<textarea>`: tidied, so whitespace-only content is missing too, and line breaks are kept.
 
 `.default(value)` (or `{ default: value }`) fills in whenever the field would otherwise end up `undefined`: missing input, a type that reports the value as missing, and failed casts under a non-throwing policy. A field with a default is therefore never `undefined`, and its inferred output type is non-optional:
 
@@ -2124,24 +2145,36 @@ const myParser = createParser({
 });
 ```
 
-#### `get(path, from?)`
+#### `get(path, from?, type?)`
 
-Utility to easily pick nested string properties (e.g. `get('user.address.street')`) when writing custom value resolver functions.
+Utility to pick nested properties by dot path (e.g. `get('user.address.street')`) — from the current `context.data` in the curried form, or from any object. With a **type** as the last argument the value is cast **by the engine**, after transformers and pattern resolution and under the active failure policy (`looseCasting`, `onCastError`, `.strict`/`.loose`, `.default`, `.required`), exactly as if the token sat at the projection key. That is how one raw field feeds several outputs:
 
 ```ts
 import { get } from '@bou-co/parsing';
 
 const myParser = createParser({
-  // Automatically resolves from the current context.data
+  // Resolves from the current context.data
   city: get('user.address.city'),
 
-  // Can also be used to query arbitrary objects manually
+  // Cast like a token at the key — several outputs from the same raw field
+  phoneTitle: get('contact.phoneNumber', types.tel), // '+358 (0)40-123 4567' as written
+  phoneLink: get('contact.phoneNumber', types.tel.href), // 'tel:+3580401234567'
+  mailLink: get('contact.email', types.email.normalized.href), // 'mailto:bob@example.com'
+
+  // Read from an explicit object, cast or not
+  themeColor: get('settings.theme.color', externalData), // no casting, as before
+  supportLink: get('support.phone', externalData, types.tel.href),
+
+  // Also usable inside value functions
   externalValue: async () => {
     const complexData = await fetchExternalData();
-    return await get('settings.theme.color', complexData);
+    return await get('settings.theme.color', complexData); // plain value
+    // return await get('settings.phone', complexData, types.tel.normalized); // cast, throws on failure
   },
 });
 ```
+
+The output type follows the token (`string | undefined`, non-optional with `.default`/`.required`), a missing source value is omitted or defaulted, and a cast error reports the **projection key** (`at "phoneLink"`). Inside `context.resolve`, `data` is the resolve input, so use the object form there (`get('phone', context.data, types.tel)`). The returned value functions hash by their path and type, so parsers that differ only in a `get` stay distinct in caches.
 
 #### `toHash(data)`
 

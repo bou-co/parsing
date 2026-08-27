@@ -312,8 +312,9 @@ export class Parser {
     if (isTypeToken(value)) return value;
     if (typeof value === 'function') {
       if ('_parser' in value) return value;
-      const result = await (value as (context: ParserContext) => unknown)(context);
-      return this.resolveNode(result, context);
+      const result = await this.resolveNode(await (value as (context: ParserContext) => unknown)(context), context);
+      // get(path, token) asks for a cast explicitly — applied after resolution, like at a projection key
+      return '_cast' in value ? applyCast(result, (value as { _cast: TypeToken })._cast, context) : result;
     }
     if (context.transformers) {
       for (const transformer of Object.values(context.transformers)) {
@@ -533,6 +534,11 @@ export class Parser {
               return [key, await value(input, instanceContext, context)];
             }
 
+            // get(path, token): the function reads the raw value and the engine casts it, as if the token sat at this key
+            if ('_cast' in value) {
+              castToken = (value as { _cast: TypeToken })._cast;
+              return [key, await value(context)];
+            }
             const result = await value(context);
             if (result === '_inherit') return [key, data[key]];
             if (result instanceof Function && '_parser' in result) {

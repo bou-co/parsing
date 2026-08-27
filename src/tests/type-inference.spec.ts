@@ -2,6 +2,7 @@ import { initializeParser, ParserReturnValue } from '../parser';
 import { array as arrayType, defineType, number as numberType, string as stringType, StringType, NumberType, DateType, ArrayType, TypeToken } from '../types';
 import { AppObject, DefaultParserTypes, ParserType, ParserTypeWithDefault } from '../parser-types';
 import type { ParserTypeDefaulted } from '../type-token';
+import { get } from '../parser-util';
 
 type Expect<T extends true> = T;
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
@@ -258,5 +259,37 @@ describe('type inference', () => {
       Expect<Equal<typeof arrayType, ArrayType>>,
     ] = [true, true, true, true, true, true];
     expect(checks.every(Boolean)).toBe(true);
+  });
+});
+
+describe('get inference', () => {
+  type IsOptional<T, K extends keyof T> = {} extends Pick<T, K> ? true : false;
+
+  it('follows the token: optional by default, required with a default or required marker', async () => {
+    const parser = createParser({
+      a: get('x', types.tel),
+      b: get('x', types.tel.href.default('tel:')),
+      c: get('x', types.text.required),
+      d: get('x', types.text.wordCount),
+      e: get('x'),
+      f: get('x', { x: 1 }, types.number),
+      g: get('x', { x: 1 }),
+    });
+    type Out = ParserReturnValue<typeof parser>;
+    const standalone = await get('x', { x: 1 }, types.number.default(0));
+    const checks: [
+      Expect<Equal<Out['a'], string | undefined>>,
+      Expect<IsOptional<Out, 'a'>>,
+      Expect<Equal<Out['b'], string>>,
+      Expect<Equal<IsOptional<Out, 'b'>, false>>,
+      Expect<Equal<Out['c'], string>>,
+      Expect<Equal<Out['d'], number | undefined>>,
+      Expect<Equal<Out['e'], unknown>>,
+      Expect<Equal<Out['f'], number | undefined>>,
+      Expect<Equal<Out['g'], unknown>>,
+      Expect<Equal<typeof standalone, number>>,
+    ] = [true, true, true, true, true, true, true, true, true, true];
+    expect(checks.every(Boolean)).toBe(true);
+    expect(standalone).toEqual(1);
   });
 });

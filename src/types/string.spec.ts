@@ -83,4 +83,30 @@ describe('string type', () => {
   it('is the same token as the types entry point', () => {
     expect(string).toBe(types.string);
   });
+
+  it("treats '' as missing (raw input contract) while keeping other whitespace, unlike text", async () => {
+    const { createParser, types } = initializeParser();
+    const parser = createParser({
+      raw: types.string,
+      upper: types.string.upperCase,
+      len: types.string.length,
+      filled: types.string.default('fallback'),
+      nested: { inner: types.string },
+      textual: types.text,
+      viaPipe: '{{ empty | string || "fallback" }}',
+    });
+    expect(await parser({ raw: '', upper: '', len: '', filled: '', nested: { inner: '' }, textual: ' ' }, { variables: { empty: '' } })).toEqual({
+      filled: 'fallback',
+      nested: {},
+      viaPipe: 'fallback',
+    });
+    expect(await parser({ raw: '  ', upper: ' x ', len: ' ', textual: ' x ' }, { variables: { empty: '' } })).toEqual({
+      raw: '  ',
+      upper: ' X ',
+      len: 1,
+      filled: 'fallback',
+      textual: 'x',
+      viaPipe: 'fallback',
+    });
+  });
 });

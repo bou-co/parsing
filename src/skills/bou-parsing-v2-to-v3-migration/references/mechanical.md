@@ -306,13 +306,17 @@ in CI rather than in production.
 Only relevant if you adopted a `3.0.0-rc.*` build before the casting upgrade. Everything
 chains, and the universal options are also accepted as a call:
 
-| RC form                                            | Now                                               |
-| -------------------------------------------------- | ------------------------------------------------- |
-| `types.string({ default: 'x' })`                   | unchanged — or `types.string.default('x')`        |
-| `types.array(types.string)`                        | `types.array.of(types.string)`                    |
-| `types.array(types.string)({ default: [] })`       | `types.array({ default: [] }).of(types.string)`   |
-| `looseCasting: 'undefined'`                        | `looseCasting: true` (alias still accepted)       |
-| `looseCasting: true` passing the raw value through | removed — failed casts are dropped (or defaulted) |
+| RC form                                            | Now                                                                             |
+| -------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `types.string({ default: 'x' })`                   | unchanged — or `types.string.default('x')`                                      |
+| `types.array(types.string)`                        | `types.array.of(types.string)`                                                  |
+| `types.array(types.string)({ default: [] })`       | `types.array({ default: [] }).of(types.string)`                                 |
+| `looseCasting: 'undefined'`                        | `looseCasting: true` (alias still accepted)                                     |
+| `looseCasting: true` passing the raw value through | removed — failed casts are dropped (or defaulted)                               |
+| `types.email` lower-casing the address             | kept as written — `.normalized` or `.lowerCase`                                 |
+| `types.tel` → `+3580401234567`                     | kept as written — `.normalized` / `.href`                                       |
+| `types.text` folding newlines to spaces            | line breaks kept — `.singleLine` folds                                          |
+| `get(path, from)` only                             | unchanged — plus `get(path, type)` / `(path, from, type)` casting in the engine |
 
 `types.array(token)` fails to type-check and throws a targeted error at runtime ("use
 .of(…)"), so it cannot slip through silently. `''` now counts as missing for every type (the

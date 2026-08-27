@@ -11,3 +11,22 @@ export const splitWords = (value: string): string[] =>
 export const capitalizeWord = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
 
 export const invalid = (type: string): Error => new Error(`Invalid ${type}`);
+
+/** Count characters as Unicode code points (a surrogate pair is one character) */
+export const countCharacters = (value: string): number => Array.from(value).length;
+
+// Mirrors UAX #29 word segmentation: hyphenated compounds count per part, apostrophes stay inside a word
+const WORD = /\p{L}[\p{L}\p{N}'’]*|\p{N}+/gu;
+
+/** Count words: `Intl.Segmenter` word segmentation when the runtime has it (handles scripts without spaces), else a Unicode-aware regex */
+export const countWords = (value: string): number => {
+  const Segmenter = (
+    Intl as { Segmenter?: new (locale?: string, options?: { granularity: string }) => { segment(input: string): Iterable<{ isWordLike?: boolean }> } }
+  ).Segmenter;
+  if (Segmenter) {
+    let count = 0;
+    for (const segment of new Segmenter(undefined, { granularity: 'word' }).segment(value)) if (segment.isWordLike) count++;
+    return count;
+  }
+  return value.match(WORD)?.length ?? 0;
+};

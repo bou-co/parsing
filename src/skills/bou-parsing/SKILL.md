@@ -20,7 +20,7 @@ surprises people:
 
 ```ts
 const parser = createParser({
-  title: types.text, // cast from data.title (string + CMS tidying)
+  title: types.text, // cast from data.title (string + textarea tidying)
   slug: ({ data }) => slugify(data.title), // derived
   postType: 'blogPost', // constant
   author: async ({ data }) => fetchAuthor(data.authorId), // sub-query
@@ -91,7 +91,7 @@ The rules that determine optionality:
 
 - A plain `types.x` field is `T | undefined` (optional). The library assumes any value may
   be absent.
-- `types.x.default(v)` makes it `T` (non-optional). `types.text` reports `''` as missing, so its default fires on empty CMS strings.
+- `types.x.default(v)` makes it `T` (non-optional). `''` is missing for every type (`string` = raw input value); `types.text` also reports whitespace-only content as missing.
 - `undefined`/`null`/`''` input is **missing**: it skips casting entirely and the key is
   omitted from the output — it does not throw and does not become `null`. `false` and `0`
   are values. Only `.required` tokens fail on missing input.

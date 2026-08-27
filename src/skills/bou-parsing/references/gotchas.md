@@ -310,8 +310,25 @@ register it under `types`. Use `.cast(value)` for a standalone cast.
 ### The empty string is missing
 
 `''` skips casting for every type, like `undefined`/`null`: `{ title: '' }` yields no `title`
-(or its default). `false` and `0` are values. Only `.required` tokens fail on missing input,
-and `types.text` also treats whitespace-only strings as missing.
+(or its default). `false` and `0` are values. Only `.required` tokens fail on missing input.
+`types.string` is the raw `<input>` value (`'  '` stays); `types.text` is `<textarea>` content:
+whitespace-only is missing, line breaks are **kept** (`.singleLine` folds them).
+
+### `email` and `tel` keep the value as written
+
+Neither base cast rewrites the value: `email` keeps the case (`.normalized` lower-cases, or the
+inherited `.lowerCase`), `tel` keeps the editor's formatting (`.normalized` → `+358401234567`,
+`.href` → `tel:…;ext=…`). Project the label and the link from one raw field with `get`:
+`phoneLink: get('phoneNumber', types.tel.href)`. `slug` output is ASCII only — non-Latin
+scripts are dropped and a purely non-Latin value fails; transliterate in a pre-step with
+`types.string.extend(fn).to(types.slug)`.
+
+### `get(path, token)` casts in the engine — but `resolve` data is the resolve input
+
+`get('x', types.tel)` returns the raw value and carries the token; the parser casts it after
+transformers and patterns with the projection key as the error path. Inside `context.resolve`
+`data` is the value being resolved, so use `get('x', context.data, types.tel)` there. Awaiting
+`get(path, from, token)` standalone casts with a root context and throws on failure.
 
 ### `.to(fn)` leaves the family; `.extend(fn)` keeps it
 

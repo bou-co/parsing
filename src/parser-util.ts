@@ -1,6 +1,18 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getFromObject } from './internal';
-import { AppObject, ParserCondition, ParserContext, ParserFunction, ParserProjection } from './parser-types';
+import {
+  AppObject,
+  GetDefaulted,
+  GetOutput,
+  GetValue,
+  GetValueFunction,
+  ParserCondition,
+  ParserContext,
+  ParserFunction,
+  ParserProjection,
+} from './parser-types';
+import { toHash } from './to-hash';
+import { applyCast, isTypeToken, TypeToken } from './type-token';
 
 export const asyncMapObject = async <T>(object: T, callback: (value: any) => any): Promise<T> => {
   if (!object || typeof object !== 'object') return object;
@@ -28,12 +40,44 @@ export const filterUndefinedEntries = <T extends [string, any][]>(obj: T) =>
   obj.filter((entry) => entry[1] !== undefined) as Exclude<T[number], [string, undefined]>[];
 export const condition = <T extends ParserProjection | ParserFunction<any>>(when: ParserCondition, then: T) => ({ when, then });
 
-export function get<T = unknown>(path: string, from: AppObject): Promise<T>;
 export function get<T = unknown>(path: string): (context: ParserContext) => Promise<T>;
+export function get<T extends TypeToken>(path: string, type: T): GetValueFunction<GetOutput<T>> & GetDefaulted<T>;
+export function get<T = unknown>(path: string, from: AppObject): Promise<T>;
+export function get<T extends TypeToken>(path: string, from: AppObject, type: T): GetValue<GetOutput<T>> & GetDefaulted<T>;
 
-export function get<T = unknown>(path: string, from?: AppObject) {
-  if (from) return getFromObject(from, path) as Promise<T>;
-  return ({ data }: ParserContext) => getFromObject(data, path) as Promise<T>;
+/**
+ * Pick a nested value by dot path — from the current `context.data` (curried form) or from an
+ * explicit object. With a type token the value is cast **by the engine**, after transformers and
+ * pattern resolution and under the active failure policy, exactly as if the token sat at the
+ * projection key: `phoneLink: get('phoneNumber', types.tel.href)` projects a second output from
+ * the same raw field. Every returned function hashes by its path (and token) so parsers that differ
+ * only in a `get` path stay distinct.
+ */
+export function get(path: string, fromOrType?: AppObject | TypeToken, maybeType?: TypeToken): any {
+  const type = isTypeToken(fromOrType) ? fromOrType : maybeType;
+  const from = isTypeToken(fromOrType) ? undefined : fromOrType;
+  if (!type) {
+    if (from) return getFromObject(from, path);
+    const reader = ({ data }: ParserContext) => getFromObject(data, path);
+    Object.defineProperty(reader, 'toString', { value: () => `__get:${path}__` });
+    return reader;
+  }
+  // Engine contract: return the raw value and carry the token as `_cast` — the parser casts it like a token at the key
+  const reader = ((context?: ParserContext) => getFromObject(from ?? context?.data ?? {}, path)) as unknown as GetValue<unknown>;
+  let hash: string | undefined;
+  Object.defineProperties(reader, {
+    _cast: { value: type },
+    toString: { value: () => (hash ??= `__get:${path}:${type.id}${from ? `:${toHash(from)}` : ''}__`) },
+  });
+  if (from) {
+    // Awaited standalone: cast against a root context, throwing on failure like `.cast()`
+    let standalone: Promise<unknown> | undefined;
+    const run = () => (standalone ??= getFromObject(from, path).then((raw) => applyCast(raw, type)));
+    Object.defineProperty(reader, 'then', {
+      value: (onfulfilled?: ((value: unknown) => unknown) | null, onrejected?: ((reason: unknown) => unknown) | null) => run().then(onfulfilled, onrejected),
+    });
+  }
+  return reader;
 }
 
 /**

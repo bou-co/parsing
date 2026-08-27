@@ -96,7 +96,8 @@ export class StringType extends TypeToken<string> {
   }
 
   split(separator: string | RegExp): ArrayType<string> {
-    return this.derive('split', (value) => value.split(separator), [separator]).to(array.of(string));
+    // Bare `array`: an item-cast would report empty segments ('a,,b') as missing
+    return this.derive('split', (value) => value.split(separator), [separator]).to(array) as ArrayType<string>;
   }
 }
 

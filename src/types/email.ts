@@ -5,9 +5,10 @@ import { defineType } from '../type-token';
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * `email` — shape validation (`local@domain.tld`), the whole address lower-cased (the local part
- * is technically case-sensitive; universally it is not treated that way). Inherits every `string`
- * accessor.
+ * `email` — shape validation (`local@domain.tld`), trimmed, otherwise kept exactly as written:
+ * the local part is technically case-sensitive, so the base cast does not touch the case.
+ * `.normalized` lower-cases the whole address, `.href` builds the `mailto:` link, and every
+ * `string` accessor (`.lowerCase`, ...) is inherited.
  */
 export class EmailType extends StringType {
   static override readonly family: string = 'email';
@@ -17,7 +18,17 @@ export class EmailType extends StringType {
     if (text === undefined) return undefined;
     const trimmed = text.trim();
     if (!EMAIL.test(trimmed)) throw new Error('Invalid email');
-    return trimmed.toLowerCase();
+    return trimmed;
+  }
+
+  /** The whole address lower-cased — still an `email`, so `.normalized.domain` chains */
+  get normalized(): this {
+    return this.transform('normalized', (value) => value.toLowerCase());
+  }
+
+  /** `mailto:` link target */
+  get href(): StringType {
+    return this.derive('href', (value) => `mailto:${value}`).to(string);
   }
 
   /** The part before `@` */

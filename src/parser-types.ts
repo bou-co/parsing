@@ -363,6 +363,29 @@ export interface CacheResultValue<T> extends PromiseLike<T> {
   (context?: ParserContext, __parserFnContext?: any, __parserFnParent?: any): Promise<T>;
 }
 
+/** Output of `get(path, token)`: the token's output, optional unless the token has a default or is required */
+export type GetOutput<T> = T extends { readonly [PARSER_TYPE_OUTPUT]: infer Out }
+  ? T extends { readonly [PARSER_TYPE_DEFAULTED]: true }
+    ? Awaited<Out>
+    : Awaited<Out> | undefined
+  : never;
+
+// Value function returned by `get(path, token)`: it returns the raw looked-up value and carries the
+// token as `_cast`, so the engine casts the result after transformers and patterns, exactly like a
+// token placed at the key. The call signature types the cast output because that is what a
+// projection sees; calling it by hand yields the raw value
+export interface GetValueFunction<T> {
+  (context: ParserContext, __parserFnContext?: any, __parserFnParent?: any): Promise<T>;
+  /** @internal */
+  readonly _cast: TypeToken;
+}
+
+/** The `PARSER_TYPE_DEFAULTED` phantom of a defaulted/required token, carried over so `_HandleChildren` makes the projected key non-optional */
+export type GetDefaulted<T> = T extends { readonly [PARSER_TYPE_DEFAULTED]: true } ? ParserTypeDefaulted : unknown;
+
+/** `get(path, from, token)`: a `GetValueFunction` that can also be awaited standalone — the cast then runs against a root context and throws on failure, like `.cast()` */
+export interface GetValue<T> extends GetValueFunction<T>, PromiseLike<T> {}
+
 type ParserValueFunction<R = unknown, DATA = AppObject, PARAMS = unknown[]> = (
   context: ParserContext<DATA, PARAMS>,
   __parserFnContext?: any,
@@ -388,7 +411,15 @@ export interface ParserProjectionUtils {
 }
 
 export type ParserProjectionValue =
-  undefined | ParserTypeLike | ParserFlatLike | ParserProjectionTypeValues | ParserValueFunction | ParserProjection | ParserProjection[];
+  | undefined
+  | ParserTypeLike
+  | ParserFlatLike
+  | ParserProjectionTypeValues
+  | ParserValueFunction
+  // Awaited by the engine — `get(path, from)` and other eager lookups sit directly in projections
+  | Promise<unknown>
+  | ParserProjection
+  | ParserProjection[];
 
 export interface ParserProjectionValues {
   [key: PropertyKey]: ParserProjectionValue;
