@@ -9,6 +9,8 @@ declare module '../expandable-types' {
   }
 }
 
+const { types } = initializeParser();
+
 describe('parsing', () => {
   it('should be able to handle context variables and other values', async () => {
     const globalContext: ParserGlobalContext = {
@@ -28,8 +30,8 @@ describe('parsing', () => {
 
     const parser = createParser(
       {
-        value: 'string',
-        info: 'string',
+        value: types.string,
+        info: types.string,
         customContextValue: (context) => {
           const { customContext } = context;
           return customContext;
@@ -67,10 +69,10 @@ describe('parsing', () => {
   });
 
   it('should be pass the context variables and other values to child parsers', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const innerParser = createParser({
-      title: 'string',
+      title: types.string,
       contextValue: (context) => {
         const { customContext } = context;
         return customContext;
@@ -78,7 +80,7 @@ describe('parsing', () => {
     });
 
     const parser = createParser({
-      value: 'string',
+      value: types.string,
       innerValue: innerParser,
     });
 
@@ -103,10 +105,10 @@ describe('parsing', () => {
   });
 
   it('should be pass the context variables and other values to @if child parsers', async () => {
-    const { createParser } = initializeParser({ globalValue: 'global-works' });
+    const { createParser, types } = initializeParser({ globalValue: 'global-works' });
 
     const innerParser = createParser({
-      title: 'string',
+      title: types.string,
       contextValue: (context) => {
         const { customContext } = context;
         return customContext;
@@ -134,5 +136,47 @@ describe('parsing', () => {
     expect(data).toBeTruthy();
     expect(data.title).toEqual('Hello world!!!');
     expect(data.contextValue).toEqual('custom context value');
+  });
+
+  it('should expose the projection path from root to the current level', async () => {
+    const { createParser } = initializeParser();
+
+    let rootPath: object[] | undefined;
+    let nestedPath: object[] | undefined;
+    let datalessPath: object[] | undefined;
+
+    const nestedProjection = {
+      value: ({ path, datalessPath: dataless }: ParserContext) => {
+        nestedPath = path;
+        datalessPath = dataless;
+        return 'nested';
+      },
+    };
+
+    const projection = {
+      rootValue: ({ path }: ParserContext) => {
+        rootPath = path;
+        return 'root';
+      },
+      nested: nestedProjection,
+    };
+
+    const parser = createParser(projection);
+
+    // Data enabled parse contains the path but no dataless path
+    await parser({ nested: { anything: true } });
+    expect(rootPath).toHaveLength(1);
+    expect(rootPath?.[0]).toBe(projection);
+    expect(nestedPath).toHaveLength(2);
+    expect(nestedPath?.[0]).toBe(projection);
+    expect(nestedPath?.[1]).toBe(nestedProjection);
+    expect(datalessPath).toBeUndefined();
+
+    // Data-less parse contains the same path and the dataless path
+    await parser({});
+    expect(nestedPath).toHaveLength(2);
+    expect(nestedPath?.[1]).toBe(nestedProjection);
+    expect(datalessPath).toHaveLength(1);
+    expect(datalessPath?.[0]).toBe(nestedProjection);
   });
 });

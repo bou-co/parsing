@@ -2,9 +2,9 @@ import { initializeParser, ParserContext } from '../parser';
 
 describe('parsing', () => {
   it('should be able to parse data that was already parsed', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
-    const parser = createParser({ value: 'number', text: 'string' });
+    const parser = createParser({ value: types.number, text: types.string });
     expect(parser).toBeTruthy();
     const secondParser = createParser({ value: ({ data: { value } }) => value * 2 });
 
@@ -30,14 +30,14 @@ describe('parsing', () => {
   });
 
   it('should be able to reparse data that was already parsed with a function', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const handleItems = ({ data }: ParserContext<any>) => {
       if (!data.items || !Array.isArray(data.items)) return [];
       return data.items.map((item: any) => item * 2);
     };
 
-    const parser = createParser({ items: 'array' });
+    const parser = createParser({ items: types.array });
     expect(parser).toBeTruthy();
     const secondParser = createParser({ items: handleItems });
 
@@ -51,10 +51,10 @@ describe('parsing', () => {
   });
 
   it('should be able to reparse data that has been nested', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const nestedData = { inner: { value: 100 } };
-    const parser = createParser({ inner: { value: 'number' } });
+    const parser = createParser({ inner: { value: types.number } });
     expect(parser).toBeTruthy();
     const secondParser = createParser({ inner: { value: ({ data: { value } }) => value * 3 } });
 
