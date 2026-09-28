@@ -548,21 +548,23 @@ React is an **optional peer dependency**, so the core package stays usable serve
 
 ## Utilities
 
-| Export                             | Purpose                                                                                                                                                       |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `defineType(def)`                  | Create a custom casting type                                                                                                                                  |
-| `isTypeToken(v)`                   | Test whether a value is a type token                                                                                                                          |
-| `typed<T>`                         | Force a specific inferred type; passes the raw value through uncast                                                                                           |
-| `optional`                         | Mark a key optional without a type                                                                                                                            |
-| `condition(when, then)`            | Build an `@if` entry structurally                                                                                                                             |
-| `get(path, from?, type?)`          | Dot-path lookup from `context.data` or an object; with a type, the engine casts the value like a token at the key (`phoneLink: get('phone', types.tel.href)`) |
-| `toHash(data)`                     | Deterministic hash for cache keys. **Key-order sensitive** — see `gotchas.md`                                                                                 |
-| `asDate(v)`                        | Date coercion helper                                                                                                                                          |
-| `mergeObjects(a, b)`               | Deep merge used for context merging                                                                                                                           |
-| `ParserCastError`                  | Cast failure, with `path`, `key`, `type`, `received`, `cause`                                                                                                 |
-| `ParserPatternCycleError`          | Pattern cycle / excessive rescan depth                                                                                                                        |
-| `variablesPattern`                 | The built-in variables pattern definition                                                                                                                     |
-| `ParserReturnValue<typeof parser>` | Extract a parser's output type                                                                                                                                |
+| Export                             | Purpose                                                                                                                                                         |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `defineType(def)`                  | Create a custom casting type                                                                                                                                    |
+| `isTypeToken(v)`                   | Test whether a value is a type token                                                                                                                            |
+| `typed<T>`                         | Force a specific inferred type; passes the raw value through uncast                                                                                             |
+| `optional`                         | Mark a key optional without a type                                                                                                                              |
+| `condition(when, then)`            | Build an `@if` entry structurally                                                                                                                               |
+| `get(path, from?, type?)`          | Dot-path lookup from `context.data` or an object; with a type, the engine casts the value like a token at the key (`phoneLink: get('phone', types.tel.href)`)   |
+| `value(input, type)`               | Resolve patterns in `input` (or call a function input), then cast in the engine like a token at the key — `title: value('{{siteName}}', types.string.required)` |
+| `variable(expression, type?)`      | Evaluate the inside of a `{{ }}` through the active variables pattern; with a type cast like `value` — `variable('user.email \|\| supportEmail', types.email)`  |
+| `toHash(data)`                     | Deterministic hash for cache keys. **Key-order sensitive** — see `gotchas.md`                                                                                   |
+| `asDate(v)`                        | Date coercion helper                                                                                                                                            |
+| `mergeObjects(a, b)`               | Deep merge used for context merging                                                                                                                             |
+| `ParserCastError`                  | Cast failure, with `path`, `key`, `type`, `received`, `cause`                                                                                                   |
+| `ParserPatternCycleError`          | Pattern cycle / excessive rescan depth                                                                                                                          |
+| `variablesPattern`                 | The built-in variables pattern definition                                                                                                                       |
+| `ParserReturnValue<typeof parser>` | Extract a parser's output type                                                                                                                                  |
 
 Note that `asyncMapObject`, `filterNill`, `filterUndefinedEntries`, and `mergeObjects` are
 exported via `export *` from internal modules. They are reachable but are engine internals

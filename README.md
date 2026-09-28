@@ -64,6 +64,7 @@ content comes out joined, templated, cached, and typed.
   - [Merging data](#merging-data)
   - [Variables](#variables)
     - [Built-in context variables](#built-in-context-variables)
+    - [Casting a variable at a projection key](#casting-a-variable-at-a-projection-key)
     - [Dynamic Variable Resolvers](#dynamic-variable-resolvers)
   - [Expressions & pipes](#expressions--pipes)
     - [Fallbacks & literals](#fallbacks--literals)
@@ -1011,6 +1012,23 @@ await parser({
 ```
 
 Resolution order for a variable head is: explicit variables (global, schema, and instance) → built-in heads → [`variableResolver`](#dynamic-variable-resolvers). Explicit variables can therefore shadow the built-ins, and the built-in heads are terminal — `{{data.missing}}` never falls through to a `variableResolver`, so context lookups can't trigger external fetches. One caveat: `context.resolve(input)` rebinds the context's `data`/`value` (and `current`) to the input being resolved, so built-ins inside such strings refer to that input rather than the surrounding parse data.
+
+#### Casting a variable at a projection key
+
+A `'{{x}}'` string placed directly in a projection is resolved but never cast. To project a variable with full casting (`.required`, `.default`, `.strict`, the failure policy, error paths), wrap it in [`value`](#valueinput-type) or [`variable`](#variableexpression-type):
+
+```ts
+import { value, variable } from '@bou-co/parsing';
+
+const myValue = 'Hello world!';
+
+const myParser = createParser({
+  title: value(myValue, types.string.required), // any input, but validated to be a required string
+  greeting: value('Hello {{user.firstName}}!', types.text.toUpperCase), // the inside of {{ }} is resolved, then the whole string is uppercased
+  email: variable('user.email', types.email.normalized), // the variable is resolved and cast to a normalized email
+  theme: variable('settings.theme || "light"', types.text.lowerCase), // the variable is resolved and cast to a string (default type)
+});
+```
 
 #### Dynamic Variable Resolvers
 
@@ -2288,6 +2306,10 @@ Once-per-parse work guarded by `context.isRoot` will not run inside a nested par
 
 `get('x', types.tel)` returns the raw value and carries the token; the parser casts it after transformers and patterns with the projection key as the error path. Inside `context.resolve` `data` is the value being resolved, so use `get('x', context.data, types.tel)` there. Awaiting `get(path, from, token)` standalone casts with a root context and throws on failure. See [`get`](#getpath-from-type).
 
+#### A `'{{x}}'` constant at a projection key is resolved, never cast
+
+`title: '{{siteName}}'` interpolates, but no type applies, so `.required`/`.default` and cast failures never happen. Use `value('{{siteName}}', types.string.required)` or `variable('siteName', types.string.required)` to cast it like a token at the key. See [`value`](#valueinput-type).
+
 #### `context.resolve` vs the exported `resolve`
 
 The exported `resolve` never inherits ambient context. Inside a value function, using it instead of `context.resolve` silently loses merged variables, transformers and locale — destructure it: `async ({ resolve }) => resolve('…')`. See [Function values & the contextual resolve](#function-values--the-contextual-resolve).
@@ -2503,6 +2525,42 @@ const myParser = createParser({
 ```
 
 The output type follows the token (`string | undefined`, non-optional with `.default`/`.required`), a missing source value is omitted or defaulted, and a cast error reports the **projection key** (`at "phoneLink"`). Inside `context.resolve`, `data` is the resolve input, so use the object form there (`get('phone', context.data, types.tel)`). The returned value functions hash by their path and type, so parsers that differ only in a `get` stay distinct in caches. A plain `Promise` is a valid projection value too (`get(path, from)` is one): it is awaited, never cast, and — because it was created when the projection literal was built — resolved once for the life of the parser.
+
+#### `value(input, type)`
+
+Casts any projection value through a type **in the engine**, the same way `get(path, type)` does: the input goes through transformers and pattern resolution first, then the type's cast under the active failure policy, with the projection key as the error path. The common use is a variable that must be validated:
+
+```ts
+import { value } from '@bou-co/parsing';
+
+const siteName = 'My Site';
+
+const myParser = createParser({
+  title: value(siteName, types.string.required), // throws 'Parser cast error at "title"' when siteName is missing
+  count: value('{{stats.count}}', types.number.default(0)),
+  email: value('{{user.email || supportEmail}}', types.email.normalized),
+  settings: value('{{settings}}', types.object), // a full-string variable keeps its raw object value
+
+  // A plain function input is called with the ParserContext and its result cast
+  price: value(({ data }) => data.price?.amount, types.number.round(2)),
+});
+```
+
+A written `||` fallback still wins over a failed pipe cast (`value('{{bad | number || "0"}}', types.number)` → `0`). The output type follows the type exactly as with `get`, and the returned function hashes by its input and type.
+
+#### `variable(expression, type?)`
+
+Shorthand for a single variable: the argument is what you would write **inside** the delimiters: path, `||` fallbacks, literals, pipes, and the built-in `data.*`/`ctx.*` heads. It is evaluated through the **active** variables pattern, so it keeps working when variables are re-delimited, and unknown heads still reach `variableResolver`. With a type the result is cast like `value`; without one it is a plain value function (`variable<string>('x')` to type it).
+
+```ts
+import { variable } from '@bou-co/parsing';
+
+const myParser = createParser({
+  name: variable('user.name | upperCase', types.string.required),
+  theme: variable('settings.theme || "light"'),
+  uid: variable('data.uid', types.string),
+});
+```
 
 #### `toHash(data)`
 

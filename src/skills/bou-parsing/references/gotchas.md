@@ -329,6 +329,12 @@ transformers and patterns with the projection key as the error path. Inside `con
 `data` is the value being resolved, so use `get('x', context.data, types.tel)` there. Awaiting
 `get(path, from, token)` standalone casts with a root context and throws on failure.
 
+### A `'{{x}}'` constant at a projection key is resolved, never cast
+
+`title: '{{siteName}}'` interpolates, but no type applies — no `.required`/`.default`, no cast
+failure. Use `value('{{siteName}}', types.string.required)`
+or `variable('siteName', types.string.required)` to cast it like a token at the key.
+
 ### `.to(fn)` leaves the family; `.extend(fn)` keeps it
 
 `types.string.to((v) => v.length)` is a base `TypeToken<number>` with no string accessors —

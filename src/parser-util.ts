@@ -11,6 +11,7 @@ import {
   ParserFunction,
   ParserProjection,
 } from './parser-types';
+import { evaluateVariableExpression } from './parser-patterns';
 import { toHash } from './to-hash';
 import { applyCast, isTypeToken, TypeToken } from './type-token';
 
@@ -77,6 +78,42 @@ export function get(path: string, fromOrType?: AppObject | TypeToken, maybeType?
       value: (onfulfilled?: ((value: unknown) => unknown) | null, onrejected?: ((reason: unknown) => unknown) | null) => run().then(onfulfilled, onrejected),
     });
   }
+  return reader;
+}
+
+const withCast = <F extends (context: ParserContext) => unknown>(reader: F, type: TypeToken, hashBase: string) => {
+  let hash: string | undefined;
+  Object.defineProperties(reader, {
+    _cast: { value: type },
+    toString: { value: () => (hash ??= `${hashBase}:${type.id}__`) },
+  });
+  return reader;
+};
+
+/**
+ * Cast any projection value through a type token in the engine — after transformers and pattern
+ * resolution, under the active failure policy, exactly as if the token sat at the projection key:
+ * `title: value('{{myVariable}}', types.string.required)`. A plain function input is called with
+ * the `ParserContext` first, so a computed value is cast the same way.
+ */
+export function value<T extends TypeToken>(input: unknown, type: T): GetValueFunction<GetOutput<T>> & GetDefaulted<T> {
+  const callable = typeof input === 'function' && !isTypeToken(input) && !('_parser' in input);
+  const reader = async (context: ParserContext) => (callable ? (input as (context: ParserContext) => unknown)(context) : input);
+  return withCast(reader, type, `__value:${toHash(input)}`) as unknown as GetValueFunction<GetOutput<T>> & GetDefaulted<T>;
+}
+
+export function variable<T extends TypeToken>(expression: string, type: T): GetValueFunction<GetOutput<T>> & GetDefaulted<T>;
+export function variable<T = unknown>(expression: string): (context: ParserContext) => Promise<T>;
+
+/**
+ * Resolve a variables expression — what goes inside the delimiters (`'user.name || "Anonymous" | upperCase'`)
+ * — through the active variables pattern, so re-delimited syntaxes keep working. With a type the
+ * result is cast by the engine like `value`.
+ */
+export function variable(expression: string, type?: TypeToken): any {
+  const reader = (context: ParserContext) => evaluateVariableExpression(expression, context);
+  if (type) return withCast(reader, type, `__variable:${expression}`);
+  Object.defineProperty(reader, 'toString', { value: () => `__variable:${expression}__` });
   return reader;
 }
 

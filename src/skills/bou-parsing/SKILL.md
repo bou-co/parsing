@@ -51,6 +51,8 @@ This table is the core of the API. Anything in the left column is a legal projec
 | `types.date.iso`, `types.number.round(2)`        | Chained accessor: casts, then derives/transforms; inferred type follows the chain                   |
 | A custom `defineType(...)` token                 | Same, with your casting/validation function (extend a built-in to inherit its accessors)            |
 | `get('a.b', types.tel.href)`                     | Read another path, cast by the engine like a token at this key (several outputs from one raw field) |
+| `value('{{x}}', types.string.required)`          | Resolve patterns in the input, then cast by the engine like a token at this key                     |
+| `variable('x \|\| "y"', types.email)`            | Evaluate one variable expression (inside of `{{ }}`), cast like `value`; no type → plain lookup     |
 | A `Promise`                                      | Awaited (once per parser instance), never cast — e.g. `get('a.b', someObject)`                      |
 | A literal (`'blogPost'`, `42`, `true`)           | Constant, passed through as-is                                                                      |
 | `(context) => value`                             | Value function; sync or async; receives `ParserContext`                                             |

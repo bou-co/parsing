@@ -166,6 +166,8 @@ Escape a whole match with a preceding backslash.
 | `optional`         | Marks a key optional without a type                                                                                                                                                                                                                                             |
 | `condition`        | `(when, then) => { when, then }`                                                                                                                                                                                                                                                |
 | `get`              | `(path) => (ctx) => Promise<T>` \| `(path, token) => value fn` \| `(path, from) => Promise<T>` \| `(path, from, token) => value fn & PromiseLike` — with a token the engine casts the looked-up value like a token at the key (`phoneLink: get('phoneNumber', types.tel.href)`) |
+| `value`            | `(input, token) => value fn` — patterns in `input` resolve, then the engine casts like a token at the key (`title: value('{{siteName}}', types.string.required)`); a function input is called with the context first                                                            |
+| `variable`         | `(expression) => (ctx) => Promise<T>` \| `(expression, token) => value fn` — evaluates the inside of a variable (`'user.name \|\| "Guest" \| upperCase'`) through the active variables pattern; with a token cast like `value`                                                  |
 | `toHash`           | `(data) => string` — deterministic, but **key-order sensitive** (see gotchas)                                                                                                                                                                                                   |
 | `asDate`           | `(v: string \| number) => Date \| undefined` — `undefined` for falsy input; unparseable input yields an `Invalid Date`, not `undefined`                                                                                                                                         |
 | `mergeObjects`     | `(a, b) => merged`                                                                                                                                                                                                                                                              |
@@ -190,7 +192,7 @@ Escape a whole match with a preceding backslash.
 | `ParserCachingOptions`                                                                    | Augment via module declaration for your backend's options |
 | `CommonContext`, `GlobalContext`, `CreateContext`, `InstanceContext`, `FunctionalContext` | Augment via module declaration to type custom context     |
 | `ParserProjectionValue`                                                                   | Legal projection values (incl. `Promise<unknown>`)        |
-| `GetValueFunction<T>`, `GetValue<T>`, `GetOutput<T>`, `GetDefaulted<T>`                   | Return/output types behind `get(path, token)`             |
+| `GetValueFunction<T>`, `GetValue<T>`, `GetOutput<T>`, `GetDefaulted<T>`                   | Return/output types behind `get`/`value`/`variable` casts |
 
 ## React
 

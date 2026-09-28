@@ -2,7 +2,7 @@ import { initializeParser, ParserReturnValue } from '../parser';
 import { array as arrayType, defineType, number as numberType, string as stringType, StringType, NumberType, DateType, ArrayType, TypeToken } from '../types';
 import { AppObject, DefaultParserTypes, ParserType, ParserTypeWithDefault } from '../parser-types';
 import type { ParserTypeDefaulted } from '../type-token';
-import { get } from '../parser-util';
+import { get, value, variable } from '../parser-util';
 import { record } from '../types/data/record';
 
 type Expect<T extends true> = T;
@@ -292,6 +292,35 @@ describe('get inference', () => {
     ] = [true, true, true, true, true, true, true, true, true, true];
     expect(checks.every(Boolean)).toBe(true);
     expect(standalone).toEqual(1);
+  });
+});
+
+describe('value / variable inference', () => {
+  type IsOptional<T, K extends keyof T> = {} extends Pick<T, K> ? true : false;
+
+  it('follows the token like get', () => {
+    const parser = createParser({
+      a: value('{{x}}', types.string),
+      b: value('{{x}}', types.string.required),
+      c: value('{{x}}', types.number.default(0)),
+      d: variable('x', types.email),
+      e: variable('x', types.text.required),
+      f: variable('x'),
+      g: variable<string>('x'),
+    });
+    type Out = ParserReturnValue<typeof parser>;
+    const checks: [
+      Expect<Equal<Out['a'], string | undefined>>,
+      Expect<IsOptional<Out, 'a'>>,
+      Expect<Equal<Out['b'], string>>,
+      Expect<Equal<IsOptional<Out, 'b'>, false>>,
+      Expect<Equal<Out['c'], number>>,
+      Expect<Equal<Out['d'], string | undefined>>,
+      Expect<Equal<Out['e'], string>>,
+      Expect<Equal<Out['f'], unknown>>,
+      Expect<Equal<Out['g'], string | undefined>>,
+    ] = [true, true, true, true, true, true, true, true, true];
+    expect(checks.every(Boolean)).toBe(true);
   });
 });
 

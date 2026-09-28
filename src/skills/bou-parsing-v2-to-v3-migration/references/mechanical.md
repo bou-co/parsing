@@ -336,6 +336,7 @@ chains, and the universal options are also accepted as a call:
 | `types.tel` → `+3580401234567`                     | kept as written — `.normalized` (`+358401234567`, `(0)` dropped after `+`) / `.href`       |
 | `types.text` folding newlines to spaces            | line breaks kept — `.singleLine` folds                                                     |
 | `get(path, from)` only                             | unchanged — plus `get(path, type)` / `(path, from, type)` casting in the engine            |
+| `title: '{{siteName}}'` (resolved, uncast)         | unchanged — `value('{{siteName}}', types.string)` / `variable('siteName', …)` to cast      |
 | A token placed in `variables`/`pipes`              | `was called as a value function or pipe — register types under types` — move it to `types` |
 | `types.x('nope')`                                  | `expected an options object` — `types.x({ default, required, strict, loose })`             |
 

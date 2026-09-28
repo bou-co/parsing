@@ -13,6 +13,7 @@ A quick tour of what's new — the breaking-change notes below reference these:
 - **Types as pipes** — every type, built-in or registered under the new `types` config (global, `createParser`, or per call), is a template pipe under the same name: `{{ price | round:2 }}`, `{{ contact | email || "n/a" }}` (token-parameter factories such as `unique(item)` and `schema(validator)` are the exception — they have no template form).
 - **Opt-in subsets** — `@bou-co/parsing/types/format` (`formatDate`, `currency`, `percent`, …), `types/data` (`record`, `schema`, `coords`, `locale`), `types/content` (`html`, `markdown` behind sanitiser adapters; the only path with peer dependencies).
 - **`get(path, type)` / `get(path, from, type)`** — cast a looked-up value in the engine, so one raw field projects several outputs (`phoneTitle: get('phone', types.tel), phoneLink: get('phone', types.tel.href)`).
+- **`value(input, type)` / `variable(expression, type?)`** — cast a pattern-resolved value in the engine like a token at the key: `title: value('{{siteName}}', types.string.required)`, `email: variable('user.email || supportEmail', types.email)` (`variable` takes the inside of `{{ }}` and follows re-delimited patterns).
 - **`parser.flat`** — parses `data[key]` and merges the resulting object into the parent output, like `@combine` (the key itself is dropped).
 - **`context.value` + zero-arg `await context.resolve()`** — `value` is the raw `data?.[key]`; calling `resolve()` with no arguments resolves it lazily (memoized per context).
 - **`resolve`** — new export of `initializeParser` (and contextually as `context.resolve(input, overrides?)`): runs pattern/variable resolution and global transformers on raw input without a projection.
@@ -152,20 +153,21 @@ See the README's Patterns section for the full API.
 
 Only relevant if you adopted a `3.0.0-rc.*` build before the casting upgrade finished:
 
-| RC form                                            | Now                                                                                  |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `types.array(types.string)`                        | `types.array.of(types.string)` — `types.array(token)` throws                         |
-| `types.array(types.string)({ default: [] })`       | `types.array({ default: [] }).of(types.string)`                                      |
-| `looseCasting: 'undefined'`                        | `looseCasting: true` (alias still accepted, removed in V4)                           |
-| `looseCasting: true` passing the raw value through | removed — failed casts are dropped (or defaulted)                                    |
-| `types.email` lower-casing the address             | kept as written — `.normalized` or `.lowerCase`                                      |
-| `types.tel` → `+3580401234567`                     | kept as written — `.normalized` (`+358401234567`, `(0)` dropped after `+`) / `.href` |
-| `types.text` folding newlines to spaces            | line breaks kept — `.singleLine` folds                                               |
-| `''` cast as a value                               | missing for every type — add `.required` where an empty value must be an error       |
-| `types.string({ default: 'x' })`                   | unchanged — or `types.string.default('x')`                                           |
-| A token in `variables`/`pipes`                     | `was called as a value function or pipe — register types under types`                |
-| `types.x('nope')`                                  | `expected an options object` — `types.x({ default, required, strict, loose })`       |
-| `get(path, from)` only                             | unchanged — plus `get(path, type)` / `(path, from, type)` casting in the engine      |
+| RC form                                            | Now                                                                                   |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `types.array(types.string)`                        | `types.array.of(types.string)` — `types.array(token)` throws                          |
+| `types.array(types.string)({ default: [] })`       | `types.array({ default: [] }).of(types.string)`                                       |
+| `looseCasting: 'undefined'`                        | `looseCasting: true` (alias still accepted, removed in V4)                            |
+| `looseCasting: true` passing the raw value through | removed — failed casts are dropped (or defaulted)                                     |
+| `types.email` lower-casing the address             | kept as written — `.normalized` or `.lowerCase`                                       |
+| `types.tel` → `+3580401234567`                     | kept as written — `.normalized` (`+358401234567`, `(0)` dropped after `+`) / `.href`  |
+| `types.text` folding newlines to spaces            | line breaks kept — `.singleLine` folds                                                |
+| `''` cast as a value                               | missing for every type — add `.required` where an empty value must be an error        |
+| `types.string({ default: 'x' })`                   | unchanged — or `types.string.default('x')`                                            |
+| A token in `variables`/`pipes`                     | `was called as a value function or pipe — register types under types`                 |
+| `types.x('nope')`                                  | `expected an options object` — `types.x({ default, required, strict, loose })`        |
+| `get(path, from)` only                             | unchanged — plus `get(path, type)` / `(path, from, type)` casting in the engine       |
+| `title: '{{siteName}}'` (resolved, uncast)         | unchanged — `value('{{siteName}}', types.string)` / `variable('siteName', …)` to cast |
 
 ### Migrating a live site
 
