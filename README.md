@@ -2366,7 +2366,7 @@ Initializes an isolated parsing engine with global settings (loose casting, tran
 
 Creates an executable parser function based on the provided schema projection.
 
-- **Returns:** An asynchronous parsing function that takes `(rawData, instanceContext?, parentContext?)` — a full parser context belongs in the third slot.
+- **Returns:** An asynchronous parsing function that takes `(rawData, instanceContext?, parentContext?)` — a full parser context belongs in the third slot. `instanceContext` becomes required once `InstanceContext` is augmented with a required key.
 - **Methods:** `.extend(newProjection, context?)`, `.withContext(newContext)`, `.asArray`, `.flat`, `.as`; `.projection` holds the projection
 
 #### `resolve(input, contextOverride?)`
@@ -2374,6 +2374,7 @@ Creates an executable parser function based on the provided schema projection.
 Resolves variables and applies global transformers on raw input (an object, array, plain string, or function) without a projection, casting, or hooks. Transformers apply at every nesting level, and functions are invoked with the parser context and resolved recursively. See [Resolving values without parsing](#resolving-values-without-parsing).
 
 - **Returns:** A promise of the resolved input, typed from the input shape; an explicit generic always overrides the inferred type (e.g. when a transformer reshapes values).
+- **Instance context:** the instance context becomes required once `InstanceContext` is augmented with a required key (same rule as parser calls; `context.resolve` overrides stay optional).
 
 #### `cacheResult(key, fn, extraData?, options?)`
 

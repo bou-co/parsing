@@ -45,6 +45,7 @@ Config keys:
 `projection` is an object literal or a `(context) => projection` function.
 
 **Returns** an async parser `(input, instanceContext?, parentContext?) => Promise<Output>`.
+`instanceContext` becomes required once `InstanceContext` is augmented with a required key.
 
 Properties and methods on the returned parser:
 
@@ -65,7 +66,7 @@ Passing a full parser context as the **second** argument throws — forward it a
 
 Runs transformers and patterns on raw input with no projection, casting, or hooks. Accepts
 objects, arrays, strings, and functions. Return type inferred from input; pass an explicit
-generic when a transformer reshapes values.
+generic when a transformer reshapes values. Like a parser call, the instance context becomes required once `InstanceContext` is augmented with a required key (`context.resolve` overrides stay optional).
 
 ### `cacheResult(key, fn, extraData?, options?)`
 

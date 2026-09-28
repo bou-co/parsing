@@ -340,18 +340,19 @@ export type ResolveTypeUnset = typeof RESOLVE_TYPE_UNSET;
 // contextual typing; plain-T catches interface-typed inputs (no implicit index signature) and, via
 // its unknown default, explicit-R calls whose input the first overload rejects. An explicit R always
 // overrides the inferred ResolvedValue mapping (remaining type params fall back to their defaults)
-export interface ParserResolveFunction {
-  <R = ResolveTypeUnset, T extends ResolveInput = ResolveInput>(
-    input: T,
-    instanceContext?: ParserInstanceContext,
-  ): Promise<[R] extends [ResolveTypeUnset] ? ResolvedValue<T> : R>;
-  <R = ResolveTypeUnset, T = unknown>(input: T, instanceContext?: ParserInstanceContext): Promise<[R] extends [ResolveTypeUnset] ? ResolvedValue<T> : R>;
+interface ResolveFunctionBase<C> {
+  <R = ResolveTypeUnset, T extends ResolveInput = ResolveInput>(input: T, instanceContext: C): Promise<[R] extends [ResolveTypeUnset] ? ResolvedValue<T> : R>;
+  <R = ResolveTypeUnset, T = unknown>(input: T, instanceContext: C): Promise<[R] extends [ResolveTypeUnset] ? ResolvedValue<T> : R>;
 }
 
-// Context-only variant adding the zero-argument form that lazily resolves `context.value`
-// (memoized per context). Own signatures are checked before inherited ones, but arity 0 can
-// never capture a call with arguments, so the base overload order stays load-bearing
-export interface ContextResolveFunction extends ParserResolveFunction {
+// Like a parser call, the instance context becomes required once InstanceContext has required keys
+export interface ParserResolveFunction extends ResolveFunctionBase<InstaceContext> {}
+
+// Context-only variant: the active context already carries the instance values, so per-call
+// overrides stay optional and partial. Adds the zero-argument form that lazily resolves
+// `context.value` (memoized per context). Own signatures are checked before inherited ones, but
+// arity 0 can never capture a call with arguments, so the base overload order stays load-bearing
+export interface ContextResolveFunction extends ResolveFunctionBase<Partial<ParserInstanceContext> | void> {
   <R = unknown>(): Promise<R>;
 }
 

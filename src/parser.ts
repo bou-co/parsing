@@ -276,7 +276,7 @@ export class Parser {
   };
 
   // Backs context.resolve — same resolution as the public resolve but inheriting the calling context
-  private resolveWithParentContext = (input: unknown, parentContext: ParserContext, instanceContext?: ParserInstanceContext): Promise<unknown> => {
+  private resolveWithParentContext = (input: unknown, parentContext: ParserContext, instanceContext?: Partial<ParserInstanceContext>): Promise<unknown> => {
     const variables = { ...parentContext.variables, ...instanceContext?.variables, current: input };
     const pipes = { ...parentContext.pipes, ...instanceContext?.pipes };
     const resolvedTypes = mergeTypes(parentContext.types ?? this.typesNamespace, instanceContext?.types);
@@ -298,7 +298,7 @@ export class Parser {
   // DB-backed variable resolution runs once; resolve(undefined) is distinguished by arity
   private createContextResolve = (context: ParserContext): ContextResolveFunction => {
     let memo: Promise<unknown> | undefined;
-    const contextResolve = (...args: [unknown?, ParserInstanceContext?]) => {
+    const contextResolve = (...args: [unknown?, Partial<ParserInstanceContext>?]) => {
       if (!args.length) return (memo ??= this.resolveWithParentContext(context.value, context));
       return this.resolveWithParentContext(args[0], context, args[1]);
     };

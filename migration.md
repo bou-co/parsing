@@ -153,21 +153,22 @@ See the README's Patterns section for the full API.
 
 Only relevant if you adopted a `3.0.0-rc.*` build before the casting upgrade finished:
 
-| RC form                                            | Now                                                                                   |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `types.array(types.string)`                        | `types.array.of(types.string)` — `types.array(token)` throws                          |
-| `types.array(types.string)({ default: [] })`       | `types.array({ default: [] }).of(types.string)`                                       |
-| `looseCasting: 'undefined'`                        | `looseCasting: true` (alias still accepted, removed in V4)                            |
-| `looseCasting: true` passing the raw value through | removed — failed casts are dropped (or defaulted)                                     |
-| `types.email` lower-casing the address             | kept as written — `.normalized` or `.lowerCase`                                       |
-| `types.tel` → `+3580401234567`                     | kept as written — `.normalized` (`+358401234567`, `(0)` dropped after `+`) / `.href`  |
-| `types.text` folding newlines to spaces            | line breaks kept — `.singleLine` folds                                                |
-| `''` cast as a value                               | missing for every type — add `.required` where an empty value must be an error        |
-| `types.string({ default: 'x' })`                   | unchanged — or `types.string.default('x')`                                            |
-| A token in `variables`/`pipes`                     | `was called as a value function or pipe — register types under types`                 |
-| `types.x('nope')`                                  | `expected an options object` — `types.x({ default, required, strict, loose })`        |
-| `get(path, from)` only                             | unchanged — plus `get(path, type)` / `(path, from, type)` casting in the engine       |
-| `title: '{{siteName}}'` (resolved, uncast)         | unchanged — `value('{{siteName}}', types.string)` / `variable('siteName', …)` to cast |
+| RC form                                                | Now                                                                                     |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `types.array(types.string)`                            | `types.array.of(types.string)` — `types.array(token)` throws                            |
+| `types.array(types.string)({ default: [] })`           | `types.array({ default: [] }).of(types.string)`                                         |
+| `looseCasting: 'undefined'`                            | `looseCasting: true` (alias still accepted, removed in V4)                              |
+| `looseCasting: true` passing the raw value through     | removed — failed casts are dropped (or defaulted)                                       |
+| `types.email` lower-casing the address                 | kept as written — `.normalized` or `.lowerCase`                                         |
+| `types.tel` → `+3580401234567`                         | kept as written — `.normalized` (`+358401234567`, `(0)` dropped after `+`) / `.href`    |
+| `types.text` folding newlines to spaces                | line breaks kept — `.singleLine` folds                                                  |
+| `''` cast as a value                                   | missing for every type — add `.required` where an empty value must be an error          |
+| `types.string({ default: 'x' })`                       | unchanged — or `types.string.default('x')`                                              |
+| A token in `variables`/`pipes`                         | `was called as a value function or pipe — register types under types`                   |
+| `types.x('nope')`                                      | `expected an options object` — `types.x({ default, required, strict, loose })`          |
+| `get(path, from)` only                                 | unchanged — plus `get(path, type)` / `(path, from, type)` casting in the engine         |
+| `title: '{{siteName}}'` (resolved, uncast)             | unchanged — `value('{{siteName}}', types.string)` / `variable('siteName', …)` to cast   |
+| `resolve(input)` with a required `InstanceContext` key | type error — pass it: `resolve(input, { currentLocale })` (`context.resolve` unchanged) |
 
 ### Migrating a live site
 
