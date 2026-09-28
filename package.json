@@ -1,6 +1,6 @@
 {
   "name": "@bou-co/parsing",
-  "version": "3.0.0-rc.3",
+  "version": "3.0.0-rc.4-dev",
   "type": "module",
   "sideEffects": false,
   "license": "MIT",
@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.json --noEmit && tsc -p src/templates/tsconfig.json --noEmit",
     "build": "npm run test && npm run typecheck && vite build && npm run verify:bundle",
     "publish:dev": "npm run build && npm publish --tag dev",
+    "publish:v3-dev": "npm run build && npm publish --tag v3-dev",
     "publish:v3-rc": "npm run build && npm publish --tag v3-rc",
     "publish:latest": "npm run build && npm publish",
     "verify:bundle": "node scripts/verify-bundle.mjs"
