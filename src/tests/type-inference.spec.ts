@@ -4,6 +4,7 @@ import { AppObject, DefaultParserTypes, ParserType, ParserTypeWithDefault } from
 import type { ParserTypeDefaulted } from '../type-token';
 import { get, value, variable } from '../parser-util';
 import { record } from '../types/data/record';
+import { variables } from '../variables';
 
 type Expect<T extends true> = T;
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
@@ -320,6 +321,26 @@ describe('value / variable inference', () => {
       Expect<Equal<Out['f'], unknown>>,
       Expect<Equal<Out['g'], string | undefined>>,
     ] = [true, true, true, true, true, true, true, true, true];
+    expect(checks.every(Boolean)).toBe(true);
+  });
+});
+
+describe('variables proxy inference', () => {
+  type IsOptional<T, K extends keyof T> = {} extends Pick<T, K> ? true : false;
+
+  it('is any unless asserted', () => {
+    const parser = createParser({
+      a: variables.year,
+      b: variables.year as number,
+      c: variables.lorem.ipsum as string,
+    });
+    type Out = ParserReturnValue<typeof parser>;
+    const checks: [
+      Expect<Equal<Out['a'], any>>,
+      Expect<Equal<Out['b'], number | undefined>>,
+      Expect<IsOptional<Out, 'b'>>,
+      Expect<Equal<Out['c'], string | undefined>>,
+    ] = [true, true, true, true];
     expect(checks.every(Boolean)).toBe(true);
   });
 });

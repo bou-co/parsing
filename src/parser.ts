@@ -34,6 +34,7 @@ import {
 } from './parser-patterns';
 import { filterNill, filterUndefinedEntries, mergeObjects, optional, typed } from './parser-util';
 import { toHash } from './to-hash';
+import { variables } from './variables';
 
 interface ParserCache {
   variables: Record<string, any>;
@@ -739,6 +740,8 @@ export interface InitializedParser<T> {
   cacheResult: Parser['cacheResult'];
   /** Built-in types plus everything registered via the global context's `types` (object form) */
   types: T;
+  /** Proxy shorthand for variable expressions — `variables.user.name` resolves like `'{{user.name}}'` */
+  variables: typeof variables;
 }
 
 /**
@@ -753,7 +756,7 @@ export function initializeParser(addGlobalContext?: ParserGlobalContext | Parser
 export function initializeParser(addGlobalContext?: ParserGlobalContext | ParserGlobalContextFn): InitializedParser<unknown> {
   const engine = new Parser(addGlobalContext || ({} as ParserGlobalContext));
   const { createParser, resolve, cacheResult } = engine;
-  return { createParser, resolve, cacheResult, types: engine.types };
+  return { createParser, resolve, cacheResult, types: engine.types, variables };
 }
 
 export const resolveVariables = async <T>(current: T, context: ParserContext): Promise<T> => {

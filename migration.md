@@ -13,7 +13,7 @@ A quick tour of what's new — the breaking-change notes below reference these:
 - **Types as pipes** — every type, built-in or registered under the new `types` config (global, `createParser`, or per call), is a template pipe under the same name: `{{ price | round:2 }}`, `{{ contact | email || "n/a" }}` (token-parameter factories such as `unique(item)` and `schema(validator)` are the exception — they have no template form).
 - **Opt-in subsets** — `@bou-co/parsing/types/format` (`formatDate`, `currency`, `percent`, …), `types/data` (`record`, `schema`, `coords`, `locale`), `types/content` (`html`, `markdown` behind sanitiser adapters; the only path with peer dependencies).
 - **`get(path, type)` / `get(path, from, type)`** — cast a looked-up value in the engine, so one raw field projects several outputs (`phoneTitle: get('phone', types.tel), phoneLink: get('phone', types.tel.href)`).
-- **`value(input, type)` / `variable(expression, type?)`** — cast a pattern-resolved value in the engine like a token at the key: `title: value('{{siteName}}', types.string.required)`, `email: variable('user.email || supportEmail', types.email)` (`variable` takes the inside of `{{ }}` and follows re-delimited patterns).
+- **`value(input, type)` / `variable(expression, type?)`** — cast a pattern-resolved value in the engine like a token at the key: `title: value('{{siteName}}', types.string.required)`, `email: variable('user.email || supportEmail', types.email)` (`variable` takes the inside of `{{ }}` and follows re-delimited patterns). The `variables` proxy is shorthand for the same lookup: `year: variables.year as number` resolves like `'{{year}}'` but accepts a type assertion (type-only, no cast).
 - **`parser.flat`** — parses `data[key]` and merges the resulting object into the parent output, like `@combine` (the key itself is dropped).
 - **`context.value` + zero-arg `await context.resolve()`** — `value` is the raw `data?.[key]`; calling `resolve()` with no arguments resolves it lazily (memoized per context).
 - **`resolve`** — new export of `initializeParser` (and contextually as `context.resolve(input, overrides?)`): runs pattern/variable resolution and global transformers on raw input without a projection.
@@ -24,7 +24,7 @@ A quick tour of what's new — the breaking-change notes below reference these:
 - **Built-in context variable heads** — `{{data.*}}` (the current level's input data) and `{{ctx.*}}` / `{{context.*}}` (the full parser context) resolve live from the node context; explicit variables can shadow them, and they never fall through to a `variableResolver` (§9).
 - **Isolated engines** — every `initializeParser` call is its own engine; `new Parser(globalContext)` is the advanced equivalent (§4).
 - **React: `revalidate`** — `useParserValue` now returns `{ result, loading, error, revalidate }`; `revalidate(updatedData?)` re-parses with the last (or new) data.
-- **New exports** — `defineType`, `TypeToken` and the family classes (`StringType`, …), `isTypeToken`, `isMissing`, `applyCast`, `notAPipe`, `ParserCastError`, `variablesPattern`, `ParserPatternCycleError`, and the tree-shakeable `@bou-co/parsing/types` entry point with its `types/format`, `types/data`, `types/content` and `types/all` subsets.
+- **New exports** — `defineType`, `TypeToken` and the family classes (`StringType`, …), `isTypeToken`, `isMissing`, `applyCast`, `notAPipe`, `ParserCastError`, `variables`, `variablesPattern`, `ParserPatternCycleError`, and the tree-shakeable `@bou-co/parsing/types` entry point with its `types/format`, `types/data`, `types/content` and `types/all` subsets.
 
 ### 1. String type identifiers are removed
 
@@ -52,7 +52,7 @@ const myParser = createParser({
 });
 ```
 
-Migration is a find/replace: `'string'` → `types.string`, `'number'` → `types.number`, `'array<x>'` → `types.array.of(types.x)`, and so on. `initializeParser` now returns `{ createParser, resolve, cacheResult, types }` — re-export `types` (and the rest) from your parser config. Note that `types` is **not** a root export of `@bou-co/parsing`; get it from `initializeParser`, or import the tokens individually from the tree-shakeable `@bou-co/parsing/types` entry point. There is no `types.undefined`; use the `optional` util instead (accessing `types.undefined` throws a migration error rather than silently dropping the key).
+Migration is a find/replace: `'string'` → `types.string`, `'number'` → `types.number`, `'array<x>'` → `types.array.of(types.x)`, and so on. `initializeParser` now returns `{ createParser, resolve, cacheResult, types, variables }` — re-export `types` (and the rest) from your parser config. Note that `types` is **not** a root export of `@bou-co/parsing`; get it from `initializeParser`, or import the tokens individually from the tree-shakeable `@bou-co/parsing/types` entry point. There is no `types.undefined`; use the `optional` util instead (accessing `types.undefined` throws a migration error rather than silently dropping the key).
 
 ### 2. Types now always cast values
 

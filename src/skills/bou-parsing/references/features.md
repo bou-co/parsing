@@ -558,6 +558,7 @@ React is an **optional peer dependency**, so the core package stays usable serve
 | `get(path, from?, type?)`          | Dot-path lookup from `context.data` or an object; with a type, the engine casts the value like a token at the key (`phoneLink: get('phone', types.tel.href)`)   |
 | `value(input, type)`               | Resolve patterns in `input` (or call a function input), then cast in the engine like a token at the key — `title: value('{{siteName}}', types.string.required)` |
 | `variable(expression, type?)`      | Evaluate the inside of a `{{ }}` through the active variables pattern; with a type cast like `value` — `variable('user.email \|\| supportEmail', types.email)`  |
+| `variables`                        | Proxy: `variables.user.name` resolves like `'{{user.name}}'` via the active variables pattern; typed `any` — `variables.year as number` types it, no cast       |
 | `toHash(data)`                     | Deterministic hash for cache keys. **Key-order sensitive** — see `gotchas.md`                                                                                   |
 | `asDate(v)`                        | Date coercion helper                                                                                                                                            |
 | `mergeObjects(a, b)`               | Deep merge used for context merging                                                                                                                             |

@@ -131,5 +131,5 @@ creating engine and nest safely across configurations, so a partial migration is
 intermediate state rather than a broken one.
 
 **Verify against the source when docs disagree.** v3 is at `3.0.0-rc.*` (npm tag `v3-rc`), so prose
-can lag the code. `initializeParser` returns `{ createParser, resolve, cacheResult, types }`
-— all four. Where this skill and any doc conflict, trust the code and the tests.
+can lag the code. `initializeParser` returns `{ createParser, resolve, cacheResult, types, variables }`
+— all five. Where this skill and any doc conflict, trust the code and the tests.

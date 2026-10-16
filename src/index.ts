@@ -3,6 +3,7 @@ export * from './parser-types';
 export * from './parser-util';
 export * from './expandable-types';
 export * from './to-hash';
+export * from './variables';
 
 export { TypeToken, defineType, isTypeToken, isMissing, applyCast, buildKeyPath, ParserCastError } from './type-token';
 export type {

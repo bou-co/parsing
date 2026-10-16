@@ -53,6 +53,7 @@ This table is the core of the API. Anything in the left column is a legal projec
 | `get('a.b', types.tel.href)`                     | Read another path, cast by the engine like a token at this key (several outputs from one raw field) |
 | `value('{{x}}', types.string.required)`          | Resolve patterns in the input, then cast by the engine like a token at this key                     |
 | `variable('x \|\| "y"', types.email)`            | Evaluate one variable expression (inside of `{{ }}`), cast like `value`; no type → plain lookup     |
+| `variables.user.name as string`                  | Proxy for `'{{user.name}}'` (resolved like `variable`); `as T` only types it, never casts           |
 | A `Promise`                                      | Awaited (once per parser instance), never cast — e.g. `get('a.b', someObject)`                      |
 | A literal (`'blogPost'`, `42`, `true`)           | Constant, passed through as-is                                                                      |
 | `(context) => value`                             | Value function; sync or async; receives `ParserContext`                                             |
@@ -177,7 +178,7 @@ engine.
 
 ```ts
 // parser-config.ts
-export const { createParser, resolve, cacheResult, types } = initializeParser({/* … */});
+export const { createParser, resolve, cacheResult, types, variables } = initializeParser({/* … */});
 ```
 
 **Prefer `context.value` over `context.data[key]`** in value functions — it's the same raw

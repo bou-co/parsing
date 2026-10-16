@@ -335,6 +335,16 @@ transformers and patterns with the projection key as the error path. Inside `con
 failure. Use `value('{{siteName}}', types.string.required)`
 or `variable('siteName', types.string.required)` to cast it like a token at the key.
 
+### `variables.x` is a value function, not a string
+
+`variables.year as number` only sets the type; it never casts (use `variable('year', types.number)`
+for that). The proxy is a function the engine calls with the context, and every property access
+extends the path, `then` included, so it also looks like a promise. Use it directly as a projection
+value, `resolve` input or `value()` input; never `await` it or return it from your own value
+function, or the parse hangs. Inside a value function, return the string `'{{year}}'` instead,
+which the engine resolves afterwards. `toString`, `valueOf` and `toJSON` are reserved; reach a
+variable with one of those names through `variable('toString')`.
+
 ### `.to(fn)` leaves the family; `.extend(fn)` keeps it
 
 `types.string.to((v) => v.length)` is a base `TypeToken<number>` with no string accessors —
@@ -427,10 +437,10 @@ bypass the whole-parse caching proxy entirely: they get no whole-parse cache ent
 Get it from `initializeParser`, or import tokens individually from `@bou-co/parsing/types`.
 `import { types } from '@bou-co/parsing'` does not work.
 
-### `initializeParser` returns four things
+### `initializeParser` returns five things
 
-`{ createParser, resolve, cacheResult, types }` — destructure and re-export all four from your
-parser config; `cacheResult` is easy to forget because it was added later in v3.
+`{ createParser, resolve, cacheResult, types, variables }` — destructure and re-export all five
+from your parser config; `cacheResult` is easy to forget because it was added later in v3.
 
 ### `export *` leaks internals into the public surface
 

@@ -163,7 +163,7 @@ In the root level of your code, run the `initializeParser` function to export yo
 // parser-config.ts
 import { initializeParser } from '@bou-co/parsing';
 
-export const { createParser, resolve, cacheResult, types } = initializeParser(/** Global configurations come here **/);
+export const { createParser, resolve, cacheResult, types, variables } = initializeParser(/** Global configurations come here **/);
 ```
 
 ### 3 - Start using the parser
@@ -1030,6 +1030,22 @@ const myParser = createParser({
 });
 ```
 
+#### The `variables` proxy
+
+`variables` builds the same reference as a `'{{ }}'` string through property access: `variables.year` resolves like `'{{year}}'`, and `variables.lorem.ipsum.dolor` like `'{{lorem.ipsum.dolor}}'`. Unlike a string, it accepts a type assertion, so the projection can declare what the variable holds:
+
+```ts
+import { variables } from '@bou-co/parsing'; // also returned from initializeParser
+
+const myParser = createParser({
+  year: variables.year as number, // inferred as number
+  author: variables.user.name, // inferred as any
+  footer: `© ${variables.year} ${variables.siteName}`, // template literals stringify each one to '{{year}}' etc.
+});
+```
+
+`as` only sets the type; nothing is cast at runtime. To cast, use `variable('year', types.number)`. The proxy resolves through the **active** variables pattern like [`variable`](#variableexpression-type), but stringifying it (`String()`, template literals) always produces the default `{{ }}` form. See [the gotcha](#variablesx-is-a-value-function-not-a-string).
+
 #### Dynamic Variable Resolvers
 
 Instead of defining every possible variable upfront, `variableResolver` allows you to dynamically intercept and resolve variables by their exact name when they are encountered. This is useful for catching wildcards, fetching data on-demand from a database, or handling dynamic keys.
@@ -1802,7 +1818,7 @@ For manual control, the configured backend is also directly available as `contex
 
 ```ts
 // parsing-config.ts — caching requires a configured storage; the export works without one too
-export const { createParser, resolve, cacheResult, types } = initializeParser({ storage });
+export const { createParser, resolve, cacheResult, types, variables } = initializeParser({ storage });
 ```
 
 ```ts
@@ -2310,6 +2326,10 @@ Once-per-parse work guarded by `context.isRoot` will not run inside a nested par
 
 `title: '{{siteName}}'` interpolates, but no type applies, so `.required`/`.default` and cast failures never happen. Use `value('{{siteName}}', types.string.required)` or `variable('siteName', types.string.required)` to cast it like a token at the key. See [`value`](#valueinput-type).
 
+#### `variables.x` is a value function, not a string
+
+`variables.year as number` only sets the type; it never casts (use `variable('year', types.number)` for that). The proxy is a function the engine calls with the context, and every property access extends the path, `then` included, so it also looks like a promise. Use it directly as a projection value, `resolve` input or `value()` input; never `await` it or return it from your own value function, or the parse hangs. Inside a value function, return the string `'{{year}}'` instead, which the engine resolves afterwards. `toString`, `valueOf` and `toJSON` are reserved; reach a variable with one of those names through `variable('toString')`. See [The `variables` proxy](#the-variables-proxy).
+
 #### `context.resolve` vs the exported `resolve`
 
 The exported `resolve` never inherits ambient context. Inside a value function, using it instead of `context.resolve` silently loses merged variables, transformers and locale — destructure it: `async ({ resolve }) => resolve('…')`. See [Function values & the contextual resolve](#function-values--the-contextual-resolve).
@@ -2348,9 +2368,9 @@ Each parser brings its own `createParser` cache config (per-call cache still pro
 
 `import { types } from '@bou-co/parsing'` does not work: get the namespace from `initializeParser`, or import tokens individually from `@bou-co/parsing/types`.
 
-#### `initializeParser` returns four things
+#### `initializeParser` returns five things
 
-`{ createParser, resolve, cacheResult, types }` — destructure and re-export all four from your parser config; `cacheResult` is the one that gets forgotten.
+`{ createParser, resolve, cacheResult, types, variables }` — destructure and re-export all five from your parser config; `cacheResult` is the one that gets forgotten.
 
 ## API Reference
 
@@ -2360,7 +2380,7 @@ Each parser brings its own `createParser` cache config (per-call cache still pro
 
 Initializes an isolated parsing engine with global settings (loose casting, transformers, patterns, pipes, storage caching, variables, lifecycle hooks).
 
-- **Returns:** `{ createParser, resolve, cacheResult, types }`, where `types` contains the built-in casting types.
+- **Returns:** `{ createParser, resolve, cacheResult, types, variables }`, where `types` contains the built-in casting types and `variables` is the [`variables`](#the-variables-proxy) proxy.
 
 #### `createParser(projection, options?)`
 
@@ -2560,6 +2580,19 @@ const myParser = createParser({
   name: variable('user.name | upperCase', types.string.required),
   theme: variable('settings.theme || "light"'),
   uid: variable('data.uid', types.string),
+});
+```
+
+#### `variables`
+
+A proxy that turns property access into a variable reference: `variables.user.name` resolves like `'{{user.name}}'` (evaluated through the active variables pattern, like `variable('user.name')`). It is typed `any`, so `variables.year as number` types the output field without a runtime cast. `toString`, `valueOf`, `toJSON` and template literals give the `'{{user.name}}'` string, and it hashes like that string. Exported from the package root and returned from `initializeParser`. See [The `variables` proxy](#the-variables-proxy).
+
+```ts
+import { variables } from '@bou-co/parsing';
+
+const myParser = createParser({
+  year: variables.year as number,
+  theme: variables.settings.theme,
 });
 ```
 

@@ -30,7 +30,7 @@ declare module '@bou-co/parsing' {
   }
 }
 
-export const { createParser, resolve, cacheResult, types } = initializeParser({
+export const { createParser, resolve, cacheResult, types, variables } = initializeParser({
   storage: {
     generateKey: (context) => {
       if (!context.cache.name) throw new Error('Caching options must have a name defined');

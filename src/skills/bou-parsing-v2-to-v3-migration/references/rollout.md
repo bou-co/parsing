@@ -13,7 +13,7 @@ through silently and v3 throws on them. Don't discover the whole list at once in
 Before running against real data, set:
 
 ```ts
-export const { createParser, resolve, cacheResult, types } = initializeParser({
+export const { createParser, resolve, cacheResult, types, variables } = initializeParser({
   looseCasting: true,
   onCastError: (error) => {
     telemetry.report('parser-cast-error', {

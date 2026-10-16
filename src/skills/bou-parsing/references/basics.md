@@ -17,8 +17,8 @@ Contents:
 ```ts
 import { initializeParser } from '@bou-co/parsing';
 
-// 1. One engine per configuration. Returns 4 things.
-export const { createParser, resolve, cacheResult, types } = initializeParser({
+// 1. One engine per configuration. Returns 5 things.
+export const { createParser, resolve, cacheResult, types, variables } = initializeParser({
   variables: { currentYear: () => new Date().getFullYear() },
   pipes: { uppercase: ({ data }) => String(data).toUpperCase() },
 });

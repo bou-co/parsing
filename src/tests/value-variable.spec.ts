@@ -1,7 +1,9 @@
 import { initializeParser } from '../parser';
 import { ParserContext } from '../parser-types';
 import { get, value, variable } from '../parser-util';
-import { ParserCastError } from '../type-token';
+import { isTypeToken, ParserCastError } from '../type-token';
+import { toHash } from '../to-hash';
+import { variables } from '../variables';
 
 const resolver = vi.fn(async (name: string) => (name === 'remote' ? 'from-resolver' : undefined));
 
@@ -106,5 +108,55 @@ describe('variable(expression, type?)', () => {
     expect(String(variable('a'))).not.toEqual(String(variable('a', types.string)));
     expect(String(variable('a', types.string))).not.toEqual(String(variable('a', types.number)));
     expect(String(variable('a'))).not.toEqual(String(get('a')));
+  });
+});
+
+describe('variables proxy', () => {
+  it('resolves like the equivalent {{ }} string', async () => {
+    const proxied = createParser({ title: variables.myVariable, name: variables.user.name, missing: variables.missing });
+    const literal = createParser({ title: '{{myVariable}}', name: '{{user.name}}', missing: '{{missing}}' });
+    expect(await proxied({})).toEqual({ title: 'Hello', name: 'bob' });
+    expect(await proxied({})).toEqual(await literal({}));
+  });
+
+  it('passes an object variable through raw', async () => {
+    expect(await createParser({ settings: variables.settings.nested })({})).toEqual({ settings: { a: 1 } });
+  });
+
+  it('stringifies to the {{ }} form', async () => {
+    expect(String(variables.user.name)).toEqual('{{user.name}}');
+    expect(variables.user.name.toString()).toEqual('{{user.name}}');
+    expect(JSON.stringify(variables.a.b)).toEqual('"{{a.b}}"');
+    const parser = createParser({ greeting: `${variables.myVariable}, ${variables.user.name}!` });
+    expect(await parser({})).toEqual({ greeting: 'Hello, bob!' });
+  });
+
+  it('works as a value input and inside resolve', async () => {
+    expect(await createParser({ count: value(variables.count, types.number) })({})).toEqual({ count: 42 });
+    expect(await resolve({ a: variables.myVariable })).toEqual({ a: 'Hello' });
+  });
+
+  it('reads the built-in data head and falls back to the variable resolver', async () => {
+    const parser = createParser({ uid: variables.data.uid, remote: variables.remote });
+    expect(await parser({ uid: 'abc' })).toEqual({ uid: 'abc', remote: 'from-resolver' });
+  });
+
+  it('follows re-delimited variables patterns', async () => {
+    const redelimited = initializeParser({ variables: { name: 'World' }, patterns: { variables: { match: /\$\{([^}]+)\}/g } } });
+    expect(await redelimited.createParser({ a: variables.name })({})).toEqual({ a: 'World' });
+  });
+
+  it('keeps then as a variable name', async () => {
+    expect(await createParser({ a: variables.then })({}, { variables: { then: 'next' } })).toEqual({ a: 'next' });
+  });
+
+  it('is not a type token and hashes like the {{ }} string', () => {
+    expect(isTypeToken(variables.x)).toBe(false);
+    expect(toHash({ a: variables.year })).toEqual(toHash({ a: '{{year}}' }));
+    expect(toHash({ a: variables.year })).not.toEqual(toHash({ a: variables.month }));
+  });
+
+  it('is the same proxy returned from initializeParser', () => {
+    expect(initializeParser().variables).toBe(variables);
   });
 });

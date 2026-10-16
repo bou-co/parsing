@@ -111,18 +111,18 @@ A token left in `variables` or `pipes` throws a targeted error at first use.
 
 **v2** returned `{ createParser }`.
 
-**v3** returns `{ createParser, resolve, cacheResult, types }`.
+**v3** returns `{ createParser, resolve, cacheResult, types, variables }`.
 
 ```ts
 // parser-config.ts
-export const { createParser, resolve, cacheResult, types } = initializeParser({/* … */});
+export const { createParser, resolve, cacheResult, types, variables } = initializeParser({/* … */});
 ```
 
 You must re-export `types` from your parser config, because **`types` is not a root export of
 the package**. `import { types } from '@bou-co/parsing'` does not work. The alternatives are the
 config re-export above, or individual tokens from `@bou-co/parsing/types`.
 
-All four are worth re-exporting even if unused yet — `cacheResult` is the one people forget
+All five are worth re-exporting even if unused yet — `cacheResult` is the one people forget
 because it landed later in v3.
 
 ---

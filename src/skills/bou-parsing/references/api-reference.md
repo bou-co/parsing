@@ -21,7 +21,7 @@ peer dependencies (the last three only for `types/content`).
 
 Creates an isolated engine. `config` is an object, or a sync/async function returning one.
 
-**Returns** `{ createParser, resolve, cacheResult, types }`.
+**Returns** `{ createParser, resolve, cacheResult, types, variables }`.
 
 Config keys:
 
