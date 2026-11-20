@@ -1,6 +1,6 @@
 {
   "name": "@bou-co/parsing",
-  "version": "3.0.0-rc.4-dev.1",
+  "version": "3.0.0-rc.5",
   "type": "module",
   "sideEffects": false,
   "license": "MIT",
