@@ -28,7 +28,7 @@ content comes out joined, templated, cached, and typed.
 - **Patterns**: define your own inline syntaxes (e.g. `$products.count`) resolved from any string; variables are just the built-in one
 - **Transformers**: global hooks that auto-convert matching values (e.g. localisation objects)
 - **Lifecycle hooks**: `before`/`after` callbacks for shared context setup and post-processing
-- **Server-side caching**: pluggable storage (Redis, etc.) with deterministic cache-key generation
+- **Server-side caching**: pluggable storage (Redis, etc.) with deterministic cache-key generation, plus `store` for caching single values anywhere
 - **TypeScript inference**: output types derived entirely from the projection literal, no generics to write
 
 ## Table of Contents
@@ -83,8 +83,7 @@ content comes out joined, templated, cached, and typed.
 - [Examples & Use Cases](#examples--use-cases)
   - [Next.js App Router & Server Components](#nextjs-app-router--server-components)
   - [Server-Side Data Fetching & Caching](#server-side-data-fetching--caching)
-  - [Value-Level Caching with `context.store`](#value-level-caching-with-contextstore)
-  - [Caching individual values with `cacheResult`](#caching-individual-values-with-cacheresult)
+  - [Caching values with `store`](#caching-values-with-store)
   - [CMS Content Templating with Variables](#cms-content-templating-with-variables)
   - [CMS Dynamic Variables with On-Demand Fetching & Caching](#cms-dynamic-variables-with-on-demand-fetching--caching)
   - [Advanced TypeScript Generation & Utilities](#advanced-typescript-generation--utilities)
@@ -163,7 +162,7 @@ In the root level of your code, run the `initializeParser` function to export yo
 // parser-config.ts
 import { initializeParser } from '@bou-co/parsing';
 
-export const { createParser, resolve, cacheResult, types, variables } = initializeParser(/** Global configurations come here **/);
+export const { createParser, resolve, store, types, variables } = initializeParser(/** Global configurations come here **/);
 ```
 
 ### 3 - Start using the parser
@@ -1736,7 +1735,6 @@ import { redis } from '../redis';
 declare module '@bou-co/parsing' {
   interface ParserCachingOptions {
     name?: string;
-    ttl?: number;
   }
 }
 
@@ -1776,93 +1774,77 @@ const result = await expensiveParser(rawData); // Takes 1s first time, almost in
 
 Cache options do not flow from a parser into the parsers nested inside it: each `createParser` brings its own `cache` config (per-call `cache` still propagates), so a `generateKey` that requires a `name` needs one on every nested parser.
 
-### Value-Level Caching with `context.store`
+### Caching values with `store`
 
-**Why:** Whole-parse caching (above) keys on the full input data. Often, though, a single value function makes an expensive async request whose result is shared across many different parses (e.g. fetching a referenced author). `context.store` caches individual computations through the same globally configured `storage`.
+**Why:** Whole-parse caching (above) keys on the full input data. Often, though, a single expensive call (a referenced author, a profile, a CMS snippet) is shared across many different parses, or is needed outside a parser entirely. `store` caches individual values through the same globally configured `storage`, wherever you are: standalone, inside value functions, or as a projection value.
 
-**Features Used:** `context.store`, `context.storage`, `initializeParser` (storage).
+**Features Used:** `store`, `context.store`, `initializeParser` (storage).
+
+```ts
+// parsing-config.ts — caching requires a configured storage; the export works without one too
+export const { createParser, resolve, store, types, variables } = initializeParser({ storage, cache: { ttl: 3600 } });
+```
+
+`store(key, fn, options?)` is get-or-compute: it returns the value cached under `key`, or runs `fn` on a miss and stores the result.
+
+```ts
+import { store } from './parsing-config';
+
+const profile = await store(`profile-${uid}`, () => fetchProfile(uid));
+const fresh = await store(`news-${uid}`, () => fetchNews(uid), { ttl: 60 }); // per-call options
+```
+
+For direct reads and writes, `store.add` writes and resolves to the key, `store.match` reads (`undefined` on a miss), and `store.remove` / `store.clear` delegate to the backend:
+
+```ts
+await store.add({ key: 'profile-1234', value: profile, ttl: 3600 }); // → 'profile-1234'
+await store.add('profile-1234', profile, { ttl: 3600 }); // positional form
+
+const key = await store.add({ value: report }); // no key: a content hash ('store:…') is generated and returned
+const cached = await store.match<Report>(key);
+
+await store.remove('profile-1234');
+await store.clear();
+```
+
+A single argument to `store.add` is always the `{ key?, value, ...options }` object.
+
+**Inside value functions** the context carries the same `store`, bound to the active context like [`context.resolve`](#function-values--the-contextual-resolve): keys interpolate against the current data and variables, and `fn` receives the context.
 
 ```ts
 const articleParser = createParser({
   title: types.string,
-  author: async ({ data, store }) => {
-    const id = `author:https://api.example.com/authors/${data.authorId}`;
-
-    const fetcher = async () => {
-      const res = await fetch(`https://api.example.com/authors/${data.authorId}`);
-      return res.json();
-    };
-
-    return store(id, fetcher, { ttl: 3600 });
-  },
+  author: ({ store }) => store('author:{{data.authorId}}', ({ data }) => fetchAuthor(data.authorId)),
+  related: async ({ store, data }) => (await store.match(`related:${data.id}`)) ?? [],
 });
 ```
 
-Semantics:
-
-- Caches whenever a global `storage` is configured, **independent of `cache.enabled`** (calling `store` is the opt-in).
-- With no storage configured (e.g. client-side) it simply runs the function, so value functions stay isomorphic.
-- Concurrent calls with the same key share one in-flight computation: array items parse in parallel, but the request fires once.
-- Errors are never cached; a failed computation rejects all waiters and the next call retries.
-- `null`/`undefined` from `storage.match` count as misses, so falsy values (`0`, `''`, `false`) cache correctly.
-- The optional third argument is merged into `context.cache` for the backend's `match`/`add` (e.g. a `ttl`).
-- The cache identity is your explicit key: the context passed to the backend carries no per-key information.
-
-For manual control, the configured backend is also directly available as `context.storage` (`match`/`add`/`remove`/`clear`).
-
-### Caching individual values with `cacheResult`
-
-**Why:** `context.store` requires writing a value function that builds its own key. `cacheResult` packages the same caching into a declarative wrapper: give it a key template and a function, and drop it anywhere — a projection, a [`resolve`](#resolving-values-without-parsing) input, or a plain `await` outside the parser entirely.
-
-**Features Used:** `cacheResult`, `initializeParser` (storage), [Built-in context variables](#built-in-context-variables).
+**As a projection value**, the standalone `store(key, fn)` runs per parse instead of once when the projection is defined, so it can sit directly in a projection (or a [`resolve`](#resolving-values-without-parsing) input). The key is interpolated per parse, so `{{data.uid}}`, `{{ctx.currentLocale}}`, variables, fallbacks and pipes all work:
 
 ```ts
-// parsing-config.ts — caching requires a configured storage; the export works without one too
-export const { createParser, resolve, cacheResult, types, variables } = initializeParser({ storage });
-```
-
-```ts
-import { createParser, types, cacheResult } from './parsing-config';
+import { createParser, types, store } from './parsing-config';
 
 const myParser = createParser({
   name: types.string,
-  profile: cacheResult('profile-{{data.uid}}', async (ctx) => {
-    /* Logic to fetch profile */
-    return profile;
-  }),
+  profile: store('profile-{{data.uid}}', ({ data }) => fetchProfile(data.uid)),
 });
 
 const data = await myParser({ name: 'John Doe', uid: '1234' });
 // → profile is fetched once and cached under 'profile-1234'
 ```
 
-The key is interpolated with the [variables pattern](#variables) against the active context when the value resolves — `{{data.uid}}`, `{{ctx.currentLocale}}`, explicit variables, fallbacks and pipes all work. The same wrapper also runs outside a parser:
-
-```ts
-import { resolve, cacheResult } from './parsing-config';
-
-const uid = '1234';
-const query = (ctx) => fetch(`https://api.example.com/profile/${uid}`).then((res) => res.json());
-
-// Standalone: await it directly — the optional third argument provides the data for key interpolation
-const rawData = await cacheResult('raw-data-{{data.uid}}', query, { uid });
-const rawData2 = await cacheResult(`raw-data-${uid}`, query); // or skip interpolation entirely
-
-// Or inside a resolve input
-const data = await resolve({
-  name: 'John Doe',
-  profile: cacheResult(`profile-${uid}`, query),
-});
-```
-
 Semantics:
 
-- Same engine as `context.store`: storage-gated (no storage → the function just runs), independent of `cache.enabled`, in-flight dedup shared per key, errors never cached, `null`/`undefined` matches count as misses.
-- The function always receives the active `ParserContext` (inside a parse the real per-key context; standalone a root context whose `data` is the third argument).
-- The optional third argument feeds key interpolation: standalone it becomes the context data, inside a parse it is merged over the current `data` for the key only.
-- The optional fourth argument is merged into `context.cache` for the storage backend (e.g. a `ttl`), like `context.store`'s third argument.
-- Awaiting the same wrapper twice standalone computes once (memoized per wrapper).
-- Watch the key template: a variable that resolves to nothing stringifies to `undefined` inside the key (`'profile-undefined'`), silently colliding across inputs.
+- Caches whenever a global `storage` is configured, **independent of `cache.enabled`** (calling `store` is the opt-in). With no storage configured (e.g. client-side), `fn` simply runs, `match` misses and `add` still returns the key, so code stays isomorphic.
+- Concurrent `store(key, fn)` calls with the same key share one in-flight computation: array items parse in parallel, but the request fires once.
+- Errors are never cached; a failed computation rejects all waiters and the next call retries.
+- `null`/`undefined` from `storage.match` count as misses, so falsy values (`0`, `''`, `false`) cache correctly; for the same reason `store.add` rejects `null`/`undefined` values.
+- Keys are interpolated with the [variables pattern](#variables) (and any other registered [pattern](#patterns)) in every method. A variable that resolves to nothing stringifies to `undefined` inside the key (`'profile-undefined'`), silently colliding across inputs.
+- Options (e.g. `ttl`) are merged into `context.cache` for the backend; omitted options fall back to the merged global/schema/instance `cache` config. The library never expires entries itself: your backend applies `context.cache.ttl`.
+- The standalone `store(key, fn)` is lazy: it runs when awaited (once per returned value) or when the engine resolves it as a projection value. `context.store(key, fn)` starts immediately, so several calls in one value function run in parallel.
+- The cache identity is your key (or the content hash from a keyless `store.add`); `generateKey` is not consulted.
+
+The configured backend itself stays available as `context.storage` for anything `store` does not cover.
 
 ### CMS Content Templating with Variables
 
@@ -2346,7 +2328,7 @@ It rebinds `data`/`value`/`current` to the input being resolved, so `{{data.x}}`
 
 #### `toHash` is key-order sensitive — and all falsy inputs hash identically
 
-`toHash` is `JSON.stringify` plus a string hash with no key sorting, so an object assembled in a different key order produces a different key for identical content and misses the cache forever; sort before hashing when order is not guaranteed (see [`toHash`](#tohashdata)). Also, `0`, `''`, `false`, `null`, `undefined` and `NaN` all collapse to one hash, so none of them can distinguish a key.
+`toHash` is `JSON.stringify` plus a string hash with no key sorting, so an object assembled in a different key order produces a different key for identical content and misses the cache forever; sort before hashing when order is not guaranteed (see [`toHash`](#tohashdata)). Also, `0`, `''`, `false`, `null`, `undefined` and `NaN` all collapse to one hash, so none of them can distinguish a key. The content hash a keyless `store.add` generates is key-order sensitive too, but it does give falsy values distinct keys.
 
 #### `patterns` is global-only
 
@@ -2360,6 +2342,14 @@ Deliberate — token patterns have no end delimiter, so `||` after a match is ju
 
 Each parser brings its own `createParser` cache config (per-call cache still propagates). With a `generateKey` that requires a `name`, a nested parse that used to inherit the parent's name throws `Caching options must have a name defined` — give the nested parser its own cache config. See [Server-Side Data Fetching & Caching](#server-side-data-fetching--caching).
 
+#### A single argument to `store.add` is always the object form
+
+Pass data through `value`: `store.add({ value: report })`. `store.add(report)` throws when `report` has no `value` field, and when it does (a CMS key/value pair, say) it is silently read as the object form, storing `report.value` under `report.key`. See [Caching values with `store`](#caching-values-with-store).
+
+#### The standalone `store(key, fn)` is lazy, `context.store(key, fn)` is eager
+
+Laziness is what lets the standalone one sit in a projection literal without running at definition time, but it also means `const a = store(...); const b = store(...); await a; await b;` runs the two one after the other (use `Promise.all`), and a call you never await never runs. `context.store` starts immediately, as before.
+
 #### `parser.asArray !== parser`, but they hash the same
 
 `asArray` is a derived variant, so identity comparisons against `parser` fail; its hash is the base parser's (`String(parser.asArray) === String(parser)`), so as a projection value or `toHash` input the two are indistinguishable. Direct `parser.asArray(...)` calls bypass the whole-parse caching proxy — caching applies when `asArray` sits inside a cached parent parse.
@@ -2370,7 +2360,7 @@ Each parser brings its own `createParser` cache config (per-call cache still pro
 
 #### `initializeParser` returns five things
 
-`{ createParser, resolve, cacheResult, types, variables }` — destructure and re-export all five from your parser config; `cacheResult` is the one that gets forgotten.
+`{ createParser, resolve, store, types, variables }` — destructure and re-export all five from your parser config; `store` is the one that gets forgotten.
 
 ## API Reference
 
@@ -2380,7 +2370,7 @@ Each parser brings its own `createParser` cache config (per-call cache still pro
 
 Initializes an isolated parsing engine with global settings (loose casting, transformers, patterns, pipes, storage caching, variables, lifecycle hooks).
 
-- **Returns:** `{ createParser, resolve, cacheResult, types, variables }`, where `types` contains the built-in casting types and `variables` is the [`variables`](#the-variables-proxy) proxy.
+- **Returns:** `{ createParser, resolve, store, types, variables }`, where `types` contains the built-in casting types, `store` is the [value cache](#storekey-fn-options) and `variables` is the [`variables`](#the-variables-proxy) proxy.
 
 #### `createParser(projection, options?)`
 
@@ -2396,11 +2386,15 @@ Resolves variables and applies global transformers on raw input (an object, arra
 - **Returns:** A promise of the resolved input, typed from the input shape; an explicit generic always overrides the inferred type (e.g. when a transformer reshapes values).
 - **Instance context:** the instance context becomes required once `InstanceContext` is augmented with a required key (same rule as parser calls; `context.resolve` overrides stay optional).
 
-#### `cacheResult(key, fn, extraData?, options?)`
+#### `store(key, fn, options?)`
 
-Wraps a value function so its result is cached through the global `storage` under a variable-interpolated key (`'profile-{{data.uid}}'`). Works as a projection value, inside `resolve` inputs, or awaited directly outside a parse; without a configured storage it simply runs the function. See [Caching individual values with `cacheResult`](#caching-individual-values-with-cacheresult).
+Get-or-compute caching for a single value through the global `storage`: usable standalone, inside `resolve` inputs, or as a projection value (where it runs per parse). Keys are variable-interpolated; without a configured storage `fn` simply runs. Each context carries a `store` bound to it. See [Caching values with `store`](#caching-values-with-store).
 
-- **Returns:** A wrapper that is invoked with the active `ParserContext` inside a parse, and is awaitable standalone (`extraData` becomes the context data; `options` merge into `context.cache` for the backend).
+- **Returns:** An awaitable value that the engine also invokes with the active `ParserContext` when it sits in a projection.
+- **`store.match(key, options?)`**: The cached value, `undefined` on a miss.
+- **`store.add({ key?, value, ...options })` / `store.add(key, value, options?)`**: Writes the value and resolves to its key; without a `key`, a content hash (`store:…`) is generated. A single argument is always the object form.
+- **`store.remove(key, options?)` / `store.clear(options?)`**: Delegate to the backend's `remove` / `clear` when it defines them.
+- **Options:** Merged into `context.cache` for the backend (e.g. `ttl`), falling back to the merged `cache` config.
 
 ### Context Object (`ParserContext`)
 
@@ -2415,8 +2409,8 @@ The `context` object is passed to all dynamic resolver functions in your project
 - **`isRoot`**: A boolean indicating if this is the top-level execution of the parser — `false` inside every kind of nesting, nested parsers included; walk `parent` to reach the root.
 - **`parent`**: The enclosing level's context, chaining all the way up to the root (`undefined` at the root). During nested or projection-driven resolution, `context.parent.data` reaches the surrounding input.
 - **`projection`**: The active projection schema definition for the current level.
-- **`cache`**: The merged caching options. See [Caching](#server-side-data-fetching--caching).
-- **`store`**: `store(key, fn, options?)` runs get-or-compute caching for a single async value through the global `storage`, with in-flight dedupe, independent of `cache.enabled`. See [Value-Level Caching with `context.store`](#value-level-caching-with-contextstore).
+- **`cache`**: The merged caching options (`enabled`, `ttl`, plus your own augmentations). See [Caching](#server-side-data-fetching--caching).
+- **`store`**: The [`store`](#storekey-fn-options) bound to the active context: `store(key, fn, options?)` get-or-compute plus `store.match` / `store.add` / `store.remove` / `store.clear`, with keys interpolated against the current data and variables. Independent of `cache.enabled`. See [Caching values with `store`](#caching-values-with-store).
 - **`storage`**: Direct access to the configured storage backend.
 - **`params`**: Inside a pipe function, the resolved parameters given after the pipe name (`{{x | pipe:param1:param2}}`); `undefined` when none were passed.
 - **`resolve`**: A contextual version of [`resolve`](#resolveinput-contextoverride) that inherits the active context (variables, transformers, locale) with optional per-call overrides. Called with **no arguments** it lazily resolves the current `context.value`, memoized per context so repeated calls resolve once. See [Function values & the contextual resolve](#function-values--the-contextual-resolve).
@@ -2680,7 +2674,7 @@ const article = await articleParser(raw);
 | Templating & custom patterns        | —⁴                                              | `{{variables}}`, pipes, pattern API                                                                          |
 | Global value transformers           | —⁵                                              | `transformers` config, shipped localize                                                                      |
 | Lifecycle hooks                     | —                                               | `before` / `after`                                                                                           |
-| Caching                             | —                                               | pluggable storage, whole-parse cache, `context.store`                                                        |
+| Caching                             | —                                               | pluggable storage, whole-parse cache, `store`                                                                |
 | Schema-less resolution              | —                                               | `resolve()` on plain values                                                                                  |
 
 <sub>¹ Derived values are not the focus; `.transform()` can reshape output.</sub><br>
@@ -2699,7 +2693,7 @@ The tail of that table is the point, so here it is in plain words:
 - **Context.** Three merged levels (global, schema, instance), `withContext`, and the `parent` chain, typed via module augmentation. Per-request locale and user reach every value function without threading arguments through the call stack.
 - **Templating.** Variables with `||` fallbacks and `|` pipes, plus a full pattern API for your own inline syntaxes: custom delimiters, custom regex, rescan control, per-pattern cache modes.
 - **Transformers.** Global value hooks that reshape matching values anywhere in the data. A ready localize transformer ships at `@bou-co/parsing/templates/localize`.
-- **Caching.** Pluggable storage backends, whole-parse caching, and per-value `context.store` with in-flight dedup: concurrent calls for the same key share one request.
+- **Caching.** Pluggable storage backends, whole-parse caching, and a `store` for single values (standalone, in value functions or as projection values) with in-flight dedup: concurrent calls for the same key share one request.
 - **Resolving without a projection.** `resolve()` runs transformers and patterns on plain values, no schema needed.
 
 None of this comes from plugins. Everything is core API built on the same context system, so when the built-ins are not enough, you extend the same machinery yourself instead of hunting for third-party packages. That is what "meta-framework level API capabilities" means in the table above.

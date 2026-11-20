@@ -5,6 +5,7 @@ import { ParserContext, ParserPattern, ParserPatternCacheMode, ParserPatternsCon
 
 export const PATTERN_REGISTRY = Symbol('@bou-co/parsing:pattern-registry');
 export const PATTERN_RUN_CACHE = Symbol('@bou-co/parsing:pattern-run-cache');
+export const PATTERN_STORE = Symbol('@bou-co/parsing:pattern-store');
 
 const MAX_PATTERN_DEPTH = 10;
 
@@ -25,6 +26,7 @@ export type CompiledPatternRegistry = CompiledPattern[];
 interface InternalPatternContext extends ParserContext {
   [PATTERN_REGISTRY]?: CompiledPatternRegistry;
   [PATTERN_RUN_CACHE]?: Map<string, Promise<unknown>>;
+  [PATTERN_STORE]?: (context: ParserContext, key: string, fn: () => unknown) => Promise<unknown>;
 }
 
 export interface PatternMatch {
@@ -194,8 +196,10 @@ const resolvePattern = (pattern: CompiledPattern, path: string, match: PatternMa
   if (pattern.cache === 'none') return Promise.resolve(pattern.resolve(input));
   const key = `pattern:${pattern.name}:${path}`;
   if (pattern.cache === 'storage') {
-    if (!context.store) return Promise.resolve(pattern.resolve(input));
-    return context.store(key, () => pattern.resolve(input));
+    // The engine's raw store — context.store interpolates keys, which would rescan this one
+    const store = (context as InternalPatternContext)[PATTERN_STORE];
+    if (!store) return Promise.resolve(pattern.resolve(input));
+    return store(context, key, () => pattern.resolve(input));
   }
   const runCache = (context as InternalPatternContext)[PATTERN_RUN_CACHE];
   if (!runCache) return Promise.resolve(pattern.resolve(input));

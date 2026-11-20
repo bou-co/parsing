@@ -223,4 +223,82 @@ describe('context.store', () => {
       initializeParser({ storage, cache: { enabled: false } });
     }
   });
+
+  it('should interpolate variables in keys against the current context', async () => {
+    const fetchAuthor = vi.fn(async () => ({ name: 'John Doe' }));
+    const parser = createParser({
+      author: ({ store }: ParserContext) => store('author:{{data.authorId}}', fetchAuthor),
+    });
+
+    await parser({ authorId: 42 });
+
+    expect(storage.add).toHaveBeenCalledWith('author:42', { name: 'John Doe' }, expect.anything());
+  });
+
+  it('should pass the context to the function', async () => {
+    const parser = createParser({
+      value: ({ store }: ParserContext) => store('ctx-fn', (context) => `id:${context.data['id']}`),
+    });
+
+    const data = await parser({ id: 7 });
+
+    expect(data?.value).toEqual('id:7');
+  });
+
+  it('should support catch on the returned value', async () => {
+    const parser = createParser({
+      value: ({ store }: ParserContext) =>
+        store('catch-key', async () => {
+          throw new Error('fetch failed');
+        }).catch(() => 'fallback'),
+    });
+
+    const data = await parser({ id: 1 });
+
+    expect(data?.value).toEqual('fallback');
+    expect('catch-key' in storage.values).toBe(false);
+  });
+
+  it('should follow a context replaced by a before hook', async () => {
+    const parser = createParser(
+      {
+        value: ({ store }: ParserContext) => store('tenant-{{tenant}}', async () => 'value'),
+      },
+      {
+        before: (context) => ({ ...context, variables: { ...context.variables, tenant: 'acme' } }),
+      },
+    );
+
+    await parser({ id: 1 });
+
+    expect(storage.values['tenant-acme']).toEqual('value');
+  });
+
+  it('should deliver a rejection to a later awaiter without an unhandled rejection', async () => {
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const parser = createParser({
+        value: async ({ store }: ParserContext) => {
+          const slow = store('sequential-ok', async () => {
+            await sleep(10);
+            return 'ok';
+          });
+          const failing = store('sequential-err', async () => {
+            throw new Error('fetch failed');
+          });
+          await slow;
+          return failing.catch((error: Error) => error.message);
+        },
+      });
+
+      const data = await parser({ id: 1 });
+      await sleep(0);
+
+      expect(data?.value).toEqual('fetch failed');
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
 });

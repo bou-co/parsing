@@ -108,7 +108,7 @@ profile: async ({ data, datalessPath }) => {
 
 Search for every nested parser and nested projection that performs I/O or has observable side
 effects. Concretely: within `createParser` projections, look for `async` value functions,
-`fetch`/client calls, `@combine`, `context.store`, and `cacheResult` that sit **inside a nested
+`fetch`/client calls, `@combine`, `context.store`, and `store(...)` projection values that sit **inside a nested
 level** rather than at the root. Those are the ones whose call count changes.
 
 Rank by blast radius: a nested parser used inside an `.asArray` on a listing page is the worst
@@ -226,7 +226,9 @@ limitations:
 - `context.path` — the chain of projections from root to here
 - `context.value` — the raw `data?.[key]`, replacing `({ data, key }) => data[key]`
 - `context.resolve()` — zero-arg form lazily resolves `context.value`, memoized
-- `context.store(key, fn, options?)` — get-or-compute caching with in-flight dedupe
+- `store(key, fn, options?)` — get-or-compute caching with in-flight dedupe, exported from
+  `initializeParser` and bound to the active context as `context.store`; `store.match` /
+  `store.add` / `store.remove` / `store.clear` read and write entries directly
 - `context.storage` — the configured backend directly
 
 ---
@@ -340,7 +342,7 @@ search you can actually run.
 
 - [ ] Every nested parser used as a projection value: does it perform I/O?
 - [ ] Every `@combine` inside a nested projection: does its resolver fetch?
-- [ ] Every `context.store` / `cacheResult` below the root level
+- [ ] Every `context.store` / `store(...)` projection value below the root level
 - [ ] Every `variableResolver` that fetches, and whether nested projections can now reach it
 - [ ] Nested parsers inside `.asArray` on list pages — highest multiplier, check first
 

@@ -21,7 +21,7 @@ peer dependencies (the last three only for `types/content`).
 
 Creates an isolated engine. `config` is an object, or a sync/async function returning one.
 
-**Returns** `{ createParser, resolve, cacheResult, types, variables }`.
+**Returns** `{ createParser, resolve, store, types, variables }`.
 
 Config keys:
 
@@ -34,7 +34,7 @@ Config keys:
 | `variableResolver` | `(name, ctx, cache) => unknown`                 | global                 | On-demand lookup; `cache(v)` opts into the engine-lifetime store                                                          |
 | `transformers`     | `{ [name]: { when, then } }`                    | global                 | Whole-value replacement                                                                                                   |
 | `storage`          | `{ match, add, generateKey?, remove?, clear? }` | global                 | Cache backend (`StorageLike`)                                                                                             |
-| `cache`            | `ParserCachingOptions`                          | global/schema/instance | `{ enabled, ...your options }`                                                                                            |
+| `cache`            | `ParserCachingOptions`                          | global/schema/instance | `{ enabled, ttl, ...your options }`; `ttl` is forwarded to the backend as `context.cache.ttl`, never applied by the library |
 | `looseCasting`     | `boolean`                                       | global/schema/instance | `true`: log and drop failed casts (`'undefined'` is a deprecated alias)                                                   |
 | `onCastError`      | `(error, ctx) => void`                          | global/schema/instance | Observe `ParserCastError`                                                                                                 |
 | `before` / `after` | `(ctx) => ctx`                                  | global/schema/instance | Lifecycle hooks                                                                                                           |
@@ -68,11 +68,19 @@ Runs transformers and patterns on raw input with no projection, casting, or hook
 objects, arrays, strings, and functions. Return type inferred from input; pass an explicit
 generic when a transformer reshapes values. Like a parser call, the instance context becomes required once `InstanceContext` is augmented with a required key (`context.resolve` overrides stay optional).
 
-### `cacheResult(key, fn, extraData?, options?)`
+### `store(key, fn, options?)`
 
-Caches `fn`'s result in storage under a variable-interpolated `key`. Usable as a projection
-value, inside a `resolve` input, or awaited standalone. `extraData` feeds key interpolation;
-`options` merges into `context.cache`.
+Get-or-compute: the value cached under the variable-interpolated `key`, or `fn(context)`'s
+result stored there on a miss. Usable standalone (lazy — runs when awaited), as a projection
+value or inside a `resolve` input (runs per parse, key interpolated against the live context).
+Every context carries a bound `context.store` (eager) with the same members. `options` merges
+into `context.cache` for the backend (e.g. `ttl`).
+
+| Member                                                                     | Returns                  | Notes                                                    |
+| -------------------------------------------------------------------------- | ------------------------ | -------------------------------------------------------- |
+| `store.match<T>(key, options?)`                                            | `Promise<T \| undefined>` | `null` from the backend is a miss                        |
+| `store.add({ key?, value, ...options })` / `store.add(key, value, options?)` | `Promise<string>` (key)  | No `key` → `store:<content hash>`; one arg = object form |
+| `store.remove(key, options?)` / `store.clear(options?)`                    | `Promise<void>`          | No-op when the backend lacks `remove` / `clear`          |
 
 ### `new Parser(globalContext)`
 

@@ -111,19 +111,19 @@ A token left in `variables` or `pipes` throws a targeted error at first use.
 
 **v2** returned `{ createParser }`.
 
-**v3** returns `{ createParser, resolve, cacheResult, types, variables }`.
+**v3** returns `{ createParser, resolve, store, types, variables }`.
 
 ```ts
 // parser-config.ts
-export const { createParser, resolve, cacheResult, types, variables } = initializeParser({/* … */});
+export const { createParser, resolve, store, types, variables } = initializeParser({/* … */});
 ```
 
 You must re-export `types` from your parser config, because **`types` is not a root export of
 the package**. `import { types } from '@bou-co/parsing'` does not work. The alternatives are the
 config re-export above, or individual tokens from `@bou-co/parsing/types`.
 
-All five are worth re-exporting even if unused yet — `cacheResult` is the one people forget
-because it landed later in v3.
+All five are worth re-exporting even if unused yet — `store` is the one people forget
+because it landed later in v3 (it replaced the RC-era `cacheResult`).
 
 ---
 
@@ -340,6 +340,10 @@ chains, and the universal options are also accepted as a call:
 | A token placed in `variables`/`pipes`                  | `was called as a value function or pipe — register types under types` — move it to `types` |
 | `types.x('nope')`                                      | `expected an options object` — `types.x({ default, required, strict, loose })`             |
 | `resolve(input)` with a required `InstanceContext` key | type error — pass it: `resolve(input, { currentLocale })` (`context.resolve` unchanged)    |
+| `cacheResult(key, fn, extraData?, options?)`           | `store(key, fn, options?)` — same projection/standalone use; `extraData` is gone, put the values in the key (template literal, `{{data.*}}`, variables) |
+| `context.store(key, () => …)`                          | unchanged — the key is now variable-interpolated and `fn` receives the context             |
+| `CacheResultValue<T>`                                  | `StoreValue<T>`                                                                            |
+| `ttl?: number` augmented onto `ParserCachingOptions`   | built in — drop the augmentation (one with a non-`number` `ttl` now conflicts)             |
 
 `types.array(token)` fails to type-check and throws a targeted error at runtime ("use
 .of(…)"), so it cannot slip through silently. `get(path, token)` returns a reader the engine

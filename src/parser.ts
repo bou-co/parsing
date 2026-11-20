@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ParserCachingOptions } from './expandable-types';
-import { canResolveDataless, hasArrayDirective, isDatalessInput } from './internal';
+import { canResolveDataless, hasArrayDirective, isDatalessInput, toContentHash } from './internal';
 import {
   ParserFunction,
   ParserContext,
@@ -15,7 +15,9 @@ import {
   CachingParserContext,
   ParserResolveFunction,
   ContextResolveFunction,
-  CacheResultValue,
+  StoreValue,
+  ParserStore,
+  StoreAddInput,
   DefaultParserTypes,
   ParserTypesConfig,
   RegisteredTypes,
@@ -29,6 +31,7 @@ import {
   matchFullPattern,
   PATTERN_REGISTRY,
   PATTERN_RUN_CACHE,
+  PATTERN_STORE,
   resolvePatternMatch,
   resolvePatternsInText,
 } from './parser-patterns';
@@ -107,7 +110,7 @@ export class Parser {
     if (existing) return existing;
 
     const _fn = async () => {
-      const storeContext: CachingParserContext = { ...context, cache: mergeObjects(context.cache, options) };
+      const storeContext = Parser.cachingContext(context, options);
       const cached = await storage.match(key, storeContext);
       if (cached !== undefined && cached !== null) return cached as T;
       const value = await fn();
@@ -125,6 +128,87 @@ export class Parser {
     promise.then(cleanup, cleanup);
     return promise;
   };
+
+  private static cachingContext = (context: ParserContext, options?: ParserCachingOptions): CachingParserContext => {
+    return { ...context, cache: mergeObjects(context.cache, options) };
+  };
+
+  private static resolveStoreKey = async (key: string, context: ParserContext): Promise<string> => {
+    return String(await Parser.resolveVariables(key, context));
+  };
+
+  // Lazy for the standalone store so store(key, fn) can sit in a projection literal without running
+  // at definition time; eager for context.store so consecutive calls in a value function stay parallel
+  private createStore = (getContext: () => ParserContext | Promise<ParserContext>, lazy = false): ParserStore => {
+    const run = async <T>(context: ParserContext, key: string, fn: (context: ParserContext) => T | Promise<T>, options?: ParserCachingOptions) => {
+      const resolvedKey = await Parser.resolveStoreKey(key, context);
+      return this.storeValue(context, resolvedKey, () => fn(context), options);
+    };
+
+    const store = <T>(key: string, fn: (context: ParserContext) => T | Promise<T>, options?: ParserCachingOptions): StoreValue<T> => {
+      let own: Promise<T> | undefined;
+      const runOwn = () => (own ??= Promise.resolve(getContext()).then((context) => run(context, key, fn, options)));
+      // Eager runs may be awaited a tick later; mark them handled so a rejection only reaches whoever awaits it
+      if (!lazy) runOwn().catch(() => undefined);
+      const value = ((context?: ParserContext) => (context ? run(context, key, fn, options) : runOwn())) as StoreValue<T>;
+      Object.defineProperties(value, {
+        then: {
+          value: (onfulfilled?: ((value: T) => unknown) | null, onrejected?: ((reason: unknown) => unknown) | null) => runOwn().then(onfulfilled, onrejected),
+        },
+        catch: { value: (onrejected?: ((reason: unknown) => unknown) | null) => runOwn().catch(onrejected) },
+        finally: { value: (onfinally?: (() => void) | null) => runOwn().finally(onfinally) },
+        // Content-derived id — toHash stringifies projection functions, so distinct values must differ
+        toString: { value: () => `__store:${key}:${toHash(fn)}:${toHash(options)}__` },
+      });
+      return value;
+    };
+
+    const match = async <T = unknown>(key: string, options?: ParserCachingOptions): Promise<T | undefined> => {
+      const context = await getContext();
+      if (!context.storage) return undefined;
+      const resolvedKey = await Parser.resolveStoreKey(key, context);
+      return (await context.storage.match(resolvedKey, Parser.cachingContext(context, options))) ?? undefined;
+    };
+
+    const add = async (...args: [StoreAddInput] | [string, unknown, ParserCachingOptions?]): Promise<string> => {
+      let key: string | undefined;
+      let value: unknown;
+      let options: ParserCachingOptions | undefined;
+      if (args.length === 1) {
+        const [input] = args;
+        if (!input || typeof input !== 'object' || !('value' in input)) {
+          throw new Error('[@bou-co/parsing] store.add(input) takes { key?, value, ...options } — or call store.add(key, value, options?)');
+        }
+        ({ key, value, ...options } = input);
+      } else {
+        [key, value, options] = args;
+      }
+      value = await value;
+      if (value === undefined || value === null) {
+        throw new Error('[@bou-co/parsing] store.add needs a value — null and undefined read back as a miss');
+      }
+      const context = await getContext();
+      const resolvedKey = key === undefined ? `store:${toContentHash(value)}` : await Parser.resolveStoreKey(key, context);
+      if (context.storage) await context.storage.add(resolvedKey, value, Parser.cachingContext(context, options));
+      return resolvedKey;
+    };
+
+    const remove = async (key: string, options?: ParserCachingOptions): Promise<void> => {
+      const context = await getContext();
+      if (!context.storage?.remove) return;
+      await context.storage.remove(await Parser.resolveStoreKey(key, context), Parser.cachingContext(context, options));
+    };
+
+    const clear = async (options?: ParserCachingOptions): Promise<void> => {
+      const context = await getContext();
+      await context.storage?.clear?.(Parser.cachingContext(context, options));
+    };
+
+    return Object.assign(store, { match, add: add as ParserStore['add'], remove, clear });
+  };
+
+  /** Value caching through the global storage, usable outside a parse — `context.store` is the context-bound variant */
+  public store: ParserStore = this.createStore(() => this.createRootContext(undefined), true);
 
   // Resolves a nested projection without matching data so data independent values still produce output
   private parseDataless = async (
@@ -205,7 +289,7 @@ export class Parser {
     return current;
   };
 
-  // Builds the root context shared by the standalone resolve and cacheResult entry points
+  // Builds the root context shared by the standalone resolve and store entry points
   private createRootContext = async (input: unknown, instanceContext: ParserInstanceContext = {}): Promise<ParserContext> => {
     const globalContext = await this.getGlobalContext();
 
@@ -229,10 +313,10 @@ export class Parser {
       data: input,
       value: input,
       cache: mergeObjects(globalContext?.cache, instanceContext?.cache),
-      store: (key, fn, options) => this.storeValue(context, key, fn, options),
+      store: this.createStore(() => context),
     } satisfies Partial<ParserContext<unknown>> as any;
     context.resolve = this.createContextResolve(context);
-    Object.assign(context, { [PATTERN_REGISTRY]: this.getPatternRegistry(), [PATTERN_RUN_CACHE]: new Map() });
+    Object.assign(context, { [PATTERN_REGISTRY]: this.getPatternRegistry(), [PATTERN_RUN_CACHE]: new Map(), [PATTERN_STORE]: this.storeValue });
     return context;
   };
 
@@ -241,40 +325,6 @@ export class Parser {
     const context = await this.createRootContext(input, instanceContext);
     return this.resolveNode(input, context);
   }) as ParserResolveFunction;
-
-  /**
-   * Wraps a value function so its result is cached through the global storage under a
-   * variable-interpolated key (e.g. `'profile-{{data.uid}}'`). The wrapper works as a projection
-   * value, inside resolve inputs, or awaited directly outside a parse; without a configured
-   * storage it simply runs the function. `extraData` feeds key interpolation (standalone it
-   * becomes the context data), `options` merge into `context.cache` for the storage backend.
-   */
-  public cacheResult = <T>(
-    key: string,
-    fn: (context: ParserContext) => T | Promise<T>,
-    extraData?: AppObject,
-    options?: ParserCachingOptions,
-  ): CacheResultValue<T> => {
-    const run = async (context: ParserContext): Promise<T> => {
-      // extraData only affects key interpolation — fn still receives the real context
-      const data = extraData ? (context.data && typeof context.data === 'object' ? mergeObjects(context.data, extraData) : extraData) : context.data;
-      const resolvedKey = String(await Parser.resolveVariables(key, extraData ? { ...context, data } : context));
-      return this.storeValue(context, resolvedKey, () => fn(context), options);
-    };
-    // Awaiting (or calling) the wrapper without a context runs it once against a root context with extraData as its data
-    let standalone: Promise<T> | undefined;
-    const standaloneRun = () => (standalone ??= this.createRootContext(extraData).then(run));
-    const wrapper = ((context?: ParserContext) => (context ? run(context) : standaloneRun())) as CacheResultValue<T>;
-    Object.defineProperties(wrapper, {
-      then: {
-        value: (onfulfilled?: ((value: T) => unknown) | null, onrejected?: ((reason: unknown) => unknown) | null) =>
-          standaloneRun().then(onfulfilled, onrejected),
-      },
-      // Content-derived id — toHash stringifies projection functions, so distinct wrappers must differ
-      toString: { value: () => `__cacheResult:${key}:${toHash(fn)}:${toHash(extraData)}:${toHash(options)}__` },
-    });
-    return wrapper;
-  };
 
   // Backs context.resolve — same resolution as the public resolve but inheriting the calling context
   private resolveWithParentContext = (input: unknown, parentContext: ParserContext, instanceContext?: Partial<ParserInstanceContext>): Promise<unknown> => {
@@ -290,7 +340,7 @@ export class Parser {
       data: input,
       value: input,
     } satisfies Partial<ParserContext<unknown>> as any;
-    context.store = (key, fn, options) => this.storeValue(context, key, fn, options);
+    context.store = this.createStore(() => context);
     context.resolve = this.createContextResolve(context);
     return this.resolveNode(input, context);
   };
@@ -405,12 +455,12 @@ export class Parser {
         value: data,
         cache: mergeObjects(globalContext?.cache, parserContext?.cache, instanceContext?.cache),
         parent: isRoot ? undefined : parentContext,
-        store: (key, fn, options) => this.storeValue(contextBase, key, fn, options),
+        store: this.createStore(() => contextBase),
       } satisfies Partial<ParserContext> as any;
       contextBase.resolve = this.createContextResolve(contextBase);
       // The registry always belongs to this engine; the run cache is shared down from the root parse
       const patternRunCache = (contextBase as AppObject)[PATTERN_RUN_CACHE] ?? new Map();
-      Object.assign(contextBase, { [PATTERN_REGISTRY]: this.getPatternRegistry(), [PATTERN_RUN_CACHE]: patternRunCache });
+      Object.assign(contextBase, { [PATTERN_REGISTRY]: this.getPatternRegistry(), [PATTERN_RUN_CACHE]: patternRunCache, [PATTERN_STORE]: this.storeValue });
 
       const projection = typeof project === 'function' ? await project(contextBase) : project;
       Object.assign(contextBase, { projection, path: [...(parentContext.path ?? []), projection] });
@@ -446,7 +496,7 @@ export class Parser {
       }
       // Before hooks may replace contextBase; re-wire so resolve targets the active context
       contextBase.resolve = this.createContextResolve(contextBase);
-      Object.assign(contextBase, { [PATTERN_REGISTRY]: this.getPatternRegistry(), [PATTERN_RUN_CACHE]: patternRunCache });
+      Object.assign(contextBase, { [PATTERN_REGISTRY]: this.getPatternRegistry(), [PATTERN_RUN_CACHE]: patternRunCache, [PATTERN_STORE]: this.storeValue });
 
       const entries = Object.entries(projection);
       const conditionalEnties = [] as [string, unknown][];
@@ -737,7 +787,8 @@ export class Parser {
 export interface InitializedParser<T> {
   createParser: Parser['createParser'];
   resolve: Parser['resolve'];
-  cacheResult: Parser['cacheResult'];
+  /** Value caching through the global storage: `store(key, fn)`, `store.match`, `store.add`, `store.remove`, `store.clear` */
+  store: Parser['store'];
   /** Built-in types plus everything registered via the global context's `types` (object form) */
   types: T;
   /** Proxy shorthand for variable expressions — `variables.user.name` resolves like `'{{user.name}}'` */
@@ -755,8 +806,8 @@ export function initializeParser<const T extends ParserTypesConfig>(
 export function initializeParser(addGlobalContext?: ParserGlobalContext | ParserGlobalContextFn): InitializedParser<DefaultParserTypes>;
 export function initializeParser(addGlobalContext?: ParserGlobalContext | ParserGlobalContextFn): InitializedParser<unknown> {
   const engine = new Parser(addGlobalContext || ({} as ParserGlobalContext));
-  const { createParser, resolve, cacheResult } = engine;
-  return { createParser, resolve, cacheResult, types: engine.types, variables };
+  const { createParser, resolve, store } = engine;
+  return { createParser, resolve, store, types: engine.types, variables };
 }
 
 export const resolveVariables = async <T>(current: T, context: ParserContext): Promise<T> => {

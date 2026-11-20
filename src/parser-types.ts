@@ -154,8 +154,8 @@ export interface ParserContext<DATA = AppObject, PARAMS = unknown[]>
   path?: object[];
   /** Projection references accumulated during projection-driven (data-less) resolution. Present only when the current parse has no matching input data. */
   datalessPath?: object[];
-  /** Get or compute a value through the global storage */
-  store: <T>(key: string, fn: () => T | Promise<T>, options?: ParserCachingOptions) => Promise<T>;
+  /** Value caching through the global storage, bound to this context: `store(key, fn)`, `store.match`, `store.add`, `store.remove`, `store.clear` */
+  store: ParserStore;
   /** Resolve variables and transformers on a value, inheriting the current context; with no arguments it lazily resolves the current `value` (memoized per context) */
   resolve: ContextResolveFunction;
 }
@@ -356,12 +356,34 @@ export interface ContextResolveFunction extends ResolveFunctionBase<Partial<Pars
   <R = unknown>(): Promise<R>;
 }
 
-// cacheResult wrapper: callable like a plain value function (so it needs no ParserProjectionValue
+// store(key, fn) result: callable like a plain value function (so it needs no ParserProjectionValue
 // member of its own — a second callable in that union would break contextual typing) and awaitable
-// directly for standalone use; a zero-argument call is the standalone run too. PromiseLike (not
-// Promise) so RealValue still infers via the call signature
-export interface CacheResultValue<T> extends PromiseLike<T> {
+// directly; a zero-argument call runs against the store's own context. PromiseLike (not Promise) so
+// RealValue still infers via the call signature
+export interface StoreValue<T> extends PromiseLike<T> {
   (context?: ParserContext, __parserFnContext?: any, __parserFnParent?: any): Promise<T>;
+  catch<R = never>(onrejected?: ((reason: any) => R | PromiseLike<R>) | null): Promise<T | R>;
+  finally(onfinally?: (() => void) | null): Promise<T>;
+}
+
+export interface StoreAddInput<T = unknown> extends ParserCachingOptions {
+  /** Defaults to a content hash of `value` */
+  key?: string;
+  value: T;
+}
+
+export interface ParserStore {
+  /** Get or compute: the value cached under `key`, or `fn`'s result stored there on a miss */
+  <T>(key: string, fn: (context: ParserContext) => T | Promise<T>, options?: ParserCachingOptions): StoreValue<T>;
+  /** The value cached under `key`, `undefined` on a miss */
+  match: <T = unknown>(key: string, options?: ParserCachingOptions) => Promise<T | undefined>;
+  /** Write a value and resolve to its key — a single argument is always the `{ key?, value, ...options }` form */
+  add: {
+    <T>(input: StoreAddInput<T>): Promise<string>;
+    <T>(key: string, value: T, options?: ParserCachingOptions): Promise<string>;
+  };
+  remove: (key: string, options?: ParserCachingOptions) => Promise<void>;
+  clear: (options?: ParserCachingOptions) => Promise<void>;
 }
 
 /** Output of `get(path, token)`: the token's output, optional unless the token has a default or is required */

@@ -22,4 +22,6 @@ export interface InstanceContext {}
 // Add custom caching options per project
 export interface ParserCachingOptions {
   enabled?: boolean;
+  /** Forwarded to the storage backend as `context.cache.ttl` — the library never expires entries itself */
+  ttl?: number;
 }

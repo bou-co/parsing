@@ -22,12 +22,12 @@ class TestStorage implements StorageLike {
 
 const storage = new TestStorage();
 
-// Whole-parse caching is disabled globally on purpose: cacheResult must work independently of cache.enabled
-const { createParser, resolve, cacheResult, types } = initializeParser({ storage, cache: { enabled: false } });
+// Whole-parse caching is disabled globally on purpose: store must work independently of cache.enabled
+const { createParser, resolve, store, types } = initializeParser({ storage, cache: { enabled: false }, variables: { tenant: 'acme' } });
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-describe('cacheResult', () => {
+describe('store(key, fn)', () => {
   beforeEach(() => {
     storage.values = {};
     vi.clearAllMocks();
@@ -37,7 +37,7 @@ describe('cacheResult', () => {
     const fetchProfile = vi.fn(async () => ({ role: 'admin' }));
     const parser = createParser({
       name: types.string,
-      profile: cacheResult('profile-static', fetchProfile),
+      profile: store('profile-static', fetchProfile),
     });
 
     const first = await parser({ name: 'John Doe' });
@@ -53,8 +53,8 @@ describe('cacheResult', () => {
     const fetchProfile = vi.fn(async ({ data }: ParserContext) => ({ profileOf: data['uid'] }));
     const parser = createParser({
       name: types.string,
-      profile: cacheResult('profile-{{data.uid}}', fetchProfile),
-      viaCtx: cacheResult('ctx-profile-{{ctx.data.uid}}', fetchProfile),
+      profile: store('profile-{{data.uid}}', fetchProfile),
+      viaCtx: store('ctx-profile-{{ctx.data.uid}}', fetchProfile),
     });
 
     const first = await parser({ name: 'John Doe', uid: '1234' });
@@ -73,7 +73,7 @@ describe('cacheResult', () => {
     const fetchProfile = vi.fn(async ({ data }: ParserContext) => `profile:${data['uid']}`);
     const parser = createParser({
       user: {
-        profile: cacheResult('user-{{data.uid}}-{{ctx.currentLocale}}', fetchProfile),
+        profile: store('user-{{data.uid}}-{{ctx.currentLocale}}', fetchProfile),
       },
     });
 
@@ -83,23 +83,23 @@ describe('cacheResult', () => {
     expect(storage.add).toHaveBeenCalledWith('user-u1-fi', 'profile:u1', expect.anything());
   });
 
-  it('should work standalone with extraData feeding key interpolation', async () => {
-    const query = vi.fn(async (context: ParserContext) => ({ fetched: context.data?.['uid'] }));
+  it('should work standalone with global variables feeding key interpolation', async () => {
+    const query = vi.fn(async (context: ParserContext) => ({ fetched: context.variables['tenant'] }));
 
-    const first = await cacheResult('raw-data-{{data.uid}}', query, { uid: '1234' });
-    const second = await cacheResult('raw-data-{{data.uid}}', query, { uid: '1234' });
+    const first = await store('raw-data-{{tenant}}', query);
+    const second = await store('raw-data-{{tenant}}', query);
 
     expect(query).toHaveBeenCalledTimes(1);
-    expect(storage.values['raw-data-1234']).toEqual({ fetched: '1234' });
-    expect(first).toEqual({ fetched: '1234' });
-    expect(second).toEqual({ fetched: '1234' });
+    expect(storage.values['raw-data-acme']).toEqual({ fetched: 'acme' });
+    expect(first).toEqual({ fetched: 'acme' });
+    expect(second).toEqual({ fetched: 'acme' });
   });
 
   it('should work standalone with a plain key and compute once per wrapper', async () => {
     const uid = '1234';
     const query = vi.fn(async () => 'raw');
 
-    const wrapper = cacheResult(`raw-data-${uid}`, query);
+    const wrapper = store(`raw-data-${uid}`, query);
     const [first, second] = await Promise.all([wrapper, wrapper]);
     const third = await wrapper;
 
@@ -110,13 +110,13 @@ describe('cacheResult', () => {
     expect(third).toEqual('raw');
   });
 
-  it('should merge extraData over the current data for key interpolation only', async () => {
+  it('should interpolate keys from the current data and instance variables together', async () => {
     const fn = vi.fn(async ({ data }: ParserContext) => `value:${data['uid']}`);
     const parser = createParser({
-      value: cacheResult('merged-{{data.uid}}-{{data.region}}', fn, { region: 'eu' }),
+      value: store('merged-{{data.uid}}-{{region}}', fn),
     });
 
-    const data = await parser({ uid: '1234' });
+    const data = await parser({ uid: '1234' }, { variables: { region: 'eu' } });
 
     expect(data?.value).toEqual('value:1234');
     expect(storage.add).toHaveBeenCalledWith('merged-1234-eu', 'value:1234', expect.anything());
@@ -128,7 +128,7 @@ describe('cacheResult', () => {
     const data = await resolve({
       name: 'John Doe',
       uid: '1234',
-      profile: cacheResult('resolved-{{data.uid}}', fetchProfile),
+      profile: store('resolved-{{data.uid}}', fetchProfile),
     });
 
     expect(fetchProfile).toHaveBeenCalledTimes(1);
@@ -137,33 +137,33 @@ describe('cacheResult', () => {
   });
 
   it('should just run the function when no storage is configured', async () => {
-    const { createParser: createWithoutStorage, cacheResult: cacheWithoutStorage } = initializeParser();
+    const { createParser: createWithoutStorage, store: storeWithoutStorage } = initializeParser();
     const spy = vi.fn(async () => 'fresh');
 
-    const parser = createWithoutStorage({ value: cacheWithoutStorage('no-storage', spy) });
+    const parser = createWithoutStorage({ value: storeWithoutStorage('no-storage', spy) });
     await parser({ id: 1 });
     await parser({ id: 2 });
-    await cacheWithoutStorage('no-storage', spy);
+    await storeWithoutStorage('no-storage', spy);
 
     expect(spy).toHaveBeenCalledTimes(3);
     expect(storage.match).not.toHaveBeenCalled();
     expect(storage.add).not.toHaveBeenCalled();
   });
 
-  it('should share in-flight dedup with context.store on the same key', async () => {
+  it('should share in-flight dedup between the standalone store and context.store on the same key', async () => {
     const slowFn = vi.fn(async () => {
       await sleep(10);
       return 'shared-value';
     });
     const parser = createParser({
-      viaCacheResult: cacheResult('shared-key', slowFn),
+      viaStandalone: store('shared-key', slowFn),
       viaStore: ({ store }: ParserContext) => store('shared-key', slowFn),
     });
 
     const data = await parser({ id: 1 });
 
     expect(slowFn).toHaveBeenCalledTimes(1);
-    expect(data?.viaCacheResult).toEqual('shared-value');
+    expect(data?.viaStandalone).toEqual('shared-value');
     expect(data?.viaStore).toEqual('shared-value');
   });
 
@@ -172,20 +172,20 @@ describe('cacheResult', () => {
       throw new Error('fetch failed');
     });
 
-    const parser = createParser({ value: cacheResult('err', failing) });
+    const parser = createParser({ value: store('err', failing) });
     await expect(parser({ id: 1 })).rejects.toThrow('fetch failed');
-    await expect(cacheResult('err', failing)).rejects.toThrow('fetch failed');
+    await expect(store('err', failing)).rejects.toThrow('fetch failed');
 
     expect(storage.add).not.toHaveBeenCalled();
     expect('err' in storage.values).toBe(false);
 
-    const recovered = await cacheResult('err', async () => 'recovered');
+    const recovered = await store('err', async () => 'recovered');
     expect(recovered).toEqual('recovered');
     expect(storage.values['err']).toEqual('recovered');
   });
 
   it('should pass caching options through to the storage backend', async () => {
-    await cacheResult('opt-key', async () => 'value', undefined, { ttl: 3600 });
+    await store('opt-key', async () => 'value', { ttl: 3600 });
 
     const expectedContext = expect.objectContaining({ cache: expect.objectContaining({ ttl: 3600, enabled: false }) });
     expect(storage.match).toHaveBeenCalledWith('opt-key', expectedContext);
@@ -196,9 +196,10 @@ describe('cacheResult', () => {
     const fnA = async () => 'a';
     const fnB = async () => 'b';
 
-    expect(String(cacheResult('key-a', fnA))).toEqual(String(cacheResult('key-a', fnA)));
-    expect(String(cacheResult('key-a', fnA))).not.toEqual(String(cacheResult('key-b', fnA)));
-    expect(String(cacheResult('key-a', fnA))).not.toEqual(String(cacheResult('key-a', fnB)));
-    expect(String(cacheResult('key-a', fnA))).not.toEqual(String(cacheResult('key-a', fnA, { uid: '1' })));
+    expect(String(store('key-a', fnA))).toEqual(String(store('key-a', fnA)));
+    expect(String(store('key-a', fnA))).not.toEqual(String(store('key-b', fnA)));
+    expect(String(store('key-a', fnA))).not.toEqual(String(store('key-a', fnB)));
+    expect(String(store('key-a', fnA))).not.toEqual(String(store('key-a', fnA, { ttl: 60 })));
+    expect(String(store('key-a', fnA))).toMatch(/^__store:key-a:/);
   });
 });

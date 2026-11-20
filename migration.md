@@ -17,8 +17,7 @@ A quick tour of what's new — the breaking-change notes below reference these:
 - **`parser.flat`** — parses `data[key]` and merges the resulting object into the parent output, like `@combine` (the key itself is dropped).
 - **`context.value` + zero-arg `await context.resolve()`** — `value` is the raw `data?.[key]`; calling `resolve()` with no arguments resolves it lazily (memoized per context).
 - **`resolve`** — new export of `initializeParser` (and contextually as `context.resolve(input, overrides?)`): runs pattern/variable resolution and global transformers on raw input without a projection.
-- **`context.store(key, fn, options?)` / `context.storage`** — get-or-compute caching for individual async values through the global `storage`, with in-flight dedupe, independent of `cache.enabled`.
-- **`cacheResult(key, fn)`** — new export of `initializeParser`: wraps a value function so its result is cached through the global `storage` under a variable-interpolated key (`'profile-{{data.uid}}'`); works as a projection value, inside `resolve` inputs, or awaited standalone.
+- **`store`** — new export of `initializeParser` (and bound to the active context as `context.store`): `store(key, fn, options?)` is get-or-compute caching for individual values through the global `storage` under a variable-interpolated key (`'profile-{{data.uid}}'`), with in-flight dedupe, independent of `cache.enabled`; it works awaited standalone, as a projection value (runs per parse), inside `resolve` inputs, or in value functions. `store.add({ key?, value, ttl })` writes (a content-hash key is generated and returned when none is given), `store.match(key)` reads, `store.remove` / `store.clear` delegate to the backend, and `context.storage` exposes the backend directly. `ttl` is a built-in caching option, forwarded to the backend as `context.cache.ttl`.
 - **`context.parent` / `context.path`** — `parent` chains contexts up to the root (`undefined` at the root); `path` is the chain of projections down to the current level.
 - **Custom patterns** — define your own inline string syntaxes via the `patterns` config, powered by the same engine as `{{variables}}` (§9).
 - **Built-in context variable heads** — `{{data.*}}` (the current level's input data) and `{{ctx.*}}` / `{{context.*}}` (the full parser context) resolve live from the node context; explicit variables can shadow them, and they never fall through to a `variableResolver` (§9).
@@ -52,7 +51,7 @@ const myParser = createParser({
 });
 ```
 
-Migration is a find/replace: `'string'` → `types.string`, `'number'` → `types.number`, `'array<x>'` → `types.array.of(types.x)`, and so on. `initializeParser` now returns `{ createParser, resolve, cacheResult, types, variables }` — re-export `types` (and the rest) from your parser config. Note that `types` is **not** a root export of `@bou-co/parsing`; get it from `initializeParser`, or import the tokens individually from the tree-shakeable `@bou-co/parsing/types` entry point. There is no `types.undefined`; use the `optional` util instead (accessing `types.undefined` throws a migration error rather than silently dropping the key).
+Migration is a find/replace: `'string'` → `types.string`, `'number'` → `types.number`, `'array<x>'` → `types.array.of(types.x)`, and so on. `initializeParser` now returns `{ createParser, resolve, store, types, variables }` — re-export `types` (and the rest) from your parser config. Note that `types` is **not** a root export of `@bou-co/parsing`; get it from `initializeParser`, or import the tokens individually from the tree-shakeable `@bou-co/parsing/types` entry point. There is no `types.undefined`; use the `optional` util instead (accessing `types.undefined` throws a migration error rather than silently dropping the key).
 
 ### 2. Types now always cast values
 
@@ -169,6 +168,10 @@ Only relevant if you adopted a `3.0.0-rc.*` build before the casting upgrade fin
 | `get(path, from)` only                                 | unchanged — plus `get(path, type)` / `(path, from, type)` casting in the engine         |
 | `title: '{{siteName}}'` (resolved, uncast)             | unchanged — `value('{{siteName}}', types.string)` / `variable('siteName', …)` to cast   |
 | `resolve(input)` with a required `InstanceContext` key | type error — pass it: `resolve(input, { currentLocale })` (`context.resolve` unchanged) |
+| `cacheResult(key, fn, extraData?, options?)`           | `store(key, fn, options?)` — same projection/standalone use; `extraData` is gone, put the values in the key (template literal, `{{data.*}}`, variables) |
+| `context.store(key, () => …)`                          | unchanged — the key is now variable-interpolated and `fn` receives the context          |
+| `CacheResultValue<T>`                                  | `StoreValue<T>`                                                                         |
+| `ttl?: number` augmented onto `ParserCachingOptions`   | built in — drop the augmentation (one with a non-`number` `ttl` now conflicts)          |
 
 ### Migrating a live site
 

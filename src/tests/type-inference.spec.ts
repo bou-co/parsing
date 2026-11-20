@@ -233,20 +233,34 @@ describe('type inference', () => {
     expect(checks.every(Boolean)).toBe(true);
   });
 
-  it('infers cacheResult output types in projections and standalone', async () => {
-    const { createParser: create, cacheResult } = initializeParser();
-    const cached = cacheResult('profile-{{data.uid}}', async () => ({ role: 'admin' }));
-    const cachedParser = create({ profile: cached });
+  it('infers store output types in projections, value functions and standalone', async () => {
+    const { createParser: create, store } = initializeParser();
+    const cached = store('profile-{{data.uid}}', async () => ({ role: 'admin' }));
+    const cachedParser = create({
+      profile: cached,
+      viaContext: ({ store }) => store('count-ctx', async () => numberValue),
+    });
     type CachedValue = ParserReturnValue<typeof cachedParser>;
 
-    const standalone = await cacheResult('count', async () => numberValue);
+    const standalone = await store('count', async () => numberValue);
+    const matched = await store.match<number>('count');
+    const key = await store.add({ value: numberValue, ttl: 60 });
+    const positionalKey = await store.add('count', numberValue);
 
     // Object returns recurse through RealValue like any value function, so their fields come out optional
-    const checks: [Expect<Equal<CachedValue['profile'], { role?: string } | undefined>>, Expect<Equal<typeof standalone, number>>] = [true, true];
+    const checks: [
+      Expect<Equal<CachedValue['profile'], { role?: string } | undefined>>,
+      Expect<Equal<CachedValue['viaContext'], number | undefined>>,
+      Expect<Equal<typeof standalone, number>>,
+      Expect<Equal<typeof matched, number | undefined>>,
+      Expect<Equal<typeof key, string>>,
+      Expect<Equal<typeof positionalKey, string>>,
+    ] = [true, true, true, true, true, true];
     expect(checks.every(Boolean)).toBe(true);
 
     const data = await cachedParser({ uid: '1' });
     expect(data.profile).toEqual({ role: 'admin' });
+    expect(data.viaContext).toEqual(numberValue);
     expect(standalone).toEqual(numberValue);
   });
 

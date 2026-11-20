@@ -165,6 +165,9 @@ consistently. The risk is objects your own code assembles.
 Related quirk: **all falsy inputs hash identically** — `0`, `''`, `false`, `null`,
 `undefined`, and `NaN` collapse to one hash, so none of them can distinguish a key.
 
+The content hash a keyless `store.add({ value })` generates is key-order sensitive too, but it
+does give falsy values distinct keys.
+
 ## Projection-driven nesting
 
 ### Side effects run for missing keys **[verified]**
@@ -422,6 +425,19 @@ Each parser brings its own `createParser` cache config. With a `generateKey` tha
 `name`, a nested parse that previously inherited the parent's name now throws
 `Caching options must have a name defined`.
 
+### A single argument to `store.add` is always the object form
+
+Pass data through `value`: `store.add({ value: report })`. `store.add(report)` throws when
+`report` has no `value` field — and when it does (a CMS key/value pair, say) it is silently
+read as the object form, storing `report.value` under `report.key`.
+
+### The standalone `store(key, fn)` is lazy, `context.store(key, fn)` is eager
+
+Laziness is what lets the standalone one sit in a projection literal without running at
+definition time, but it also means `const a = store(...); const b = store(...); await a;
+await b;` runs the two one after the other (use `Promise.all`), and a call you never await
+never runs. `context.store` starts immediately, as before.
+
 ### `parser.asArray !== parser`, but they hash the same **[verified]**
 
 It's a derived variant now, so identity comparisons against `parser` fail. Its **hash is the
@@ -439,8 +455,8 @@ Get it from `initializeParser`, or import tokens individually from `@bou-co/pars
 
 ### `initializeParser` returns five things
 
-`{ createParser, resolve, cacheResult, types, variables }` — destructure and re-export all five
-from your parser config; `cacheResult` is easy to forget because it was added later in v3.
+`{ createParser, resolve, store, types, variables }` — destructure and re-export all five
+from your parser config; `store` is the one that gets forgotten.
 
 ### `export *` leaks internals into the public surface
 

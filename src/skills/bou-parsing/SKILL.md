@@ -62,7 +62,7 @@ This table is the core of the API. Anything in the left column is a legal projec
 | Another parser                                   | Nested parse of `data[key]`                                                                         |
 | `parser.asArray`                                 | Nested parse per array item                                                                         |
 | `parser.flat`                                    | Parse `data[key]`, **merge fields into parent**, drop the key                                       |
-| `cacheResult(keyTemplate, fn)`                   | Value function whose result is cached in storage                                                    |
+| `store(keyTemplate, fn)`                         | Runs per parse; result cached in storage under the interpolated key                                 |
 | `typed<T>`                                       | Type-only annotation, passes `data[key]` through                                                    |
 
 Directive keys (`'@if'`, `'@combine'`, `'@array'`) are structural, not values — see
@@ -141,9 +141,10 @@ Read the reference file that matches the task rather than guessing at the API:
   pipes, patterns, transformers, `@if`, `@combine`, `.flat`, `.asArray`, `.extend`,
   `.withContext`, dynamic projections, lifecycle hooks, `resolve`, custom types,
   `looseCasting`, isolated engines, React. Read this when choosing a mechanism.
-- **`references/caching.md`** — the three caching mechanisms (whole-parse `cache`,
-  `context.store`, `cacheResult`) plus pattern cache modes and storage backends. Read this
-  for anything cache-related; the mechanisms overlap and picking wrong is the common error.
+- **`references/caching.md`** — the caching mechanisms (whole-parse `cache` and the value-level
+  `store` / `context.store` with `match`/`add`) plus pattern cache modes and storage backends.
+  Read this for anything cache-related; the mechanisms overlap and picking wrong is the common
+  error.
 - **`references/gotchas.md`** — the traps, including several verified against the source
   that aren't in the README. Read this when debugging unexpected output, and skim it before
   shipping anything that templates CMS content or crosses a serialization boundary.
@@ -165,8 +166,9 @@ Overlapping features are the main way to write awkward Bou Parsing code. Default
 | Template a string                           | `{{variables}}`                                             | A custom pattern                                       |
 | A new inline syntax (`$products.count`)     | Custom pattern                                              | A transformer                                          |
 | Reshape values by their shape               | Transformer                                                 | A pattern                                              |
-| Cache a whole parse keyed on input          | `cache: { enabled: true }`                                  | `context.store`                                        |
-| Cache one shared async value                | `cacheResult` (declarative) or `context.store` (imperative) | Whole-parse cache                                      |
+| Cache a whole parse keyed on input          | `cache: { enabled: true }`                                  | `store`                                                |
+| Cache one shared async value                | `store(key, fn)` — projection value, value fn or standalone | Whole-parse cache                                      |
+| Read or write a cache entry directly        | `store.match(key)` / `store.add({ key, value, ttl })`       | `context.storage` (needs a hand-built context)         |
 | Resolve templates in already-shaped data    | `resolve()`                                                 | A pass-through projection                              |
 
 ## Working practices
@@ -178,7 +180,7 @@ engine.
 
 ```ts
 // parser-config.ts
-export const { createParser, resolve, cacheResult, types, variables } = initializeParser({/* … */});
+export const { createParser, resolve, store, types, variables } = initializeParser({/* … */});
 ```
 
 **Prefer `context.value` over `context.data[key]`** in value functions — it's the same raw
