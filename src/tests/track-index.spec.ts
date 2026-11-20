@@ -2,14 +2,14 @@ import { initializeParser } from '../parser';
 
 describe('parsing', () => {
   it('should be able to get index of current item in array', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const parser = createParser({
-      rootValue: 'number',
+      rootValue: types.number,
       items: {
         '@array': true,
-        title: 'string',
-        value: 'number',
+        title: types.string,
+        value: types.number,
         indexTimesThree: ({ index }) => {
           return index !== undefined ? index * 3 : undefined;
         },
@@ -47,13 +47,13 @@ describe('parsing', () => {
     expect(thirdItem.indexTimesThree).toEqual(6);
   });
   it('should be able to get index of parent item in array', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const parser = createParser({
-      rootValue: 'number',
+      rootValue: types.number,
       items: {
         '@array': true,
-        title: 'string',
+        title: types.string,
         metadata: {
           indexTimesThree: ({ index }) => {
             return index !== undefined ? index * 3 : undefined;
@@ -90,13 +90,13 @@ describe('parsing', () => {
     expect(thirdItem.metadata?.indexTimesThree).toEqual(6);
   });
   it('should be able to able to override index in nested array', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const parser = createParser({
-      rootValue: 'number',
+      rootValue: types.number,
       items: {
         '@array': true,
-        title: 'string',
+        title: types.string,
         metadata: {
           '@array': true,
           indexTimesThree: ({ index }) => {
@@ -137,17 +137,17 @@ describe('parsing', () => {
     expect(thirdItem.metadata?.[1]?.indexTimesThree).toEqual(3);
   });
   it('should be able to get index of parent item in array with "asArray" syntax', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const itemParser = createParser({
-      title: 'string',
+      title: types.string,
       indexTimesThree: ({ index }) => {
         return index !== undefined ? index * 3 : undefined;
       },
     });
 
     const parser = createParser({
-      rootValue: 'number',
+      rootValue: types.number,
       items: itemParser.asArray,
       moreItems: ({ data }) => itemParser.asArray(data['items'] || []),
     });
@@ -182,10 +182,10 @@ describe('parsing', () => {
     expect(thirdItem.indexTimesThree).toEqual(6);
   });
   it('should be able to get index of parent item in array with "asArray" syntax while extending parser', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const itemParserBase = createParser({
-      title: 'string',
+      title: types.string,
     });
 
     const itemParser = itemParserBase.extend({
@@ -195,7 +195,7 @@ describe('parsing', () => {
     });
 
     const parser = createParser({
-      rootValue: 'number',
+      rootValue: types.number,
       items: itemParser.asArray,
       moreItems: ({ data }) => itemParser.asArray(data['items'] || []),
     });
@@ -230,10 +230,10 @@ describe('parsing', () => {
     expect(thirdItem.indexTimesThree).toEqual(6);
   });
   it('should be able to get index of parent item in array with "asArray" syntax while extending parser and using conditional syntax', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const itemParserBase = createParser({
-      title: 'string',
+      title: types.string,
     });
 
     const itemParser = itemParserBase.extend({
@@ -243,7 +243,7 @@ describe('parsing', () => {
     });
 
     const parser = createParser({
-      rootValue: 'number',
+      rootValue: types.number,
       '@if': [
         {
           when: () => true,
@@ -279,11 +279,11 @@ describe('parsing', () => {
     expect(thirdItem.indexTimesThree).toEqual(6);
   });
   it('should be able to get index of parent item in array with "asArray" syntax while extending parser context with hooks', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const itemParserBase = createParser(
       {
-        title: 'string',
+        title: types.string,
       },
       {
         before: async (context) => {
@@ -302,7 +302,7 @@ describe('parsing', () => {
     });
 
     const parser = createParser({
-      rootValue: 'number',
+      rootValue: types.number,
       items: itemParser.asArray,
     });
 
@@ -335,10 +335,10 @@ describe('parsing', () => {
     expect(thirdItem.metadata?.indexTimesThree).toEqual(6);
   });
   it('should be able to get index of parent item in array with "asArray" and override index if that has been provided by parent', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
 
     const itemParserBase = createParser({
-      title: 'string',
+      title: types.string,
     });
 
     const itemParser = itemParserBase.extend({
@@ -349,7 +349,7 @@ describe('parsing', () => {
 
     const parser = createParser(
       {
-        rootValue: 'number',
+        rootValue: types.number,
         items: itemParser.asArray,
       },
       {

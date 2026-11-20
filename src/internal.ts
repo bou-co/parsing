@@ -1,3 +1,22 @@
+export const hasArrayDirective = (projection: unknown): boolean =>
+  typeof projection === 'object' && projection !== null && !Array.isArray(projection) && '@array' in projection;
+
+export const isDatalessInput = (input: unknown): boolean => {
+  if (input !== null && typeof input === 'object') return false;
+  if (typeof input === 'string' && input !== '') return false;
+  return true;
+};
+
+// Array-shaped output always requires data
+export const canResolveDataless = (parser: object, projection: unknown): boolean =>
+  !('_array' in parser) && !Array.isArray(projection) && !hasArrayDirective(projection);
+
+export const isPlainObject = (value: unknown): value is Record<PropertyKey, any> => {
+  if (typeof value !== 'object' || value === null) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
+
 export const getFromObject = async (from: object, path: string, context?: unknown) => {
   type VariablesObj = Record<any, any> | undefined;
   try {
@@ -25,4 +44,39 @@ export const getFromObject = async (from: object, path: string, context?: unknow
     console.debug(message);
     throw new Error(message);
   }
+};
+
+const toAlphabeticChar = (code: number) => String.fromCharCode(code + (code > 25 ? 39 : 97));
+
+export const toAlphabeticName = (code: number) => {
+  let name = '';
+  let x;
+
+  for (x = Math.abs(code); x > 52; x = (x / 52) | 0) name = toAlphabeticChar(x % 52) + name;
+
+  return toAlphabeticChar(x % 52) + name;
+};
+
+export const toPhash = (h: number, x: string): number => {
+  let i = x.length;
+  while (i) h = (h * 33) ^ x.charCodeAt(--i);
+  return h;
+};
+
+const toFnv1a = (x: string): number => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < x.length; i++) h = Math.imul(h ^ x.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+};
+
+export const hashReplacer = (_key: string, value: unknown) => {
+  if (value instanceof Function) return value.toString();
+  if (value instanceof RegExp) return value.toString();
+  return value;
+};
+
+// toHash is 32-bit and collapses falsy values, too collision-prone when the hash is the whole key
+export const toContentHash = (value: unknown): string => {
+  const asString = JSON.stringify(value, hashReplacer) ?? String(value);
+  return toAlphabeticName(toPhash(5381, asString) >>> 0) + toAlphabeticName(toFnv1a(asString));
 };

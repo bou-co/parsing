@@ -9,8 +9,8 @@ declare module '../expandable-types' {
 
 describe('parsing', () => {
   it('should be able to modify context by using "withContext"', async () => {
-    const { createParser } = initializeParser();
-    const parser = createParser({ values: 'string' }, { variables: { first: 1 } });
+    const { createParser, types } = initializeParser();
+    const parser = createParser({ values: types.string }, { variables: { first: 1 } });
 
     expect(parser).toBeTruthy();
 
@@ -25,8 +25,8 @@ describe('parsing', () => {
   });
 
   it('should be able to override context by using "withContext" but not overridden for reuse', async () => {
-    const { createParser } = initializeParser();
-    const parser = createParser({ values: 'string' }, { variables: { variableValue: 'original' } });
+    const { createParser, types } = initializeParser();
+    const parser = createParser({ values: types.string }, { variables: { variableValue: 'original' } });
 
     expect(parser).toBeTruthy();
     const withChangedContext = parser.withContext({ variables: { variableValue: 'changed' } });
@@ -40,8 +40,8 @@ describe('parsing', () => {
   });
 
   it('should be able to use multiple times "withContext" without affecting other instances', async () => {
-    const { createParser } = initializeParser();
-    const parser = createParser({ values: 'string' }, { variables: { variableValue: 'original' } });
+    const { createParser, types } = initializeParser();
+    const parser = createParser({ values: types.string }, { variables: { variableValue: 'original' } });
 
     expect(parser).toBeTruthy();
     const withChangedContext = parser.withContext({ variables: { variableValue: 'changed' } });

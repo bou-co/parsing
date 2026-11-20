@@ -1,10 +1,10 @@
-import { ParserContext } from './parser-types';
+import { ParserContextHook } from './parser-types';
 
 // This context can be modified per project
 export interface CommonContext {
   pipeUndefined?: boolean;
-  before?: (context: ParserContext) => ParserContext | Promise<ParserContext>;
-  after?: (context: ParserContext) => ParserContext | Promise<ParserContext>;
+  before?: ParserContextHook;
+  after?: ParserContextHook;
 }
 
 // This context can be modified per project
@@ -22,4 +22,6 @@ export interface InstanceContext {}
 // Add custom caching options per project
 export interface ParserCachingOptions {
   enabled?: boolean;
+  /** Forwarded to the storage backend as `context.cache.ttl` — the library never expires entries itself */
+  ttl?: number;
 }

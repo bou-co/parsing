@@ -87,3 +87,35 @@ describe('parsing', () => {
     expect(initializeCount).toEqual(1);
   });
 });
+
+describe('function-form global context failures', () => {
+  const timeout = () => new Promise<string>((resolve) => setTimeout(() => resolve('HANG'), 500));
+
+  it('does not hang later parses when the function throws', async () => {
+    const { createParser } = initializeParser(async () => {
+      throw new Error('boom');
+    });
+    const parser = createParser({ a: 'x' });
+    await expect(parser({})).rejects.toThrow('boom');
+    const second = await Promise.race([
+      parser({}).then(
+        () => 'resolved',
+        (error) => (error as Error).message,
+      ),
+      timeout(),
+    ]);
+    expect(second).toEqual('boom');
+  });
+
+  it('retries the function on the next parse', async () => {
+    let calls = 0;
+    const { createParser } = initializeParser(async () => {
+      if (++calls === 1) throw new Error('boom');
+      return { variables: { v: 'ready' } };
+    });
+    const parser = createParser({ a: '{{v}}' });
+    await expect(parser({})).rejects.toThrow('boom');
+    expect(await Promise.race([parser({}), timeout()])).toEqual({ a: 'ready' });
+    expect(calls).toEqual(2);
+  });
+});

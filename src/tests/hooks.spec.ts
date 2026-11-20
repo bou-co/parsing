@@ -1,4 +1,5 @@
 import { initializeParser } from '../parser';
+import type { ParserContext, ParserInheritedHook } from '../parser-types';
 
 declare module '../expandable-types' {
   export interface FunctionalContext {
@@ -9,9 +10,9 @@ declare module '../expandable-types' {
 
 describe('parsing', () => {
   it('should be able to add before hook to modify data in context', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
     const parser = createParser(
-      { value: 'number', always: 'boolean', override: 'string' },
+      { value: types.number, always: types.boolean, override: types.string },
       {
         before: (context) => {
           context.data['value'] += 1; // Increment value by 1
@@ -119,9 +120,9 @@ describe('parsing', () => {
   });
 
   it('should be able to add after hook to modify data returned from parser', async () => {
-    const { createParser } = initializeParser();
+    const { createParser, types } = initializeParser();
     const parser = createParser(
-      { value: 'number', always: 'boolean' },
+      { value: types.number, always: types.boolean },
       {
         after: (context) => {
           context.data['value'] *= 2; // Double the value
@@ -179,14 +180,14 @@ describe('parsing', () => {
   });
 
   it('should be able to run global after for all parsers while instance after should only run for the instance', async () => {
-    const { createParser } = initializeParser({
+    const { createParser, types } = initializeParser({
       after: (context) => {
         context.data['global'] = 'This is global'; // Add a global property
         return context;
       },
     });
 
-    const parser = createParser({ value: 'number', global: 'string', instance: 'string' });
+    const parser = createParser({ value: types.number, global: types.string, instance: types.string });
 
     const results1 = await parser({ value: 5 });
     expect(results1).toBeTruthy();
@@ -228,5 +229,416 @@ describe('parsing', () => {
     const result = await childParser({ value: 5 });
     expect(result).toBeTruthy();
     expect(result.value).toEqual(5 * 20); // Value should be multiplied by the base set in the parent parser
+  });
+});
+
+describe('hook composition on extend/withContext', () => {
+  it('should run both base and extension before hooks when extending with a second before hook', async () => {
+    const { createParser } = initializeParser();
+    const parser = createParser(
+      { value: ({ data, base }) => data['value'] + base },
+      {
+        before: (context) => {
+          context.base = 10;
+          return context;
+        },
+      },
+    );
+
+    const extended = parser.extend(
+      { extra: ({ base, instanceMultiplier }) => base * (instanceMultiplier || 0) },
+      {
+        before: (context) => {
+          context.instanceMultiplier = context.base + 5; // Reads the value set by the base hook
+          return context;
+        },
+      },
+    );
+
+    const result = await extended({ value: 5 });
+    expect(result.value).toEqual(5 + 10); // Base hook still ran
+    expect(result.extra).toEqual(10 * 15); // Extension hook ran and saw the base hook's context
+  });
+
+  it('should run both base and extension after hooks when extending with a second after hook', async () => {
+    const { createParser, types } = initializeParser();
+    const parser = createParser(
+      { value: types.number },
+      {
+        after: (context) => {
+          context.data['value'] *= 2;
+          return context;
+        },
+      },
+    );
+
+    const extended = parser.extend(
+      { note: types.string },
+      {
+        after: (context) => {
+          context.data['note'] = `value is ${context.data['value']}`; // Sees the base hook's transformed data
+          return context;
+        },
+      },
+    );
+
+    const result = await extended({ value: 5 });
+    expect(result.value).toEqual(10);
+    expect(result.note).toEqual('value is 10');
+  });
+
+  it('should chain before hooks across multiple extends in definition order', async () => {
+    const { createParser } = initializeParser();
+    const order: string[] = [];
+    const parser = createParser(
+      { value: ({ base }) => base },
+      {
+        before: (context) => {
+          order.push('base');
+          context.base = 1;
+          return context;
+        },
+      },
+    );
+
+    const extended = parser
+      .extend(
+        {},
+        {
+          before: (context) => {
+            order.push('first');
+            context.base += 10;
+            return context;
+          },
+        },
+      )
+      .extend(
+        {},
+        {
+          before: (context) => {
+            order.push('second');
+            context.base *= 3;
+            return context;
+          },
+        },
+      );
+
+    const result = await extended({ value: 0 });
+    expect(order).toEqual(['base', 'first', 'second']);
+    expect(result.value).toEqual((1 + 10) * 3);
+  });
+
+  it('should let the extension before hook override values set by the base hook', async () => {
+    const { createParser } = initializeParser();
+    const parser = createParser(
+      { value: ({ base }) => base },
+      {
+        before: (context) => {
+          context.base = 10;
+          return context;
+        },
+      },
+    );
+
+    const extended = parser.extend(
+      {},
+      {
+        before: (context) => {
+          context.base = 99;
+          return context;
+        },
+      },
+    );
+
+    expect((await parser({ any: true })).value).toEqual(10); // Base parser stays unaffected by the extension
+    expect((await extended({ any: true })).value).toEqual(99);
+  });
+
+  it('should keep the base before hook when the extend context has no hook of its own', async () => {
+    const { createParser } = initializeParser();
+    const parser = createParser(
+      { value: ({ base }) => base, greeting: '{{greeting}}' },
+      {
+        before: (context) => {
+          context.base = 7;
+          return context;
+        },
+      },
+    );
+
+    const extended = parser.extend({ extra: 'constant' }, { variables: { greeting: 'hello' } });
+
+    const result = await extended({ any: true });
+    expect(result.value).toEqual(7);
+    expect(result.greeting).toEqual('hello');
+    expect(result.extra).toEqual('constant');
+  });
+
+  it('should run both before hooks when withContext adds a second before hook', async () => {
+    const { createParser } = initializeParser();
+    const parser = createParser(
+      { value: ({ base, instanceMultiplier }) => base * (instanceMultiplier || 1) },
+      {
+        before: (context) => {
+          context.base = 5;
+          return context;
+        },
+      },
+    );
+
+    const withExtra = parser.withContext({
+      before: (context) => {
+        context.instanceMultiplier = 4;
+        return context;
+      },
+    });
+
+    expect((await withExtra({ any: true })).value).toEqual(5 * 4);
+    expect((await parser({ any: true })).value).toEqual(5); // Original parser stays unaffected
+  });
+
+  it('should run global, schema, extension and instance before hooks once each on an extended parser', async () => {
+    const counts = { global: 0, schema: 0, extension: 0, instance: 0 };
+    const { createParser } = initializeParser({
+      before: (context) => {
+        counts.global += 1;
+        context.base = 1;
+        return context;
+      },
+    });
+
+    const parser = createParser(
+      { value: ({ base }) => base },
+      {
+        before: (context) => {
+          counts.schema += 1;
+          context.base += 10;
+          return context;
+        },
+      },
+    ).extend(
+      {},
+      {
+        before: (context) => {
+          counts.extension += 1;
+          context.base += 100;
+          return context;
+        },
+      },
+    );
+
+    const result = await parser(
+      { any: true },
+      {
+        before: (context) => {
+          counts.instance += 1;
+          context.base += 1000;
+          return context;
+        },
+      },
+    );
+
+    expect(result.value).toEqual(1111);
+    expect(counts).toEqual({ global: 1, schema: 1, extension: 1, instance: 1 });
+  });
+});
+
+describe('hook composition details', () => {
+  it('runs an identical hook reference once when it is passed again', async () => {
+    const { createParser } = initializeParser();
+    let calls = 0;
+    const before = (context: any) => {
+      calls++;
+      return context;
+    };
+    const parser = createParser({ value: 'x' }, { before });
+    await parser.withContext({ before })({ any: true });
+    expect(calls).toEqual(1);
+    await parser.extend({ extra: 'y' }, { before })({ any: true });
+    expect(calls).toEqual(2);
+  });
+
+  it('composes after hooks added through withContext, base first', async () => {
+    const { createParser } = initializeParser();
+    const order: string[] = [];
+    const parser = createParser(
+      { value: 'x' },
+      {
+        after: (context) => {
+          order.push('base');
+          return { ...context, data: { ...context.data, base: true } };
+        },
+      },
+    );
+    const withExtra = parser.withContext({
+      after: (context) => {
+        order.push('extra');
+        return { ...context, data: { ...context.data, sawBase: context.data['base'] === true } };
+      },
+    });
+    expect(await withExtra({ any: true })).toEqual({ value: 'x', base: true, sawBase: true });
+    expect(order).toEqual(['base', 'extra']);
+    expect(await parser({ any: true })).toEqual({ value: 'x', base: true });
+  });
+});
+
+describe('hook order and the inherited hook', () => {
+  const tracked = (order: string[], name: string) => ({
+    before: (context: ParserContext) => {
+      order.push(`${name}-before`);
+      return context;
+    },
+    after: (context: ParserContext) => {
+      order.push(`${name}-after`);
+      return context;
+    },
+  });
+
+  it('runs one chain by default: global, base, extend, withContext, per call', async () => {
+    const order: string[] = [];
+    const { createParser, types } = initializeParser(tracked(order, 'global'));
+    const base = createParser({ a: types.string }, tracked(order, 'base'));
+    const parser = base.extend({ b: 'x' }, tracked(order, 'extend')).withContext(tracked(order, 'withContext'));
+    await parser({ a: '1' }, tracked(order, 'call'));
+    expect(order).toEqual([
+      'global-before',
+      'base-before',
+      'extend-before',
+      'withContext-before',
+      'call-before',
+      'global-after',
+      'base-after',
+      'extend-after',
+      'withContext-after',
+      'call-after',
+    ]);
+  });
+
+  it('lets an extending hook run code before and after the hooks it inherits', async () => {
+    const order: string[] = [];
+    const { createParser, types } = initializeParser(tracked(order, 'global'));
+    const base = createParser({ a: types.string }, tracked(order, 'base'));
+    const parser = base.extend(
+      { b: 'x' },
+      {
+        before: async (context, inherited) => {
+          order.push('extend-first');
+          context = await inherited(context);
+          order.push('extend-last');
+          return context;
+        },
+      },
+    );
+    await parser({ a: '1' });
+    expect(order).toEqual(['extend-first', 'global-before', 'base-before', 'extend-last', 'global-after', 'base-after']);
+  });
+
+  it('gives the extending hook the context changes of the inherited hooks only after calling them', async () => {
+    const { createParser } = initializeParser();
+    const base = createParser(
+      { value: ({ base }) => base },
+      {
+        before: (context) => {
+          context.base = (context.base ?? 0) + 10;
+          return context;
+        },
+      },
+    );
+    const parser = base.extend(
+      {},
+      {
+        before: async (context, inherited) => {
+          context.base = 1;
+          context = await inherited(context);
+          context.base *= 2;
+          return context;
+        },
+      },
+    );
+    expect(await parser({})).toEqual({ value: 22 });
+  });
+
+  it('lets a per-call hook run before the hooks of the parser', async () => {
+    const order: string[] = [];
+    const { createParser, types } = initializeParser();
+    const parser = createParser({ a: types.string }, tracked(order, 'schema'));
+    await parser(
+      { a: '1' },
+      {
+        before: async (context, inherited) => {
+          order.push('call-first');
+          return inherited(context);
+        },
+        after: async (context, inherited) => {
+          order.push('call-after-first');
+          return inherited(context);
+        },
+      },
+    );
+    expect(order).toEqual(['call-first', 'schema-before', 'call-after-first', 'schema-after']);
+  });
+
+  it('skips the earlier hooks when inherited is not called', async () => {
+    const order: string[] = [];
+    const { createParser, types } = initializeParser();
+    const base = createParser({ a: types.string }, tracked(order, 'base'));
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const parser = base.withContext({ before: (context, _inherited) => context });
+    await parser({ a: '1' });
+    expect(order).toEqual(['base-after']);
+  });
+
+  it('threads inherited through several controlling hooks', async () => {
+    const order: string[] = [];
+    const { createParser, types } = initializeParser();
+    const wrap = (name: string) => ({
+      before: async (context: ParserContext, inherited: ParserInheritedHook) => {
+        order.push(`${name}-in`);
+        context = await inherited(context);
+        order.push(`${name}-out`);
+        return context;
+      },
+    });
+    const parser = createParser({ a: types.string }, wrap('base')).extend({}, wrap('extend'));
+    await parser({ a: '1' }, wrap('call'));
+    expect(order).toEqual(['call-in', 'extend-in', 'base-in', 'base-out', 'extend-out', 'call-out']);
+  });
+
+  it('lets an after hook change the result before and after the inherited after hooks', async () => {
+    const { createParser, types } = initializeParser();
+    const base = createParser(
+      { a: types.string },
+      { after: (context) => ({ ...context, data: { ...context.data, steps: [...(context.data['steps'] ?? []), 'base'] } }) },
+    );
+    const parser = base.extend(
+      {},
+      {
+        after: async (context, inherited) => {
+          context = await inherited({ ...context, data: { ...context.data, steps: ['extend-first'] } });
+          return { ...context, data: { ...context.data, steps: [...context.data['steps'], 'extend-last'] } };
+        },
+      },
+    );
+    expect(await parser({ a: '1' })).toEqual({ a: '1', steps: ['extend-first', 'base', 'extend-last'] });
+  });
+
+  it('still ignores an after hook that returns no data, and keeps the chain going', async () => {
+    const { createParser, types } = initializeParser();
+    const base = createParser({ a: types.string }, { after: () => ({}) as ParserContext });
+    const parser = base.extend({}, { after: (context) => ({ ...context, data: { ...context.data, stamped: true } }) });
+    expect(await parser({ a: '1' })).toEqual({ a: '1', stamped: true });
+  });
+
+  it('runs the chain once per nested level', async () => {
+    const order: string[] = [];
+    const { createParser, types } = initializeParser({
+      before: async (context, inherited) => {
+        order.push(`global:${String(context.key ?? 'root')}`);
+        return inherited(context);
+      },
+    });
+    const child = createParser({ b: types.string }, tracked(order, 'child'));
+    await createParser({ child }, tracked(order, 'parent'))({ child: { b: '1' } });
+    expect(order).toEqual(['global:root', 'parent-before', 'global:child', 'child-before', 'child-after', 'parent-after']);
   });
 });

@@ -8,7 +8,7 @@ const calledVariables = new Set<string>();
 const _cache: AppObject = {};
 let randomVariableCount = 0;
 
-const { createParser } = initializeParser(async () => {
+const { createParser, types } = initializeParser(async () => {
   return {
     variables: { variableTitle, variableFunction },
     variableResolver: async (variableName, context, cache) => {
@@ -43,8 +43,8 @@ const { createParser } = initializeParser(async () => {
 describe('parsing', () => {
   it('should be able basic variable resolution', async () => {
     const parser = createParser({
-      title: 'string',
-      description: 'string',
+      title: types.string,
+      description: types.string,
     });
     const data = await parser({ title: `This is: {{variableTitle}}`, description: `Description is: {{variableFunction}}` });
     expect(data).toBeTruthy();
@@ -54,7 +54,7 @@ describe('parsing', () => {
 
   it('should be able resolve variable that is not defined previously', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{undefinedVariable}} {{undefinedVariable2}} {{undefinedVariable3}}` });
     expect(data).toBeTruthy();
@@ -66,7 +66,7 @@ describe('parsing', () => {
 
   it('should be able to resolve random variable', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     expect(randomVariableCount).toEqual(0);
     const data = await parser({ title: `This is: {{randomVariable}}` });
@@ -78,7 +78,7 @@ describe('parsing', () => {
 
   it('should be able to resolve async variable', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{asyncVariable}}` });
     expect(data).toBeTruthy();
@@ -88,7 +88,7 @@ describe('parsing', () => {
 
   it('should be able to resolve to already cached value', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     expect(randomVariableCount).toEqual(1); // Should be cached from previous test
     const data = await parser({ title: `This is: {{randomVariable}}` });
@@ -100,7 +100,7 @@ describe('parsing', () => {
 
   it('should be able handle variables that are returned from resolver and return nested value', async () => {
     const parser = createParser({
-      title: 'string',
+      title: types.string,
     });
     const data = await parser({ title: `This is: {{nestedVariable.inner.value}}` });
     expect(data).toBeTruthy();
