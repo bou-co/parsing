@@ -69,7 +69,7 @@
   "main": "./dist/index.js",
   "typings": "./dist/index.d.ts",
   "bin": {
-    "bou-parsing": "./dist/cli/index.js"
+    "bou-parsing": "dist/cli/index.js"
   },
   "exports": {
     ".": {
