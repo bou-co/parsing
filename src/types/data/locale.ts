@@ -1,5 +1,5 @@
 import type { ParserContext } from '../../parser-types';
-import { CastResult, TypeToken, defineType } from '../../type-token';
+import { Carry, CastResult, TypeToken, defineType } from '../../type-token';
 import { invalid } from '../internal';
 import { string, StringType } from '../string';
 
@@ -16,13 +16,13 @@ export class LocaleType extends TypeToken<string> {
     }
   }
 
-  get language(): StringType {
-    return this.derive('language', (value) => new Intl.Locale(value).language).to(string);
+  get language(): Carry<this, StringType> {
+    return this.derive('language', (value) => new Intl.Locale(value).language, [], string);
   }
 
   /** Missing when the tag has no region */
-  get region(): StringType {
-    return this.derive('region', (value) => new Intl.Locale(value).region).to(string);
+  get region(): Carry<this, StringType> {
+    return this.derive('region', (value) => new Intl.Locale(value).region, [], string);
   }
 }
 

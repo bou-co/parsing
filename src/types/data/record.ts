@@ -1,5 +1,5 @@
 import type { ParserContext } from '../../parser-types';
-import { applyCast, CastResult, TypeToken, defineType } from '../../type-token';
+import { Carry, applyCast, CastResult, TypeToken, defineType } from '../../type-token';
 import type { ParserTypeDefaulted } from '../../type-token';
 import { invalid } from '../internal';
 
@@ -18,7 +18,7 @@ export class RecordType<Value = unknown> extends TypeToken<Record<string, Value>
   }
 
   /** Cast every value with `value`. A default/required set before `.of()` is kept */
-  of<T>(value: TypeToken<T>): this extends ParserTypeDefaulted ? RecordType<T> & ParserTypeDefaulted : RecordType<T> {
+  of<T>(value: TypeToken<T>): Carry<this, RecordType<T>> {
     return this.memo(`of:${value.id}`, () => this.clone({ item: value, name: `${this.name}<${value.name}>` })) as never;
   }
 }

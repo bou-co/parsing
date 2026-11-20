@@ -42,6 +42,7 @@ content comes out joined, templated, cached, and typed.
     - [Accessors](#accessors)
     - [Missing values and defaults](#missing-values-and-defaults)
     - [Failure behaviour](#failure-behaviour)
+    - [How typing works](#how-typing-works)
   - [Adding and modifying values](#adding-and-modifying-values)
   - [Nested data structures](#nested-data-structures)
     - [The projection is the point of truth](#the-projection-is-the-point-of-truth)
@@ -78,6 +79,8 @@ content comes out joined, templated, cached, and typed.
   - [Extending parsers](#extending-parsers)
   - [Context overriding](#context-overriding)
   - [Lifecycle hooks](#lifecycle-hooks)
+    - [Hook order](#hook-order)
+    - [Controlling the order with `inherited`](#controlling-the-order-with-inherited)
   - [Transformers](#transformers)
   - [Patterns](#patterns)
   - [Chaining parsers (Reparsing)](#chaining-parsers-reparsing)
@@ -358,11 +361,24 @@ const myParser = createParser({
   displayName: types.text.default('List item'), // → string ('' and '   ' also become 'List item')
   retries: types.number.default(0), // → number
   tags: types.array.of(types.string).default([]), // → string[]
-  year: types.date.year.default(1970), // → number, the default sits at the end of the chain
+  year: types.date.year.default(1970), // → number, a default at the end of the chain is used as written
 });
 ```
 
-The default is returned as-is (it is not cast; TypeScript already enforces it matches the output type) and also works with `defineType` via `{ fn, default }`. It never masks hard failures: under the default policy a present-but-invalid value still throws, and `.strict` types always do. A default belongs to the output it was written for, so it goes **last**: an accessor, `.extend` or `.to` after it starts a new output and drops it ([gotcha](#a-default-before-an-accessor-is-dropped)).
+The default is returned as-is by the token it was set on (it is not cast; TypeScript already enforces it matches the output type) and also works with `defineType` via `{ fn, default }`. It never masks hard failures: under the default policy a present-but-invalid value still throws, and `.strict` types always do.
+
+**Where the default sits decides what happens to it.** Placed last, it is the output as written. Placed earlier, it is a stand-in for the missing input, so everything chained after it (accessors, `.extend`, `.to`) runs on it. When two defaults are written, the later one wins. Either way the field is non-optional in the inferred type:
+
+| You write                                 | Missing input gives          | Field type            |
+| ----------------------------------------- | ---------------------------- | --------------------- |
+| `types.string`                            | key omitted                  | `string \| undefined` |
+| `types.string.default('draft')`           | `'draft'`                    | `string`              |
+| `types.string.default('draft').upperCase` | `'DRAFT'`                    | `string`              |
+| `types.string.upperCase.default('draft')` | `'draft'`                    | `string`              |
+| `types.date.default(new Date(0)).iso`     | `'1970-01-01T00:00:00.000Z'` | `string`              |
+| `types.email.required.domain`             | a `ParserCastError`          | `string`              |
+
+A later step that **throws** on an early default is an ordinary cast failure (thrown by default, dropped under `.loose` / `looseCasting`), and a later step that returns nothing for it leaves the key out (`types.array.default([]).first`). `token.defaultValue` reports only the default set on that very token.
 
 When a field genuinely must be there, say so with `.required` (or `{ required: true }`): a missing value then fails like any other cast failure — thrown by default, dropped and logged under `looseCasting`, always thrown with `.strict` — and the field is non-optional in the inferred type:
 
@@ -373,7 +389,7 @@ const pageParser = createParser({
 });
 ```
 
-Unlike a default, `.required`, `.strict` and `.loose` describe the field rather than one output, so they carry through whatever is chained after them: `types.email.required.domain` and `types.date.strict.iso` still fail on a missing value / always throw.
+`.required`, `.strict` and `.loose` describe the field rather than one output, so they carry through whatever is chained after them, at runtime and in the inferred type: `types.email.required.domain` and `types.date.strict.iso` still fail on a missing value / always throw. See [How typing works](#how-typing-works) for the full picture.
 
 #### Failure behaviour
 
@@ -383,6 +399,31 @@ Exactly two flows exist across the whole system, at the cast site and when a typ
 2. **Log and undefined.** The value is dropped (the key is omitted from the output, or `.default()` fills it) and a warning is logged unless `onCastError` observes it.
 
 A failure is a value that is present and does not fit — or a missing value on a `.required` token. `looseCasting: true` switches a context to the second flow; a token can pin either flow for itself with `.strict` (always throw) or `.loose` (always undefined, silently). An uncast value never passes through, so a field that is present always has its declared type. The one place the inferred type can be wider than the runtime result is a `.required` field without a default under the second flow (`looseCasting` or `.loose`): it is typed non-optional, but a missing or invalid value is dropped. See [Loose casting](#loose-casting).
+
+#### How typing works
+
+The output type is read from the projection, one key at a time, and three rules cover nearly everything. **Every field is optional by default**, because missing data is normal. **A default or `.required` makes it non-optional**, wherever it sits in the chain and whichever way you write it (`.default(v)`, `.required`, or the options form `types.string({ default: 'x' })`). **The type follows the last link of the chain**, so an accessor that turns a date into a string gives you a string.
+
+| You write                                  | Field type            |
+| ------------------------------------------ | --------------------- |
+| `types.number`                             | `number \| undefined` |
+| `types.number.default(0)`                  | `number`              |
+| `types.date.iso`                           | `string \| undefined` |
+| `types.date.required.iso`                  | `string`              |
+| `types.array.of(types.string).default([])` | `string[]`            |
+| `get('phone', types.tel.required)`         | `string`              |
+| `({ data }) => data.price * 2`             | `number`              |
+| `'{{ price \| number }}'`                  | `string` (see below)  |
+
+`get(path, type)`, `value(input, type)` and `variable(expression, type)` follow the token they are given, and a value function is typed by what it returns. Constants keep their literal type.
+
+A few places where the type cannot follow the runtime, so you know where to look:
+
+- **String templates are typed as strings.** A `'{{ … }}'` literal is a `string` to TypeScript even when a whole-string expression resolves to a number, a `Date` or an object. For a typed result use `variable('price', types.number)` or `value('{{price}}', types.number)`, or assert with the proxy: `variables.price as number`.
+- **`.required` without a default under a non-throwing policy.** With `looseCasting` or `.loose` the field is typed non-optional, but a missing or invalid value is dropped. Add a default if the key must always be there.
+- **Accessors you add yourself through an object.** Accessors from `defineType({ accessors, methods })` or an accessor-map registration do not see a `.required` / `.default` written _before_ them in the type (the runtime is right): write `types.productCode.number.required`, not `types.productCode.required.number`. Class-based types can carry it, see [Extending types](#extending-types).
+
+When you know better than the inference, say so: `typed<T>()` types a single key, `parser.as<T>(data)` the whole result, `resolve<T>(input)` the output of a [resolve](#resolving-values-without-parsing) call, and `resolve<T>()` the current value inside a value function. `ParserReturnValue<typeof parser>` gives you the inferred output type to pass around.
 
 ### Adding and modifying values
 
@@ -521,7 +562,16 @@ const result = await myParser({ title: 'Hello' });
 The rules that keep this predictable:
 
 - **Empty results are omitted.** If everything inside a nested projection depended on the missing data, the resolved object has no keys and the key is dropped entirely, so purely data-mapping projections keep their omit behavior. This cascades naturally through deep nesting.
-- **One input rule for every kind of nesting.** Inline object projections, nested parsers, `.flat` parsers and parsers returned from value functions all read the value at their key the same way: an object (or array) feeds the projection; a string feeds it only as a stringified object/array (`'{"a":1}'`) or as a full-string pattern that resolves to an object (`'{{settings}}'`); anything else — a plain string, a number, a variable that resolves to a scalar — resolves projection-driven.
+- **One input rule for every kind of nesting.** Inline object projections, nested parsers, `.flat` parsers and parsers returned from value functions all read the value at their key the same way:
+
+  | Value at the key                                                      | What happens                             |
+  | --------------------------------------------------------------------- | ---------------------------------------- |
+  | an object or array                                                    | feeds the projection                     |
+  | a stringified object/array (`'{"a":1}'`)                              | parsed, then feeds the projection        |
+  | a full-string pattern resolving to an object (`'{{settings}}'`)       | the resolved object feeds the projection |
+  | missing, `null`, a number, a boolean, any other string                | resolves projection-driven (no data)     |
+  | any of the above under an array-shaped projection without usable data | key omitted                              |
+
 - **Arrays are never conjured without data.** Projections marked `'@array': true`, array literals, and `parser.asArray` values keep requiring array input; without usable data the key is omitted.
 - **The incoming value stays reachable.** During projection-driven resolution `context.data` is an empty object, and the original value (if any) is available through `context.parent.value` (`context.parent.data` is the parent level's data object).
 - **Recursive schemas terminate.** A parser that references itself (directly, mutually, or through an `@if` branch) stops at the first repeat: the cycle is resolved once more with its data-independent fields, then cut.
@@ -691,7 +741,7 @@ The class style, for the same result, with `super.cast` giving you the parent's 
 
 ```ts
 import type { ParserContext } from '@bou-co/parsing';
-import { StringType, defineType } from '@bou-co/parsing/types';
+import { StringType, defineType, string, type Carry } from '@bou-co/parsing/types';
 
 export class SkuType extends StringType {
   override async cast(value: unknown, context?: ParserContext) {
@@ -703,6 +753,9 @@ export class SkuType extends StringType {
   get vendor() {
     return this.derive('vendor', (sku) => sku.split('-')[0]); // a new output; memoised, hashed by name + implementation
   }
+  get vendorName(): Carry<this, StringType> {
+    return this.derive('vendorName', (sku) => sku.split('-')[0], [], string); // a new output composed onto `string`, so `.upperCase` etc. keep chaining
+  }
   get compact() {
     return this.transform('compact', (sku) => sku.replace('-', '')); // same family: still a SkuType, keeps chaining
   }
@@ -711,6 +764,8 @@ export class SkuType extends StringType {
 export const sku = defineType(SkuType);
 export const requiredSku = defineType(SkuType, { required: true });
 ```
+
+`this.derive(key, fn, params?, to?)` returns `Carry<this, …>`: the new output stays non-optional when the token it was read from has a default or is `.required`, so `sku.required.vendor` is typed `string`. Leave the getter's return type to inference or annotate it with `Carry<this, StringType>` as above; a plain `TypeToken<string>` annotation compiles too but loses that. The optional fourth argument composes the result onto a family token.
 
 Inline, inside a projection, the universal chain covers the small cases: `.extend(fn)` keeps the family (a transform: `types.text.extend((v) => v.replace(/\s+/g, ' '))` is still a `text`), `.to(fn)` derives a new output (`types.slug.to((v) => v.length)` is a `number`), and `.to(token)` composes two casts while keeping the target's family (`types.json.to(types.array.of(types.number)).unique`). Every token also has `.cast(value)` for standalone use, which throws on failure (`applyCast(value, token)` is the standalone form with the failure policy; its error path reads `<root>`).
 
@@ -1054,6 +1109,8 @@ const myParser = createParser({
 });
 ```
 
+This is also what gives the field its type: the string form `'{{ user.age | number }}'` resolves to a number at runtime but is typed `string`, while `variable('user.age', types.number)` is typed `number | undefined` (and `number` with `.required` or a default). The [types as pipes](#types-as-pipes) table shows what each string form resolves to.
+
 #### The `variables` proxy
 
 `variables` builds the same reference as a `'{{ }}'` string through property access: `variables.year` resolves like `'{{year}}'`, and `variables.lorem.ipsum.dolor` like `'{{lorem.ipsum.dolor}}'`. Unlike a string, it accepts a type assertion, so the projection can declare what the variable holds:
@@ -1177,6 +1234,30 @@ createParser({
 // '{{ event.date | date.iso }}'   ← template, same behaviour, same name
 ```
 
+The pipe is the path you write after `types.`, with the call parentheses turned into `:` parameters:
+
+| In code                            | As a pipe                              |
+| ---------------------------------- | -------------------------------------- |
+| `types.email`                      | `{{ x \| email }}`                     |
+| `types.string.upperCase`           | `{{ x \| string.upperCase }}`          |
+| `types.number.round(2)`            | `{{ x \| number.round:2 }}`            |
+| `types.date.iso`                   | `{{ x \| date.iso }}`                  |
+| `types.oneOf('a', 'b')`            | `{{ x \| oneOf:"a":"b" }}`             |
+| `types.email.loose.default('n/a')` | `{{ x \| email.loose.default:"n/a" }}` |
+
+An accessor that only one type has also works on its own, so `{{ x | upperCase }}` is `string.upperCase` and `{{ x | round:2 }}` is `number.round:2`. The details are in the list below.
+
+Not every type is there from the start. The ones in the first row work everywhere; the rest are pipes (and `types.x`) only after you register them:
+
+| Available                               | Types                                                                                                                                                                        | To use them                                                                              |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| By default                              | `string`, `number`, `boolean`, `date`, `object`, `array`, `any`, `unknown`, `text`, `email`, `url`, `slug`, `color`, `tel`, `mimeType`, `json`, `oneOf`, `pattern`, `unique` | nothing, with all their accessors (`date.iso`, `date.year`, `number.round`, …)           |
+| Opt-in, `@bou-co/parsing/types/format`  | `formatDate`, `currency`, `percent`, `time`, `duration`, `money`                                                                                                             | `initializeParser({ types: { ...formatTypes } })`                                        |
+| Opt-in, `@bou-co/parsing/types/data`    | `record`, `schema`, `coords`, `locale`                                                                                                                                       | `initializeParser({ types: { ...dataTypes } })`                                          |
+| Opt-in, `@bou-co/parsing/types/content` | `html`, `markdown`                                                                                                                                                           | register each with its adapter, see [Content types & security](#content-types--security) |
+
+So formatting a date with a pattern (`formatDate:"yyyy-MM-dd"`) or a number as money needs `formatTypes`; the date parts and ISO output do not. A pipe that is not found says what to do about it: an opt-in type names its registration line, a name several types share (`length`) lists the full paths to use, and anything else points back here.
+
 - **Qualified names** are always available: `date.iso`, `number.round:2`, `url.base:"https://site.com"`, `email.domain`. Parameters attach to the last member. The universal options are members too: `email.loose`, `email.strict`, `email.required`, `number.default:0`. Parameters on a member that takes none, or a member read off a parameterised type (`oneOf.x`), throw an error naming the pipe.
 - **Root names** exist for every accessor whose name is unique across families: `upperCase`, `round:2`, `unique`, `join:", "`, `iso`, `domain`. The root form carries its base type's cast — `{{ someNumber | upperCase }}` casts to string first, then upper-cases, which is what a template author expects. A name declared by two families has no root form and needs the qualified one — `length` (`string`/`array`), `normalized` and `href` (`email`/`tel`), `of` (`array`/`json`), and `iso` once `formatTypes` is registered (`date`/`duration`). Collisions among shipped types are silent; a type of your own that introduces one logs a warning naming the qualified forms. Explicit `pipes` always win over type names.
 - **Parameterised types** take their parameters as pipe parameters: `{{ status | oneOf:"draft":"published" }}`, `{{ code | pattern:"^P\\d{4}$" }}`. Types whose parameters are tokens (`unique(item)`, `array.of`, `schema`) cannot be called from a template; `{{ tags | unique }}` resolves to the `array.unique` accessor instead.
@@ -1189,6 +1270,21 @@ Because a type can fail, a template expression can now **validate**:
 ```
 
 The failure policy is the same as at the cast site — throw by default, undefined under `looseCasting: true`, `.strict`/`.loose` pinned per token — with one deliberate addition: a written `||` fallback is the author's stated policy for that expression, so a failed cast yields `undefined` and the chain continues, even under the throwing policy. `{{ contact | email }}` alone still throws by default; `{{ contact | email || undefined }}` or `{{ contact | email.loose }}` say "undefined is fine" without a replacement. `.strict` is the stronger statement: `{{ contact | email.strict || "n/a" }}` throws anyway. `onCastError` observes every failure either way. Since pipes are skipped for an `undefined` candidate, `{{ missing | email.required }}` does not fail — `required` in a pipe only catches `''` and `null`; require the field with a token at the key (or [`variable('missing', types.email.required)`](#variableexpression-type)) instead.
+
+Pipes chain left to right, so a type pipe is also the way to make sure a variable **is** something before the next pipe works on it. When the whole string is one expression the result keeps its real type instead of being turned into text. With `d = '2024-03-05T10:00:00Z'`, `n = '42'` and `bad = 'nope'` in `variables`:
+
+| Projection value                               | Result                                 |
+| ---------------------------------------------- | -------------------------------------- |
+| `'{{ d \| date }}'`                            | a `Date`                               |
+| `'{{ n \| number }}'`                          | `42` (a number)                        |
+| `'{{ d \| date.year }}'`                       | `2024` (a number)                      |
+| `'{{ d \| date \| formatDate:"yyyy-MM-dd" }}'` | `'2024-03-05'`                         |
+| `'{{ d \| formatDate:"yyyy" }}'`               | `'2024'` (it casts to a date itself)   |
+| `'{{ bad \| date }}'`                          | throws a `ParserCastError`             |
+| `'{{ bad \| date \|\| "n/a" }}'`               | `'n/a'`                                |
+| `'Published {{ d \| date.year }}'`             | `'Published 2024'` (embedded, so text) |
+
+The two `formatDate` rows need `initializeParser({ types: { ...formatTypes } })`, see the table above. TypeScript sees every one of these as a `string`, because the value is a string literal; for a field typed as a `Date` or a number, [cast the variable at the key](#casting-a-variable-at-a-projection-key) with `variable('d', types.date)` or `value('{{n}}', types.number.required)`.
 
 #### Escaping
 
@@ -1377,7 +1473,19 @@ const result = await productParser({ price: 25 });
 */
 ```
 
-Hooks are per-level: global, schema, and instance hooks each run (in that order), once per nesting level — global and per-call hooks fire at every nested parser, schema (`createParser`) hooks only for that parser's own levels (not inside inline object projections), and at arrays hooks run per item. An `after` hook receives the context with the parsed result as `context.data` and must return a **context-shaped** object — `after: (ctx) => ({ ...ctx, data: { ...ctx.data, stamped: true } })`; returning the data itself is silently ignored. Within a level, `.extend()` and `.withContext()` **compose** hooks instead of replacing them — the base parser's hook runs first, then the extension's, which sees (and may override) the base hook's context changes (the very same function reference on both sides runs once):
+#### Hook order
+
+All hooks that apply to a parse form **one chain**, and it runs in the same order for `before` and for `after`. Each hook receives the context returned by the one before it, so a later hook sees (and may override) what an earlier one set.
+
+| Step | Registered with                               | Runs for                                                 |
+| ---- | --------------------------------------------- | -------------------------------------------------------- |
+| 1    | `initializeParser({ before, after })`         | every parser, at every nested level                      |
+| 2    | `createParser(projection, { before, after })` | that parser's own levels (not inline object projections) |
+| 3    | `.extend(projection, { before, after })`      | the extended parser, after the base parser's hook        |
+| 4    | `.withContext({ before, after })`             | the derived parser, after everything it was derived from |
+| 5    | `parser(data, { before, after })`             | that call, at every nested level                         |
+
+The chain runs once per nesting level, and at arrays once per item. `.extend()` and `.withContext()` **add** to the chain instead of replacing it, in the order they were written, and the very same function reference passed again to `.extend()` or `.withContext()` runs once.
 
 ```ts
 const extendedParser = productParser.extend(
@@ -1390,6 +1498,45 @@ const extendedParser = productParser.extend(
   },
 );
 ```
+
+An `after` hook receives the context with the parsed result as `context.data` and must return a **context-shaped** object: `after: (ctx) => ({ ...ctx, data: { ...ctx.data, stamped: true } })`. A hook that returns something without `data` (the data itself, say) is ignored and the chain carries on with what that hook received.
+
+#### Controlling the order with `inherited`
+
+A hook that declares a **second parameter** takes over the ordering. It is no longer run after the earlier hooks; it receives them as `inherited` and decides when to call them, so it can do one thing first, hand over, and do more afterwards:
+
+```ts
+const extendedParser = productParser.extend(
+  { discounted: ({ data, basePrice, discount }) => data.price + basePrice - discount },
+  {
+    before: async (context, inherited) => {
+      context.currency = 'EUR'; // 1. before the global and base hooks
+      context = await inherited(context); // 2. everything earlier in the chain (basePrice is set here)
+      context.discount = context.basePrice / 2; // 3. after them
+      return context;
+    },
+  },
+);
+```
+
+`inherited` is everything earlier in the chain, at whichever step the hook sits, so this works on every level. A per-call hook can run before the parser's own hooks:
+
+```ts
+await productParser(data, {
+  before: async (context, inherited) => inherited({ ...context, basePrice: 20 }), // set first, the parser's hooks may still override it
+  after: async (context, inherited) => {
+    const result = await inherited(context); // the parser's own after hooks
+    return { ...result, data: { ...result.data, checkedAt: Date.now() } };
+  },
+});
+```
+
+The rules, in short:
+
+- `inherited` is always a function; at the start of the chain it simply returns the context it is given.
+- **Not calling it skips the earlier hooks**, which is how a derived parser opts out of a base hook.
+- Several such hooks nest: the last one in the chain is the outermost.
+- It is detected by the number of parameters the function declares, so `(context, inherited = fallback)` and `(context, ...rest)` count as one-parameter hooks and keep the default order.
 
 ### Transformers
 
@@ -2239,7 +2386,7 @@ A variable resolving to a string that contains `{{other}}` resolves that too; cy
 
 #### Type pipes throw unless you write a fallback
 
-`{{ contact | email }}` throws on an invalid email under the default policy, exactly like `contact: types.email` would. `{{ contact | email || "n/a" }}` falls back; `|| undefined` or `email.loose` say "undefined is fine". See [Types as pipes](#types-as-pipes).
+`{{ contact | email }}` throws on an invalid email under the default policy, exactly like `contact: types.email` would. `{{ contact | email || "n/a" }}` falls back; `|| undefined` or `email.loose` say "undefined is fine". A pipe name that does not exist is a different error and always throws: `Pipe "formatDate" not found` names the `formatTypes` registration when the type is an opt-in one. See [Types as pipes](#types-as-pipes).
 
 #### Pipes live in `pipes`, not `variables` — but pipe parameters read `variables`
 
@@ -2261,13 +2408,13 @@ const validated = types.pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/); // validate only,
 
 Anything that would have been an `Invalid Date` is a cast failure — except `''`, which is missing for every type (key omitted, or the default fills; `.required` to fail). `0` is a valid epoch number and casts to `new Date(0)`. Code that wants an `Invalid Date` back needs a custom type.
 
-#### `default` is not cast
+#### `default` is not cast by its own type
 
-The default is returned as-is; TypeScript enforces that it matches the output type, but no runtime casting happens — `types.number({ default: '0' as any })` hands you a string. See [Missing values and defaults](#missing-values-and-defaults).
+The token a default is set on returns it as-is; TypeScript enforces that it matches the output type, but that token does no runtime casting — `types.number({ default: '0' as any })` hands you a string. Steps chained _after_ the default do run on it. See [Missing values and defaults](#missing-values-and-defaults).
 
-#### A default before an accessor is dropped
+#### The position of a default changes its value
 
-`types.string.default('x').upperCase` has no default at runtime: an accessor, `.extend` or `.to` starts a new output, and the default belonged to the old one. The field is nevertheless still typed non-optional for same-type transforms (`.upperCase`, `.trim`, `.round()`), so the mistake does not show up in the types. Put the default last: `types.string.upperCase.default('X')`. `.required`, `.strict` and `.loose` are not affected; they carry through the chain. See [Missing values and defaults](#missing-values-and-defaults).
+A default is used as written only when it is the last thing in the chain. Anything chained after it treats it as the stand-in input: `types.string.default('draft').upperCase` gives `'DRAFT'`, `types.string.upperCase.default('draft')` gives `'draft'`. If a later step throws on the default (`types.string.default('n/a').to(types.number)`) that is a cast failure like any other, at every parse where the value is missing. `token.defaultValue` only reports a default set on that exact token, so it is `undefined` on `types.string.default('x').upperCase`. See [Missing values and defaults](#missing-values-and-defaults).
 
 #### `default` does not rescue hard failures
 
@@ -2295,7 +2442,7 @@ Neither base cast rewrites the value: `email` keeps the case (`.normalized`, or 
 
 #### Shared accessor names have no root pipe form
 
-`length` (`string`/`array`), `normalized` and `href` (`email`/`tel`) and `of` (`array`/`json`) are only reachable qualified: `{{ x | length }}` is "Pipe not found", `string.length` works. Registering the opt-in subsets adds two more: with `formatTypes`, `{{ d | iso }}` stops working (`date.iso` and `duration.iso` both exist — write the qualified one), and `dataTypes` adds `record` to the families sharing `of`. Collisions among shipped types are silent by design; a type of your own that introduces one logs a warning once. See [Types as pipes](#types-as-pipes).
+`length` (`string`/`array`), `normalized` and `href` (`email`/`tel`) and `of` (`array`/`json`) are only reachable qualified: `{{ x | length }}` is "Pipe not found" (the error lists the qualified forms to use), `string.length` works. Registering the opt-in subsets adds two more: with `formatTypes`, `{{ d | iso }}` stops working (`date.iso` and `duration.iso` both exist — write the qualified one), and `dataTypes` adds `record` to the families sharing `of`. Collisions among shipped types are silent by design; a type of your own that introduces one logs a warning once. See [Types as pipes](#types-as-pipes).
 
 #### `record.of` drops missing values, `array.of` keeps the slot
 
@@ -2321,7 +2468,7 @@ Value functions that assume `data` is populated read `undefined` rather than cra
 
 #### An `after` hook that returns data instead of a context is silently ignored
 
-The engine does `if (afterResult.data) combined = afterResult.data`, so the hook must return a **context-shaped** object. Returning the modified data directly discards it — no error, no warning, output unchanged:
+The engine only takes a hook's result when it has a `data` key, so the hook must return a **context-shaped** object. Returning the modified data directly discards it — no error, no warning, output unchanged, and the next hook in the chain receives what this one received:
 
 ```ts
 after: (ctx) => ({ ...ctx.data, stamped: true }); // ❌ → { a: 'x' }
@@ -2329,6 +2476,10 @@ after: (ctx) => ({ ...ctx, data: { ...ctx.data, stamped: true } }); // ✅ → {
 ```
 
 Worse than a no-op if your output happens to contain a key named `data`: the raw return would then set the whole result to `data.data`. Always spread the context. See [Lifecycle hooks](#lifecycle-hooks).
+
+#### A hook's second parameter changes when it runs
+
+`before: (context, inherited) => …` is not run after the earlier hooks: it has to call `inherited(context)` itself, and forgetting to do so silently skips the global and base hooks. The engine looks at the declared parameter count, so adding an unused second parameter to a hook is enough to trigger it, while `(context, inherited = x)` is not. See [Controlling the order with `inherited`](#controlling-the-order-with-inherited).
 
 #### An unconditional `after` hook defeats empty-result omission
 
@@ -2510,6 +2661,8 @@ Context can be configured at three distinct levels, allowing you to scope variab
 1. **Global Level (`initializeParser`)**: Each call creates an isolated parser engine; settings applied here affect all parsers created from the returned `createParser`. Ideal for `storage`, global `transformers`, `patterns` (global-only), global `variables`, and global `pipes`. See [Multiple parser configurations](#multiple-parser-configurations).
 2. **Schema Level (`createParser`)**: Settings applied here affect all executions of this specific parser schema. Ideal for schema-specific `variables`, `pipes`, `cache` definitions, or `before`/`after` hooks.
 3. **Instance Level (`myParser(data, context)`)**: Settings applied during execution. Ideal for request-specific `variables` and `pipes` (e.g., currently logged-in user, active locale).
+
+`before` / `after` are accepted at all three levels and have the type `ParserContextHook`: `(context: ParserContext, inherited: ParserInheritedHook) => ParserContext | Promise<ParserContext>`. They run as one chain (global, schema with its `.extend()` / `.withContext()` additions, instance); a hook that declares `inherited` calls the earlier hooks itself. See [Hook order](#hook-order).
 
 ### Projection Directives
 

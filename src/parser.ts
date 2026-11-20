@@ -10,6 +10,7 @@ import {
   AppObject,
   CreateParserContext,
   ParserContextHook,
+  ParserInheritedHook,
   ParserInstanceContext,
   ParserGlobalContext,
   CachingParserContext,
@@ -403,16 +404,35 @@ export class Parser {
     return Parser.resolveVariables(value, context);
   };
 
+  // A hook declaring the second parameter calls the earlier hooks itself, any other hook runs after them
+  private static callHook = async (hook: ParserContextHook, context: ParserContext, inherited: ParserInheritedHook): Promise<ParserContext> => {
+    return hook.length > 1 ? hook(context, inherited) : hook(await inherited(context), inherited);
+  };
+
   private static chainHooks = (a?: ParserContextHook, b?: ParserContextHook): ParserContextHook | undefined => {
     if (!a || !b || a === b) return a ?? b;
-    return async (context) => b(await a(context));
+    return (context, inherited) => Parser.callHook(b, context, (context) => Parser.callHook(a, context, inherited));
+  };
+
+  // An after hook returning something without data is ignored
+  private static keepData = (hook: ParserContextHook): ParserContextHook => {
+    return async (context, inherited) => {
+      let received = context;
+      const result = await Parser.callHook(hook, context, async (context) => (received = await inherited(context)));
+      return result?.data ? result : received;
+    };
+  };
+
+  private static chainAfterHooks = (a?: ParserContextHook, b?: ParserContextHook): ParserContextHook | undefined => {
+    if (!a || !b || a === b) return a ?? b;
+    return Parser.chainHooks(Parser.keepData(a), Parser.keepData(b));
   };
 
   // Hooks compose (base first, extension second) instead of overwriting
   private static mergeParserContexts = (base?: CreateParserContext, extension?: CreateParserContext): CreateParserContext => {
     const merged = mergeObjects<CreateParserContext>(base, extension);
     const before = Parser.chainHooks(base?.before, extension?.before);
-    const after = Parser.chainHooks(base?.after, extension?.after);
+    const after = Parser.chainAfterHooks(base?.after, extension?.after);
     if (before) merged.before = before;
     if (after) merged.after = after;
     return merged;
@@ -504,10 +524,10 @@ export class Parser {
         return Promise.all(promises).then(filterNill);
       }
 
+      // One chain per level: global, schema (base, extensions), instance
       const contextsWithHooks = [globalContext, parserContext, instanceContext];
-      for (const context of contextsWithHooks) {
-        if (context?.before) contextBase = await context.before(contextBase);
-      }
+      const before = contextsWithHooks.reduce<ParserContextHook | undefined>((chain, context) => Parser.chainHooks(chain, context?.before), undefined);
+      if (before) contextBase = await Parser.callHook(before, contextBase, async (context) => context);
       // Before hooks may replace contextBase
       contextBase.resolve = this.createContextResolve(contextBase);
       this.seedPatterns(contextBase, patternRunCache);
@@ -648,11 +668,10 @@ export class Parser {
       const resolved = await Promise.all(promises).then(filterNill).then(filterUndefinedEntries);
       if (Array.isArray(projection)) return resolved.map(([, value]) => value);
       let combined = Object.fromEntries([...resolved, ...conditionalEnties]);
-      for (const context of contextsWithHooks) {
-        if (context?.after) {
-          const afterResult = await context.after({ ...contextBase, data: combined });
-          if (afterResult.data) combined = afterResult.data;
-        }
+      const after = contextsWithHooks.reduce<ParserContextHook | undefined>((chain, context) => Parser.chainAfterHooks(chain, context?.after), undefined);
+      if (after) {
+        const afterResult = await Parser.callHook(after, { ...contextBase, data: combined }, async (context) => context);
+        if (afterResult.data) combined = afterResult.data;
       }
       return new Proxy(combined, {
         get: (target, prop) => {

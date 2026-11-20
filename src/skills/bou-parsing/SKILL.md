@@ -96,7 +96,7 @@ The rules that determine optionality:
 
 - A plain `types.x` field is `T | undefined` (optional). The library assumes any value may
   be absent.
-- `types.x.default(v)` makes it `T` (non-optional). `''` is missing for every type (`string` = raw input value); `types.text` also reports whitespace-only content as missing.
+- `types.x.default(v)` or `.required` makes it `T` (non-optional), wherever it sits in the chain; a default set before an accessor runs through it (`types.string.default('a').upperCase` → `'A'`), one set last is used as written. `''` is missing for every type (`string` = raw input value); `types.text` also reports whitespace-only content as missing.
 - `undefined`/`null`/`''` input is **missing**: it skips casting entirely and the key is
   omitted from the output — it does not throw and does not become `null`. `false` and `0`
   are values. Only `.required` tokens fail on missing input.

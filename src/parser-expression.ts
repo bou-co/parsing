@@ -2,7 +2,7 @@
 import { getFromObject } from './internal';
 import type { ParserContext } from './parser-types';
 import { applyCast, buildKeyPath } from './type-token';
-import { resolveTypePipe } from './types/namespace';
+import { describeUnknownPipe, resolveTypePipe } from './types/namespace';
 
 export interface ParsedPipe {
   name: string;
@@ -105,7 +105,7 @@ const applyPipe = async (pipe: ParsedPipe, value: unknown, context: ParserContex
       `[@bou-co/parsing] Pipe "${name}" at "${buildKeyPath(context)}" is defined in \`variables\` — v3 looks pipes up from the \`pipes\` config only. Move the function into \`pipes\`.`,
     );
   }
-  throw new Error(`[@bou-co/parsing] Pipe "${name}" not found at "${buildKeyPath(context)}"`);
+  throw new Error(`[@bou-co/parsing] Pipe "${name}" not found at "${buildKeyPath(context)}" — ${describeUnknownPipe(name, context.types)}`);
 };
 
 export type CandidateResolver = (candidate: string) => Promise<unknown>;

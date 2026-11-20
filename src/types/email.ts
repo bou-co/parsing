@@ -1,5 +1,5 @@
 import type { ParserContext } from '../parser-types';
-import { defineType } from '../type-token';
+import { Carry, defineType } from '../type-token';
 import { invalid } from './internal';
 import { string, StringType } from './string';
 
@@ -23,18 +23,18 @@ export class EmailType extends StringType {
   }
 
   /** `mailto:` link target */
-  get href(): StringType {
-    return this.derive('href', (value) => `mailto:${value}`).to(string);
+  get href(): Carry<this, StringType> {
+    return this.derive('href', (value) => `mailto:${value}`, [], string);
   }
 
   /** The part before `@` */
-  get local(): StringType {
-    return this.derive('local', (value) => value.slice(0, value.indexOf('@'))).to(string);
+  get local(): Carry<this, StringType> {
+    return this.derive('local', (value) => value.slice(0, value.indexOf('@')), [], string);
   }
 
   /** The part after `@` */
-  get domain(): StringType {
-    return this.derive('domain', (value) => value.slice(value.indexOf('@') + 1)).to(string);
+  get domain(): Carry<this, StringType> {
+    return this.derive('domain', (value) => value.slice(value.indexOf('@') + 1), [], string);
   }
 }
 

@@ -290,3 +290,48 @@ describe('opt-in subsets as registered types', () => {
     expect(await createParser({ x: '{{ d | iso }}' })({})).toEqual({ x: '2020-06-01T00:00:00.000Z' });
   });
 });
+
+describe('pipe not found hints', () => {
+  const failure = async (template: string, config: Parameters<typeof initializeParser>[0] = {}) => {
+    const { createParser } = initializeParser(config);
+    const error = await createParser({ a: template })({}, { variables: { d: '2024-03-05', x: 'abc' } }).catch((caught) => caught);
+    return (error as Error).message;
+  };
+
+  it('names the registration for an opt-in format type', async () => {
+    const message = await failure('{{ d | formatDate:"yyyy" }}');
+    expect(message).toContain('Pipe "formatDate" not found at "a"');
+    expect(message).toContain("initializeParser({ types: { ...formatTypes } }) from '@bou-co/parsing/types/format'");
+    expect(message).toContain('https://github.com/bou-co/parsing#types-as-pipes');
+  });
+
+  it('works once the subset is registered', async () => {
+    const { createParser } = initializeParser({ types: { ...formatTypes } });
+    expect(await createParser({ a: '{{ d | formatDate:"yyyy" }}' })({}, { variables: { d: '2024-03-05' } })).toEqual({ a: '2024' });
+  });
+
+  it('names the registration for opt-in data and content types', async () => {
+    expect(await failure('{{ x | coords }}')).toContain("initializeParser({ types: { ...dataTypes } }) from '@bou-co/parsing/types/data'");
+    expect(await failure('{{ x | markdown }}')).toContain("from '@bou-co/parsing/types/content' (needs an adapter)");
+  });
+
+  it('lists the qualified forms of an accessor name shared by several types', async () => {
+    const message = await failure('{{ x | length }}');
+    expect(message).toContain('Pipe "length" not found at "a"');
+    expect(message).toContain('"length" is declared by several types: use "string.length" or "array.length"');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(await failure('{{ d | iso }}', { types: { ...formatTypes } })).toContain('use "date.iso" or "duration.iso"');
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('explains what a pipe is for any other unknown name', async () => {
+    const message = await failure('{{ x | shout }}');
+    expect(message).toContain('Pipe "shout" not found at "a"');
+    expect(message).toContain('pipes are functions under `pipes` or type names such as "string.upperCase" / "number.round:2"');
+  });
+
+  it('links the README from member errors', async () => {
+    expect(await failure('{{ x | string.nope }}')).toContain('"string" has no accessor "nope" — see https://github.com/bou-co/parsing#types-as-pipes');
+  });
+});

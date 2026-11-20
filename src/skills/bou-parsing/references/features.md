@@ -116,6 +116,26 @@ shallow end (`{{ price | round:2 }}`, written by an editor) and the deep end
 (`types.email.domain.upperCase`, with inference) differ in convention and complexity, not
 capability — types can be async and receive the full context, exactly like pipes.
 
+**Code → pipe.** The pipe is the path after `types.`, call parentheses become `:` parameters:
+
+| In code                            | As a pipe                              |
+| ---------------------------------- | -------------------------------------- |
+| `types.email`                      | `{{ x \| email }}`                     |
+| `types.string.upperCase`           | `{{ x \| string.upperCase }}`          |
+| `types.number.round(2)`            | `{{ x \| number.round:2 }}`            |
+| `types.oneOf('a', 'b')`            | `{{ x \| oneOf:"a":"b" }}`             |
+| `types.email.loose.default('n/a')` | `{{ x \| email.loose.default:"n/a" }}` |
+
+**What exists without registration.** Default: `string`, `number`, `boolean`, `date`, `object`,
+`array`, `any`, `unknown`, `text`, `email`, `url`, `slug`, `color`, `tel`, `mimeType`, `json`,
+`oneOf`, `pattern`, `unique`, with all their accessors. Opt-in (pipe and `types.x` only after
+registering): `formatDate`, `currency`, `percent`, `time`, `duration`, `money` →
+`types: { ...formatTypes }` from `@bou-co/parsing/types/format`; `record`, `schema`, `coords`,
+`locale` → `types: { ...dataTypes }` from `types/data`; `html`, `markdown` → each with its
+adapter from `types/content`. An unknown pipe throws `Pipe "x" not found at "<path>"` plus a
+hint: the registration line for an opt-in type, the qualified forms for a shared accessor name
+(`length` → `"string.length"` or `"array.length"`), otherwise a pointer to the README.
+
 **Types are pipes.** Every casting type — built-in or registered via `types` at any level — is
 a pipe under the same name with the same parameters. Qualified names always work
 (`date.iso`, `number.round:2`, `url.base:"https://x"`, `email.domain`; parameters attach to
@@ -130,6 +150,23 @@ one involving a type of your own warns once. Explicit `pipes` shadow type names.
 (`oneOf:"a":"b"`, `pattern:"^x$"`); token-parameter ones (`unique(item)`, `schema`) don't.
 Two targeted errors: members after a factory name (`oneOf.x`) → `is parameterised — call it
 before accessing members`; a member read off a non-type → `cannot be read from a non-type value`.
+
+**Casting a variable.** Pipes run left to right, and a string that is one whole expression
+keeps the real type, so a variable can be cast and then formatted (`d = '2024-03-05T10:00:00Z'`,
+`n = '42'`):
+
+| Projection value                               | Result                              |
+| ---------------------------------------------- | ----------------------------------- |
+| `'{{ d \| date }}'`                            | a `Date`                            |
+| `'{{ n \| number }}'`                          | `42` (number)                       |
+| `'{{ d \| date \| formatDate:"yyyy-MM-dd" }}'` | `'2024-03-05'`                      |
+| `'{{ d \| date.year }}'`                       | `2024` (number)                     |
+| `'{{ bad \| date }}'`                          | throws `ParserCastError`            |
+| `'{{ bad \| date \|\| "n/a" }}'`               | `'n/a'` (the written fallback wins) |
+
+`formatDate` is a pipe only once `formatTypes` is registered, and it casts to a date itself
+(`{{ d | formatDate:"yyyy" }}`). TypeScript sees these literals as `string`; for a typed
+result use `variable('d', types.date)` or `value('{{n}}', types.number.required)`.
 
 Failure in a type pipe follows the cast-site policy (throw by default, drop under
 `looseCasting: true`, `.strict`/`.loose` pinned) with one addition — **a written `||`
@@ -435,12 +472,42 @@ for the array level itself. Note that an `after` hook which unconditionally inje
 makes every projection-driven resolution non-empty — hook output counts as output, so the
 "empty results are omitted" rule stops applying.
 
-**`.extend()` and `.withContext()` compose hooks rather than replacing them.** The base
-parser's hook runs first, then the extension's, which receives the context the base hook
-returned (identical function references are deduped). All other context keys keep the normal
-deep-merge semantics (nested objects like `variables` merge, the extension wins on scalars) —
-only `before`/`after` chain. There is no way to _remove_ a base hook by extending; create a
-separate parser if you need the hook gone.
+**Hooks form one chain per level, composed rather than replaced.** Each hook receives the
+context the previous one returned; `before` and `after` use the same order:
+
+| #   | Hook registered at                    |
+| --- | ------------------------------------- |
+| 1   | global (`initializeParser`)           |
+| 2   | base `createParser`                   |
+| 3   | each `.extend()`, in definition order |
+| 4   | `.withContext()`                      |
+| 5   | per call (`parser(data, { before })`) |
+
+Identical function references in the `.extend` / `.withContext` chain run once. All other
+context keys keep the normal deep-merge semantics (nested objects like `variables` merge, the
+extension wins on scalars) — only `before`/`after` chain.
+
+**Controlling the order.** A hook that declares a second parameter receives everything
+earlier in the chain as `inherited` and decides when to run it — before, after, in the
+middle, or never:
+
+```ts
+const extended = base.extend(projection, {
+  before: async (context, inherited) => {
+    context.step = 'mine first';
+    context = await inherited(context); // global + base hooks
+    context.total = context.basePrice * 2; // sees what they set
+    return context;
+  },
+});
+```
+
+It works at every level (a per-call hook can run before the parser's own hooks) and for
+`after` too (`inherited` then runs the earlier `after` hooks on the context you pass). Several
+controlling hooks nest, the latest in the chain outermost. Not calling `inherited` skips the
+earlier hooks — the way to drop a base hook. `inherited` is always a function, also when
+nothing is earlier. Detection is by **declared parameter count**: `(context, inherited = x)`
+and `(...args)` count as one-parameter hooks and run after the chain as usual.
 
 ---
 
@@ -477,7 +544,9 @@ required?, strict?, loose? })`; and `defineType({ extends: types.string, fn?, ac
 methods?, ... })`, which runs the parent's cast first and inherits its whole accessor surface
 (`fn` refines the parent's output). The object form without `extends` requires `fn` and throws
 without it. In a class, `this.transform(key, fn, params?)` builds a same-family accessor and
-`this.derive(key, fn, params?)` one with a new output. Every token also takes the same options
+`this.derive(key, fn, params?, to?)` one with a new output; pass a family token as `to` so the
+result keeps chaining, and type the getter with `Carry` so a `.required` / `.default` set
+before it stays in the type: `get slugged(): Carry<this, StringType> { return this.derive('slugged', fn, [], string); }`. Every token also takes the same options
 as a call: `types.string({ default: 'x' })` is `types.string.default('x')`.
 
 - `strict: true` → always throws on failure, even under `looseCasting`. Use for values where

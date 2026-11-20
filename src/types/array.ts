@@ -1,5 +1,5 @@
 import type { ParserContext } from '../parser-types';
-import { applyCast, CastResult, TypeToken, defineType } from '../type-token';
+import { Carry, applyCast, CastResult, TypeToken, defineType } from '../type-token';
 import type { ParserTypeDefaulted } from '../type-token';
 import { invalid } from './internal';
 import { string, StringType } from './string';
@@ -18,7 +18,7 @@ export class ArrayType<Item = unknown> extends TypeToken<Item[]> {
   }
 
   /** Cast every item with `item`. A default/required set before `.of()` is kept, so `array({ default: [] }).of(x)` types like `array.of(x).default([])` */
-  of<T>(item: TypeToken<T>): this extends ParserTypeDefaulted ? ArrayType<T> & ParserTypeDefaulted : ArrayType<T> {
+  of<T>(item: TypeToken<T>): Carry<this, ArrayType<T>> {
     return this.memo(`of:${item.id}`, () => this.clone({ item, name: `${this.name}<${item.name}>` })) as never;
   }
 
@@ -36,20 +36,20 @@ export class ArrayType<Item = unknown> extends TypeToken<Item[]> {
     return this.transform('reverse', (value) => [...value].reverse());
   }
 
-  get first(): TypeToken<Item> {
-    return this.derive('first', (value) => value[0]) as unknown as TypeToken<Item>;
+  get first(): Carry<this, TypeToken<Item>> {
+    return this.derive('first', (value) => value[0]) as never;
   }
 
-  get last(): TypeToken<Item> {
-    return this.derive('last', (value) => value[value.length - 1]) as unknown as TypeToken<Item>;
+  get last(): Carry<this, TypeToken<Item>> {
+    return this.derive('last', (value) => value[value.length - 1]) as never;
   }
 
-  override get length(): TypeToken<number> {
+  override get length(): Carry<this, TypeToken<number>> {
     return this.derive('length', (value) => value.length);
   }
 
-  join(separator = ','): StringType {
-    return this.derive('join', (value) => value.join(separator), [separator]).to(string);
+  join(separator = ','): Carry<this, StringType> {
+    return this.derive('join', (value) => value.join(separator), [separator], string);
   }
 }
 

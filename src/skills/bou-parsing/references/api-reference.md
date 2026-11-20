@@ -38,7 +38,7 @@ Config keys:
 | `cache`            | `ParserCachingOptions`                          | global/schema/instance | `{ enabled, ttl, ...your options }`; `ttl` is forwarded to the backend as `context.cache.ttl`, never applied by the library |
 | `looseCasting`     | `boolean`                                       | global/schema/instance | `true`: log and drop failed casts (`'undefined'` is a deprecated alias)                                                     |
 | `onCastError`      | `(error, ctx) => void`                          | global/schema/instance | Observe `ParserCastError`                                                                                                   |
-| `before` / `after` | `(ctx) => ctx`                                  | global/schema/instance | Lifecycle hooks                                                                                                             |
+| `before` / `after` | `(ctx, inherited?) => ctx`                      | global/schema/instance | Lifecycle hooks; declaring `inherited` means the hook calls the earlier hooks itself (`await inherited(ctx)`)               |
 | `pipeUndefined`    | boolean                                         | any                    | Run pipes on `undefined` values                                                                                             |
 
 ### `createParser(projection, options?)`
@@ -59,8 +59,10 @@ Properties and methods on the returned parser:
 | `.as<T>(data, ctx?)`    | call   | The same parse with the output type asserted as `T`       |
 | `.projection`           | object | The projection definition                                 |
 
-`.extend`/`.withContext` deep-merge context **except `before`/`after` hooks, which compose**:
-base hook first, then the extension's (identical references dedupe). `.extend` throws on a
+`.extend`/`.withContext` deep-merge context **except `before`/`after` hooks, which compose**
+into one chain per level: global → base → each `.extend` → `.withContext` → per call (identical
+references dedupe). A hook declaring `(context, inherited)` runs the earlier part of the chain
+itself, or skips it by not calling `inherited`. `.extend` throws on a
 parser built from a function projection.
 
 Passing a full parser context as the **second** argument throws — forward it as the third.
@@ -102,8 +104,9 @@ From `initializeParser().types`, or individually from `@bou-co/parsing/types`.
 `oneOf(...values)` · `pattern(regex | source, flags?)` (named groups → group map)
 
 - `types.array.of(token)` — per-item casting; nests. `types.json.of(token)` decodes then casts
-- Universal chain: `.default(v)` (non-optional field) · `.required` (missing = failure, non-optional) · `.strict` · `.loose` · `.extend(fn)` (same family) · `.to(fn)` / `.to(token)` (new output / composition) · `.cast(value)`; read-only `name`, `id`, `defaultValue`, `isRequired`, `policy`; or call the token: `types.x({ default, required, strict, loose })`. `.of()` on `array`/`record` keeps a default/required set before it
-- Accessors per family — see `basics.md`; string-valued derivations are `StringType`s. `required`/`strict`/`loose` carry through accessors and `.to()`; a `default` does not
+- Universal chain: `.default(v)` (non-optional field) · `.required` (missing = failure, non-optional) · `.strict` · `.loose` · `.extend(fn)` (same family) · `.to(fn)` / `.to(token)` (new output / composition) · `.cast(value)`; read-only `name`, `id`, `defaultValue`, `isRequired`, `policy`; or call the token: `types.x({ default, required, strict, loose })`. `.of()` on `array`/`record` keeps a default/required set before it. `defaultValue` is the token's own (last-set) default only
+- Accessors per family — see `basics.md`; string-valued derivations are `StringType`s. `required`/`strict`/`loose` carry through accessors and `.to()`; a `default` set earlier runs through the later steps, the last-set one is used as written; the field is non-optional wherever `default`/`required` sits
+- Class helpers (protected): `this.transform(key, fn, params?)` → same family; `this.derive(key, fn, params?, to?)` → new output, composed onto the family token `to` when given, typed `Carry<this, …>`
 - Classes: `TypeToken`, `StringType`, `NumberType`, `BooleanType`, `DateType`, `ObjectType`, `ArrayType`, `AnyType`, `UnknownType`, `TextType`, `EmailType`, `UrlType`, `SlugType`, `ColorType`, `TelType`, `MimeTypeType`, `JsonType`, `OneOfType`, `PatternType`
 - Subsets: `types/format` (`formatDate(format = 'mediumDate', tz?, locale?)` — Angular `DatePipe` presets/tokens on `Intl`, `currency(code?, locale?, options?)`, `percent(digits?, locale?)`, `time`, `duration`, `money`, `formatDateValue`, spread object `formatTypes`), `types/data` (`record`, `schema`, `coords`, `locale`, spread object `dataTypes`), `types/content` (`html(adapter, options?)`, `markdown(parser, sanitiser, { parser?, sanitiser? }?)`, `sanitizeHtmlAdapter`, `ultrahtmlAdapter`, `markedAdapter`, `toPlainText`, `DEFAULT_DROP_ELEMENTS`, `createLoader`, `SanitiserAdapter`/`MarkdownAdapter`), `types/all` (`allTypes` = format + data); subset classes `DurationType`, `MoneyType`, `TimeType`, `CoordsType`, `LocaleType`, `RecordType`, `HtmlType`, `MarkdownType`. Accepted inputs per subset type: `basics.md`
 - No `types.undefined` — accessing it throws. Tokens are callable with an options object only; types are never call parameters (`.of()`)
@@ -201,16 +204,18 @@ Escape a whole match with a preceding backslash.
 
 ## Types
 
-| Type                                                                                      | Purpose                                                   |
-| ----------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `ParserReturnValue<typeof parser>`                                                        | Extract output type                                       |
-| `ParserContext`                                                                           | The context object                                        |
-| `ParserFunction<T>`                                                                       | A parser's callable shape                                 |
-| `ParserProjection`                                                                        | Projection constraint                                     |
-| `ParserCachingOptions`                                                                    | Augment via module declaration for your backend's options |
-| `CommonContext`, `GlobalContext`, `CreateContext`, `InstanceContext`, `FunctionalContext` | Augment via module declaration to type custom context     |
-| `ParserProjectionValue`                                                                   | Legal projection values (incl. `Promise<unknown>`)        |
-| `GetValueFunction<T>`, `GetValue<T>`, `GetOutput<T>`, `GetDefaulted<T>`                   | Return/output types behind `get`/`value`/`variable` casts |
+| Type                                                                                      | Purpose                                                                                                |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `ParserReturnValue<typeof parser>`                                                        | Extract output type                                                                                    |
+| `ParserContext`                                                                           | The context object                                                                                     |
+| `ParserFunction<T>`                                                                       | A parser's callable shape                                                                              |
+| `ParserProjection`                                                                        | Projection constraint                                                                                  |
+| `ParserCachingOptions`                                                                    | Augment via module declaration for your backend's options                                              |
+| `CommonContext`, `GlobalContext`, `CreateContext`, `InstanceContext`, `FunctionalContext` | Augment via module declaration to type custom context                                                  |
+| `ParserProjectionValue`                                                                   | Legal projection values (incl. `Promise<unknown>`)                                                     |
+| `GetValueFunction<T>`, `GetValue<T>`, `GetOutput<T>`, `GetDefaulted<T>`                   | Return/output types behind `get`/`value`/`variable` casts                                              |
+| `Carry<This, T>`                                                                          | `T`, non-optional when `This` has a default or is required — the return type of custom class accessors |
+| `ParserContextHook`, `ParserInheritedHook`                                                | `(context, inherited) => context` and the `inherited` function it receives                             |
 
 ## React
 

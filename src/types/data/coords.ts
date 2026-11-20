@@ -1,5 +1,5 @@
 import type { ParserContext } from '../../parser-types';
-import { CastResult, TypeToken, defineType } from '../../type-token';
+import { Carry, CastResult, TypeToken, defineType } from '../../type-token';
 import { invalid } from '../internal';
 
 export interface Coords {
@@ -33,11 +33,11 @@ export class CoordsType extends TypeToken<Coords> {
     return { lat, lng };
   }
 
-  get lat(): TypeToken<number> {
+  get lat(): Carry<this, TypeToken<number>> {
     return this.derive('lat', (value) => value.lat);
   }
 
-  get lng(): TypeToken<number> {
+  get lng(): Carry<this, TypeToken<number>> {
     return this.derive('lng', (value) => value.lng);
   }
 }

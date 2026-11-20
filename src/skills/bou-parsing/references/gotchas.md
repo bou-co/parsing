@@ -122,18 +122,30 @@ included. `''` does **not** throw: it is missing for every type (key omitted, or
 fills; `.required` to fail). `0` is a valid epoch number and casts to `new Date(0)`. Code that
 relied on getting an Invalid Date back needs a custom type.
 
-### `default` is not cast
+### `default` is not cast by its own token
 
-The default is returned as-is; TypeScript enforces that it matches the output type, but no
-runtime casting happens. `types.number({ default: '0' as any })` will hand you a string.
+A token returns its own default as-is; TypeScript enforces that it matches the output type,
+but that token does no runtime casting. `types.number({ default: '0' as any })` will hand you
+a string. Later steps in the chain do run on it — see the next entry.
 
-### A `default` set before an accessor is dropped — the type doesn't notice
+### The position of `default` decides whether later steps run on it
 
-`types.string.default('x').upperCase` has no default: every accessor, `.extend` and `.to`
-derives a token without it, so missing input yields no key — while the field is still typed
-non-optional, because transforms return the same type. Put `.default()` last
-(`types.string.upperCase.default('X')`). `required` / `strict` / `loose` do carry through
-derivations, and `.of()` on `array` / `record` keeps a default set before it.
+The last-set default is used as written; a default set earlier runs through every later
+accessor, `.extend` and `.to`. `types.string.default('draft').upperCase` → `'DRAFT'`,
+`types.string.upperCase.default('draft')` → `'draft'`. A later step that throws on the default
+is a normal cast failure (`types.string.default('x').to(types.number)` throws on missing input;
+dropped under `.loose` / `looseCasting`), one that returns `undefined` for it omits the key.
+`token.defaultValue` shows only the token's own default, so it is `undefined` on
+`types.string.default('x').upperCase` even though the default still applies. The field is
+typed non-optional in both positions.
+
+### A `.required` / `.default` before a custom accessor is not in the type
+
+Built-in accessors, `.to` and `.extend` carry the non-optional marker. Accessors added through
+`defineType({ accessors, methods })` or an accessor-map registration (`date: { relative }`)
+cannot: `types.date.required.relative` fails on missing input at runtime but is typed optional.
+Put the marker after the accessor (`types.date.relative.required`). In a class, type the getter
+`Carry<this, …>` to get the carried typing.
 
 ### `default` does not rescue hard failures
 
@@ -234,7 +246,16 @@ after: (ctx) => ({ ...ctx, data: { ...ctx.data, stamped: true } }); // ✅ → {
 ```
 
 Worse than a no-op if your output happens to contain a key named `data`: the raw-data return
-would then set the whole result to `data.data`. Always spread the context.
+would then set the whole result to `data.data`. Always spread the context. The ignored hook
+does not break the chain: later `after` hooks still receive the previous context.
+
+### A hook takes control of the order by declaring a second parameter
+
+`before: (context, inherited) => …` no longer runs after the earlier hooks — it must call
+`inherited(context)` itself, and they are skipped if it never does. Detection is the declared
+parameter count, so an unused `_inherited` parameter silently drops the global and base hooks,
+while `(context, inherited = x)` or `(...args)` is treated as a plain hook and never receives
+control. Declare the parameter only when you call it.
 
 ### An unconditional `after` hook defeats empty-result omission
 
@@ -409,7 +430,7 @@ so `.plain.truncate(160)` works; a user `.to()` returning a string is not, unles
 
 A name declared by two families is only reachable qualified: `length` (`string`/`array`),
 `normalized` and `href` (`email`/`tel`), `of` (`array`/`json`). `{{ x | length }}` is
-"Pipe not found" — use `string.length` / `array.length`. Collisions between shipped families
+"Pipe not found" — use `string.length` / `array.length` (the error lists them). Collisions between shipped families
 are silent by design; a type of your own colliding with another accessor name logs a warning
 once.
 
@@ -419,6 +440,14 @@ once.
 ("Pipe not found") once it is registered — write `date.iso` / `duration.iso`. `dataTypes` adds
 `record.of` to the existing `array.of` / `json.of` collision. No warning is logged: both sides
 ship with the library.
+
+### An opt-in type used as a pipe is "Pipe not found" until registered
+
+`formatDate`, `currency`, `percent`, `time`, `duration`, `money` (`formatTypes`), `record`,
+`coords`, `locale` (`dataTypes`) and `html` / `markdown` are not in the default namespace.
+`{{ d | formatDate:"yyyy" }}` throws `Pipe "formatDate" not found … register it with
+initializeParser({ types: { ...formatTypes } }) from '@bou-co/parsing/types/format'`. Date parts
+and ISO output (`date.year`, `date.iso`) need no registration.
 
 ### `record.of` drops missing values, `array.of` keeps the slot
 

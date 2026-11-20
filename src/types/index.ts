@@ -4,6 +4,7 @@ export type {
   CastFunction,
   ParserTypeDefaulted,
   ParserTypeRequired,
+  Carry,
   TypeTokenOptions,
   TypeTokenPolicy,
   DefineExtendedType,

@@ -1,5 +1,5 @@
 import type { ParserContext } from '../parser-types';
-import { TypeToken, defineType } from '../type-token';
+import { Carry, TypeToken, defineType } from '../type-token';
 import type { ArrayType } from './array';
 import { array } from './array';
 import { countCharacters, countWords } from './internal';
@@ -28,30 +28,30 @@ export class TextType extends StringType {
   }
 
   /** Number of characters as Unicode code points */
-  get characterCount(): TypeToken<number> {
+  get characterCount(): Carry<this, TypeToken<number>> {
     return this.derive('characterCount', (value) => countCharacters(value));
   }
 
   /** Number of words (`Intl.Segmenter` when available, so scripts without spaces count too) */
-  get wordCount(): TypeToken<number> {
+  get wordCount(): Carry<this, TypeToken<number>> {
     return this.derive('wordCount', (value) => countWords(value));
   }
 
-  get lineCount(): TypeToken<number> {
+  get lineCount(): Carry<this, TypeToken<number>> {
     return this.derive('lineCount', (value) => value.split('\n').length);
   }
 
-  get lines(): ArrayType<string> {
-    return this.derive('lines', (value) => value.split('\n')).to(array) as ArrayType<string>;
+  get lines(): Carry<this, ArrayType<string>> {
+    return this.derive('lines', (value) => value.split('\n'), [], array) as never;
   }
 
   /** Blank-line separated blocks; single line breaks inside a paragraph become spaces */
-  get paragraphs(): ArrayType<string> {
-    return this.derive('paragraphs', (value) => value.split(/\n{2,}/).map((paragraph) => paragraph.replace(/\n/g, ' '))).to(array) as ArrayType<string>;
+  get paragraphs(): Carry<this, ArrayType<string>> {
+    return this.derive('paragraphs', (value) => value.split(/\n{2,}/).map((paragraph) => paragraph.replace(/\n/g, ' ')), [], array) as never;
   }
 
   /** Estimated reading time in whole minutes (at least 1) */
-  readingTime(wordsPerMinute = 200): TypeToken<number> {
+  readingTime(wordsPerMinute = 200): Carry<this, TypeToken<number>> {
     return this.derive('readingTime', (value) => Math.max(1, Math.ceil(countWords(value) / wordsPerMinute)), [wordsPerMinute]);
   }
 }

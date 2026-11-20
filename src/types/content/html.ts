@@ -1,4 +1,5 @@
 import type { ParserContext } from '../../parser-types';
+import type { Carry } from '../../type-token';
 import { string, StringType } from '../string';
 import { toPlainText, type SanitiserAdapter } from './adapters';
 
@@ -23,8 +24,8 @@ export class HtmlType<Options = unknown> extends StringType {
   }
 
   /** The sanitised content as plain text */
-  get plain(): StringType {
-    return this.derive('plain', (value) => toPlainText(value)).to(string);
+  get plain(): Carry<this, StringType> {
+    return this.derive('plain', (value) => toPlainText(value), [], string);
   }
 }
 

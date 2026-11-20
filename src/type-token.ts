@@ -18,6 +18,9 @@ export interface ParserTypeDefaulted {
 
 export type ParserTypeRequired = ParserTypeDefaulted;
 
+/** `T`, non-optional when the token it was derived from has a default or is required */
+export type Carry<This, T> = This extends ParserTypeDefaulted ? T & ParserTypeDefaulted : T;
+
 /** Options accepted when calling a token: `types.string({ default: 'x', required: true })` */
 export interface TypeTokenOptions<Out = any> {
   /** Value used whenever the cast pipeline yields `undefined` — makes the field non-optional */
@@ -49,6 +52,8 @@ interface DerivedInfo {
   key: string;
   params: unknown[];
   source: string;
+  /** This step alone, run on the parent's default so a default set earlier in the chain flows through */
+  apply: CastFunction<any, any>;
 }
 
 export interface TypeTokenState {
@@ -215,9 +220,9 @@ export class TypeToken<Out = any> {
   }
 
   /** Derive a new output from a function, or compose another token whose family the result keeps (`json.to(types.array.of(types.number))`) */
-  to<T extends TypeToken>(next: T): T;
-  to<R>(fn: CastFunction<Out, R>): TypeToken<Awaited<R>>;
-  to(next: TypeToken | CastFunction<Out, unknown>): TypeToken {
+  to<T extends TypeToken>(next: T): Carry<this, T>;
+  to<R>(fn: CastFunction<Out, R>): Carry<this, TypeToken<Awaited<R>>>;
+  to(next: TypeToken | CastFunction<Out, unknown>): any {
     if (isTypeToken(next)) return this.memo(`to:${next.id}`, () => composeTokens(this, next));
     return deriveValue(this, 'to', next, []);
   }
@@ -236,9 +241,10 @@ export class TypeToken<Out = any> {
     return this.memo(memoKey(key, params), () => deriveTransform(this, key, fn, params)) as this;
   }
 
-  /** New-output accessor helper, memoised per member + params */
-  protected derive<R>(key: string, fn: CastFunction<Out, R>, params: unknown[] = []): TypeToken<Awaited<R>> {
-    return this.memo(memoKey(key, params), () => deriveValue(this, key, fn, params)) as TypeToken<Awaited<R>>;
+  /** New-output accessor helper, memoised per member + params; `to` composes the result onto a family (`string`) so it keeps chaining */
+  protected derive<R, T extends TypeToken = TypeToken<Awaited<R>>>(key: string, fn: CastFunction<Out, R>, params: unknown[] = [], to?: T): Carry<this, T> {
+    const token = this.memo(memoKey(key, params), () => deriveValue(this, key, fn, params));
+    return (to ? token.to(to) : token) as never;
   }
 
   protected clone(patch: Partial<TypeTokenState>): this {
@@ -294,9 +300,17 @@ const computeId = (token: TypeToken): string => {
 
 type TokenClass = typeof TypeToken;
 
-const createDerived = (proto: object, parent: TypeToken, key: string, params: unknown[], source: string, patch: Partial<TypeTokenState> = {}): TypeToken => {
+const createDerived = (
+  proto: object,
+  parent: TypeToken,
+  key: string,
+  params: unknown[],
+  apply: CastFunction<any, any>,
+  patch: Partial<TypeTokenState> = {},
+  source = String(apply),
+): TypeToken => {
   const token = createCarrier<TypeToken>(proto);
-  const derived: DerivedInfo = { parent, key, params, source };
+  const derived: DerivedInfo = { parent, key, params, source, apply };
   defineHidden(token, '_state', {
     ...parent._state,
     id: undefined,
@@ -317,7 +331,7 @@ const deriveTransform = (parent: TypeToken, key: string, fn: CastFunction<any, a
       return fn(base, context ?? ROOT_CONTEXT);
     }
   };
-  return createDerived(Derived.prototype, parent, key, params, String(fn));
+  return createDerived(Derived.prototype, parent, key, params, fn);
 };
 
 // New output: a base token whose cast runs the parent's cast first
@@ -327,7 +341,7 @@ const deriveValue = (parent: TypeToken, key: string, fn: CastFunction<any, any>,
     if (base === undefined) return undefined;
     return fn(base, context);
   };
-  return createDerived(TypeToken.prototype, parent, key, params, String(fn), { type: 'custom', fn: cast, item: undefined });
+  return createDerived(TypeToken.prototype, parent, key, params, fn, { type: 'custom', fn: cast, item: undefined });
 };
 
 // Composition: the target's family with the parent's cast as a pre-step
@@ -347,7 +361,7 @@ const composeTokens = (parent: TypeToken, target: TypeToken): TypeToken => {
     name: target.id === target._state.base ? parent.name : `${parent.name}.to(${target.name})`,
     required: parent._state.required ?? target._state.required,
     policy: parent._state.policy ?? target._state.policy,
-    derived: { parent, key: 'to', params: [], source: target.id },
+    derived: { parent, key: 'to', params: [], source: target.id, apply: (value, context) => target.cast(value, context) },
   } satisfies TypeTokenState);
   return token;
 };
@@ -454,7 +468,7 @@ export function defineType(
       : class extends Base {};
     installMembers(Derived.prototype, accessors, methods);
     const key = `define(${name ?? parent.name})`;
-    token = createDerived(Derived.prototype, parent, key, [], fn ? String(fn) : '', { name: name ?? parent.name });
+    token = createDerived(Derived.prototype, parent, key, [], fn ?? ((value) => value), { name: name ?? parent.name }, fn ? String(fn) : '');
   } else {
     if (typeof fn !== 'function') throw new Error('[@bou-co/parsing] defineType: a casting function `fn` is required');
     if (accessors || methods) {
@@ -504,33 +518,53 @@ export interface ApplyCastOptions {
   fallback?: boolean;
 }
 
-// Two flows only: throw, or drop the value so the token default fills it
-const handleFailure = (error: unknown, value: unknown, token: TypeToken, context: ParserContext, options?: ApplyCastOptions) => {
+// Two flows only: throw, or return so the caller drops the value and the default fills it
+const handleFailure = (error: unknown, value: unknown, token: TypeToken, context: ParserContext, options?: ApplyCastOptions): void => {
   const castError = new ParserCastError(error, value, token, context);
   context.onCastError?.(castError, context);
-  const { policy, default: fallbackValue } = token._state;
+  const { policy } = token._state;
   if (policy === 'strict') throw castError;
-  if (policy === 'loose' || options?.fallback) return fallbackValue;
+  if (policy === 'loose' || options?.fallback) return;
   const loose = context.looseCasting;
   // TODO(v4): drop the 'undefined' alias — it is the same flow as `true`
   if (loose === true || loose === 'undefined') {
     if (!context.onCastError) console.warn(`[@bou-co/parsing] Cast to "${token.name}" failed at "${buildKeyPath(context)}" — value dropped`, value);
-    return fallbackValue;
+    return;
   }
   throw castError;
 };
 
+// A token's own default is used as written; a default set earlier in the chain runs through the later steps
+const resolveDefault = async (token: TypeToken, context: ParserContext): Promise<unknown> => {
+  const { default: own, derived } = token._state;
+  if (own !== undefined || !derived) return own;
+  const inherited = await resolveDefault(derived.parent, context);
+  return inherited === undefined ? undefined : derived.apply(inherited, context);
+};
+
 export const applyCast = async (value: unknown, token: TypeToken, context: ParserContext = ROOT_CONTEXT, options?: ApplyCastOptions): Promise<unknown> => {
-  const { default: defaultValue, required } = token._state;
-  const missing = (received: unknown) => (required ? handleFailure(new Error('Missing required value'), received, token, context, options) : defaultValue);
+  const fallback = async (received: unknown) => {
+    try {
+      return await resolveDefault(token, context);
+    } catch (error) {
+      handleFailure(error, received, token, context, options);
+      return undefined;
+    }
+  };
+  const missing = (received: unknown) => {
+    if (token._state.required) handleFailure(new Error('Missing required value'), received, token, context, options);
+    return fallback(received);
+  };
   // Missing values skip casting so fields stay optional
   if (isMissing(value)) return missing(value);
+  let result: unknown;
   try {
-    const result = await token.cast(value, context);
-    return result === undefined ? missing(value) : result;
+    result = await token.cast(value, context);
   } catch (error) {
-    return handleFailure(error, value, token, context, options);
+    handleFailure(error, value, token, context, options);
+    return fallback(value);
   }
+  return result === undefined ? missing(value) : result;
 };
 
 // TODO(v4): remove the v2 definition shapes

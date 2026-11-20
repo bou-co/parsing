@@ -1,5 +1,5 @@
 import type { ParserContext } from '../parser-types';
-import { CastResult, TypeToken, defineType } from '../type-token';
+import { Carry, CastResult, TypeToken, defineType } from '../type-token';
 import type { ArrayType } from './array';
 import { array } from './array';
 import { capitalizeWord, invalid, splitWords } from './internal';
@@ -83,13 +83,13 @@ export class StringType extends TypeToken<string> {
     return this.transform('replace', (value) => value.replace(search, replacement), [search, replacement]);
   }
 
-  override get length(): TypeToken<number> {
+  override get length(): Carry<this, TypeToken<number>> {
     return this.derive('length', (value) => value.length);
   }
 
-  split(separator: string | RegExp): ArrayType<string> {
+  split(separator: string | RegExp): Carry<this, ArrayType<string>> {
     // Bare `array`: an item-cast would report empty segments ('a,,b') as missing
-    return this.derive('split', (value) => value.split(separator), [separator]).to(array) as ArrayType<string>;
+    return this.derive('split', (value) => value.split(separator), [separator], array) as never;
   }
 }
 

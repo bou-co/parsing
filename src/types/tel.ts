@@ -1,5 +1,5 @@
 import type { ParserContext } from '../parser-types';
-import { defineType } from '../type-token';
+import { Carry, defineType } from '../type-token';
 import { invalid } from './internal';
 import { string, StringType } from './string';
 
@@ -48,16 +48,21 @@ export class TelType extends StringType {
   }
 
   /** RFC 3966 `tel:` link target, extension as `;ext=` */
-  get href(): StringType {
-    return this.derive('href', (value) => {
-      const { plus, digits, extension } = parseTel(value);
-      return `tel:${plus}${digits}${extension ? `;ext=${extension}` : ''}`;
-    }).to(string);
+  get href(): Carry<this, StringType> {
+    return this.derive(
+      'href',
+      (value) => {
+        const { plus, digits, extension } = parseTel(value);
+        return `tel:${plus}${digits}${extension ? `;ext=${extension}` : ''}`;
+      },
+      [],
+      string,
+    );
   }
 
   /** The extension digits, missing when the number has none */
-  get extension(): StringType {
-    return this.derive('extension', (value) => parseTel(value).extension).to(string);
+  get extension(): Carry<this, StringType> {
+    return this.derive('extension', (value) => parseTel(value).extension, [], string);
   }
 }
 

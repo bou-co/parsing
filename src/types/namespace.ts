@@ -56,7 +56,8 @@ export type RegisteredTypes<Base, T> = Omit<Base, keyof T> & {
   readonly [K in keyof T]: T[K] extends TypeToken | ParserTypeFactory
     ? T[K]
     : K extends keyof Base
-      ? Base[K] & { readonly [P in keyof AccessorResults<T[K]>]: TypeToken<AccessorResults<T[K]>[P]> }
+      ? // A name the family already declares keeps the family's typing, intersecting the two would recurse through `this`
+        Base[K] & { readonly [P in keyof AccessorResults<T[K]> as P extends keyof Base[K] ? never : P]: TypeToken<AccessorResults<T[K]>[P]> }
       : never;
 };
 
@@ -124,6 +125,29 @@ interface RootEntry {
   proto: object;
 }
 
+interface RootIndex {
+  roots: Map<string, RootEntry>;
+  /** Accessor names declared by several families, with their qualified forms */
+  shared: Map<string, string[]>;
+}
+
+const PIPES_README = 'see https://github.com/bou-co/parsing#types-as-pipes';
+
+// Names only, the subsets themselves are never imported here
+const OPT_IN_TYPES: Record<string, string> = {
+  formatDate: 'format',
+  currency: 'format',
+  percent: 'format',
+  time: 'format',
+  duration: 'format',
+  money: 'format',
+  record: 'data',
+  coords: 'data',
+  locale: 'data',
+  html: 'content',
+  markdown: 'content',
+};
+
 // Universal members reachable from a pipe chain (`email.loose`, `email.default:"x"`); the rest are implementation
 const WALKABLE_UNIVERSAL = new Set(['strict', 'loose', 'default', 'required']);
 const NON_WALKABLE = new Set([...UNIVERSAL_MEMBERS].filter((member) => !WALKABLE_UNIVERSAL.has(member)));
@@ -163,8 +187,9 @@ const protoDepth = (token: TypeToken): number => {
 
 // Accessor name → owning base token, built from prototype descriptors without invoking any getter.
 // A name declared by two different families gets no root form (qualified names still work).
-const buildRootIndex = (namespace: ParserTypesNamespace): Map<string, RootEntry> => {
+const buildRootIndex = (namespace: ParserTypesNamespace): RootIndex => {
   const index = new Map<string, RootEntry>();
+  const shared = new Map<string, string[]>();
   // Registered name of the first owner per member, and every colliding owner — for the warning's remedy
   const owners = new Map<string, string>();
   const collisions = new Map<string, { registered: boolean; keys: string[] }>();
@@ -192,16 +217,20 @@ const buildRootIndex = (namespace: ParserTypesNamespace): Map<string, RootEntry>
   }
   for (const [member, { registered, keys }] of collisions) {
     index.delete(member);
+    shared.set(
+      member,
+      keys.map((key) => `"${key}.${member}"`),
+    );
     if (registered)
       console.warn(
-        `[@bou-co/parsing] Accessor "${member}" is declared by more than one type — use a qualified pipe name (${keys.map((key) => `"${key}.${member}"`).join(' or ')})`,
+        `[@bou-co/parsing] Accessor "${member}" is declared by more than one type — use a qualified pipe name (${(shared.get(member) as string[]).join(' or ')})`,
       );
   }
-  return index;
+  return { roots: index, shared };
 };
 
-const rootIndexCache = new WeakMap<ParserTypesNamespace, Map<string, RootEntry>>();
-const getRootIndex = (namespace: ParserTypesNamespace): Map<string, RootEntry> => {
+const rootIndexCache = new WeakMap<ParserTypesNamespace, RootIndex>();
+const getRootIndex = (namespace: ParserTypesNamespace): RootIndex => {
   let index = rootIndexCache.get(namespace);
   if (!index) rootIndexCache.set(namespace, (index = buildRootIndex(namespace)));
   return index;
@@ -220,7 +249,7 @@ export const resolveTypePipe = (name: string, params: unknown[], namespace: Pars
     return (entry as ParserTypeFactory)(...params);
   }
   if (entry === undefined || tokenFactory) {
-    const root = getRootIndex(namespace).get(head);
+    const root = getRootIndex(namespace).roots.get(head);
     if (!root) {
       if (tokenFactory) throw new Error(`[@bou-co/parsing] Type "${head}" takes type tokens as parameters and cannot be used as a pipe`);
       return undefined;
@@ -230,17 +259,33 @@ export const resolveTypePipe = (name: string, params: unknown[], namespace: Pars
   }
   let current: unknown = entry;
   members.forEach((member, index) => {
-    if (!isTypeToken(current)) throw new Error(`[@bou-co/parsing] Type pipe "${name}": "${member}" cannot be read from a non-type value`);
-    if (member.startsWith('_') || NON_WALKABLE.has(member)) throw new Error(`[@bou-co/parsing] Type pipe "${name}": "${member}" is not an accessor`);
+    if (!isTypeToken(current)) throw new Error(`[@bou-co/parsing] Type pipe "${name}": "${member}" cannot be read from a non-type value — ${PIPES_README}`);
+    if (member.startsWith('_') || NON_WALKABLE.has(member)) {
+      throw new Error(`[@bou-co/parsing] Type pipe "${name}": "${member}" is not an accessor — ${PIPES_README}`);
+    }
     const descriptor = findDescriptor(current, member);
-    if (!descriptor) throw new Error(`[@bou-co/parsing] Type pipe "${name}": "${current.name}" has no accessor "${member}"`);
+    if (!descriptor) throw new Error(`[@bou-co/parsing] Type pipe "${name}": "${current.name}" has no accessor "${member}" — ${PIPES_README}`);
     const last = index === members.length - 1;
     if (typeof descriptor.value === 'function') {
       current = (current as any)[member](...(last ? params : []));
     } else {
-      if (last && params.length) throw new Error(`[@bou-co/parsing] Type pipe "${name}": "${member}" takes no parameters`);
+      if (last && params.length) throw new Error(`[@bou-co/parsing] Type pipe "${name}": "${member}" takes no parameters — ${PIPES_README}`);
       current = (current as any)[member];
     }
   });
   return isTypeToken(current) ? current : undefined;
+};
+
+/** What to do about a pipe name that is neither a `pipes` function nor a type */
+export const describeUnknownPipe = (name: string, namespace: ParserTypesNamespace | undefined): string => {
+  const [head] = name.split('.');
+  const subset = OPT_IN_TYPES[head];
+  if (subset === 'content')
+    return `"${head}" is an opt-in type: register it under \`types\` from '@bou-co/parsing/types/content' (needs an adapter) — ${PIPES_README}`;
+  if (subset) {
+    return `"${head}" is an opt-in type: register it with initializeParser({ types: { ...${subset}Types } }) from '@bou-co/parsing/types/${subset}' — ${PIPES_README}`;
+  }
+  const shared = namespace && getRootIndex(namespace).shared.get(head);
+  if (shared) return `"${head}" is declared by several types: use ${shared.join(' or ')} — ${PIPES_README}`;
+  return `pipes are functions under \`pipes\` or type names such as "string.upperCase" / "number.round:2" — ${PIPES_README}`;
 };

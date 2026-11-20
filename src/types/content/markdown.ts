@@ -1,4 +1,5 @@
 import type { ParserContext } from '../../parser-types';
+import type { Carry } from '../../type-token';
 import { string, StringType } from '../string';
 import { toPlainText, type MarkdownAdapter, type SanitiserAdapter } from './adapters';
 
@@ -24,8 +25,8 @@ export class MarkdownType<ParserOptions = unknown, SanitiseOptions = unknown> ex
     return this._state.options as never;
   }
 
-  get plain(): StringType {
-    return this.derive('plain', (value) => toPlainText(value)).to(string);
+  get plain(): Carry<this, StringType> {
+    return this.derive('plain', (value) => toPlainText(value), [], string);
   }
 }
 

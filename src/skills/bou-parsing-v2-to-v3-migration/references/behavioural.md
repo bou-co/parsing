@@ -210,13 +210,16 @@ those numbers, expect a step change that isn't a traffic change.
 extension's `before`/`after` overwrote the base parser's hook (last write wins, via the plain
 context merge). In v3 they chain: the base hook runs first, then the extension's, which receives
 the context the base hook returned. Identical function references are deduped, and all other
-context keys keep the old merge semantics — only hooks compose.
+context keys keep the old merge semantics — only hooks compose. Together with the global and
+per-call hooks they form one chain per level (global → base → `.extend` → `.withContext` → per
+call), and a hook that declares a second parameter, `(context, inherited)`, takes over the
+earlier part of the chain: it calls `inherited(context)` when it wants, or not at all.
 
 → **Audit:** find `.withContext(...)` / `.extend(...)` calls that pass `before` or `after` on a
 parser whose `createParser` context also has one. In v2 that silenced the base hook; in v3 both
-run, in base-then-extension order. If replacement was the intent, restructure: put the base
-behavior behind a context flag the extension can switch off, or create the variant with a
-separate `createParser` instead of extending.
+run, in base-then-extension order. If replacement was the intent, declare the second parameter
+and don't call it — `before: (context, _inherited) => …` skips every earlier hook, global ones
+included; call `inherited` conditionally if only part of the chain should go.
 
 **Schema-level `cache` options no longer flow into nested parsers.** Each parser brings its own
 `createParser` cache config. Per-call cache still propagates.

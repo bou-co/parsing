@@ -88,8 +88,9 @@ set. An accessor fails at the base cast — never a partial. Universal on every 
 `.default(v) .required .strict .loose .extend(fn) .to(fn | token) .cast(value)`, the read-only
 `name id defaultValue isRequired policy`, and the options object `({ default, required, strict, loose })`.
 `required` / `strict` / `loose` survive every accessor, `.extend` and `.to` (so
-`types.email.required.domain` still fails on a missing value); a `default` does not — see
-[Default values](#default-values).
+`types.email.required.domain` still fails on a missing value); a `default` set earlier flows
+through the later steps — see [Default values](#default-values). `defaultValue` reports only
+the token's own (last-set) default.
 
 There is **no `types.undefined`** — accessing it throws a migration error. Use the
 `optional` util or just omit the key.
@@ -171,24 +172,42 @@ createParser({
   displayName: types.text.default('Item'), // → string; '' and '  ' also become 'Item'
   retries: types.number.default(0), // → number
   tags: types.array.of(types.string).default([]), // → string[]
-  year: types.date.year.default(1970), // → number — the default goes at the END of a chain
+  year: types.date.year.default(1970), // → number; a default at the END is used as written
+  slug: types.string.default('Untitled').kebab, // → 'untitled'; an EARLIER default runs through the later steps
 });
 ```
 
 The default applies whenever the field would end up `undefined` — missing input (`''`
 included), a cast that reports "missing" (`text` on whitespace), or a failed cast under
-`looseCasting: true` / `.loose`. It
-is returned **as-is and not cast** (TypeScript already enforces it matches). It never masks
+`looseCasting: true` / `.loose`. A token's
+own default is returned **as-is and not cast** by that token (TypeScript already enforces it
+matches). It never masks
 hard failures: under the default policy a present-but-invalid value still throws, and
 `.strict` types always do.
 
 Its most important side effect is on the type: a defaulted field is non-optional in the
 inferred output, which removes a whole class of `?.` from consuming code.
 
-Keep the default **last**. An accessor, `.extend` or `.to` after `.default(v)` creates a token
-without it: `types.string.default('x').upperCase` yields nothing for missing input while the
-field is still typed non-optional (transforms return the same type). `.of()` on `array` /
-`record` is the exception and keeps a default set before it.
+**Position decides what happens to the default.** The last-set default is used as written. A
+default set earlier in the chain runs through every later step — accessor, `.extend`,
+`.to(fn)`, `.to(token)`, `defineType({ extends })` — and the field stays non-optional either
+way:
+
+| Chain                                              | Missing input gives        | Field type |
+| -------------------------------------------------- | -------------------------- | ---------- |
+| `types.string`                                     | key omitted                | `string?`  |
+| `types.string.default('draft')`                    | `'draft'`                  | `string`   |
+| `types.string.default('draft').upperCase`          | `'DRAFT'`                  | `string`   |
+| `types.string.upperCase.default('draft')`          | `'draft'`                  | `string`   |
+| `types.date.default(d).iso`                        | `d.toISOString()`          | `string`   |
+| `types.string.default('a').upperCase.default('b')` | `'b'` (the later one wins) | `string`   |
+| `types.email.required.domain`                      | cast failure               | `string`   |
+
+The flowed default also fills a failed cast under `looseCasting` / `.loose`. If a later step
+**throws** on the default it is a normal cast failure (thrown; dropped under a non-throwing
+policy); if it returns `undefined` for it (`types.array.default([]).first`) the key is omitted.
+Steps that only reconfigure the token (`.required`, `.strict`, `.loose`, `.of()` on `array` /
+`record`, `url.base()`) keep the default as written.
 
 ## Value functions
 
@@ -379,7 +398,9 @@ type Out = ParserReturnValue<typeof parser>;
 Rules:
 
 - Plain type tokens → optional
-- Tokens with `default` or `.required` → non-optional
+- Tokens with `default` or `.required` (or the options form) → non-optional, **wherever it sits
+  in the chain**: `types.email.required.domain`, `types.date.default(d).year`,
+  `types.string.required.to((v) => v.length)`, `types.array.required.of(types.number).first`
 - Constants → their literal type
 - Value functions → their return type (annotate the function if inference is too wide);
   `get(path, token)` / `value` / `variable(expr, token)` → the token's output
@@ -389,12 +410,21 @@ Rules:
 `typed<T>` forces a specific type where a token can't express it; it passes `data[key]`
 through **without casting**, so it's a type assertion, not a guarantee.
 
-Three things break inference honesty, all worth knowing: under `looseCasting: true` / `.loose`
-a `.required` field without a default is typed non-optional but dropped on failure; a default
-set before an accessor is lost while the type stays non-optional; and a transformer or pattern
-that reshapes a value under `typed<T>` or a value function (localize collapsing an object to a
-string) makes the inferred type inaccurate. A value that passed a type token always has the
-token's type.
+Where type and runtime can differ, all worth knowing:
+
+- Under `looseCasting: true` / `.loose` a `.required` field without a default is typed
+  non-optional but dropped when missing or invalid.
+- Accessors added through `defineType({ accessors, methods })` or an accessor-map registration
+  do not see a `.default` / `.required` placed **before** them in the type (runtime is right) —
+  put it after: `types.date.relative.required`. An accessor map that re-uses a name the family
+  already declares keeps the family's typing.
+- A `'{{ … }}'` literal is typed `string` whatever its pipes return (`'{{ n | number }}'` is a
+  number at runtime) — use `variable('n', types.number)` / `value('{{n}}', types.number)`.
+- A transformer or pattern that reshapes a value under `typed<T>` or a value function (localize
+  collapsing an object to a string) makes the inferred type inaccurate.
+
+A value that passed a type token always has the token's type. Elsewhere, assert: `resolve<T>(input)`
+/ `resolve<T>()`, `variables.x as T`, `typed<T>`.
 
 ## The three context levels
 

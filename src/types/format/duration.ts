@@ -1,5 +1,5 @@
 import type { ParserContext } from '../../parser-types';
-import { CastResult, TypeToken, defineType } from '../../type-token';
+import { Carry, CastResult, TypeToken, defineType } from '../../type-token';
 import { invalid } from '../internal';
 import { string, StringType } from '../string';
 
@@ -28,15 +28,20 @@ export class DurationType extends TypeToken<number> {
   }
 
   /** ISO 8601 (`PT1H30M`) */
-  get iso(): StringType {
-    return this.derive('iso', (seconds) => {
-      const days = Math.floor(seconds / 86400);
-      const hours = Math.floor((seconds % 86400) / 3600);
-      const minutes = Math.floor((seconds % 3600) / 60);
-      const rest = Math.round((seconds % 60) * 1000) / 1000;
-      const time = `${hours ? `${hours}H` : ''}${minutes ? `${minutes}M` : ''}${rest || (!days && !hours && !minutes) ? `${rest}S` : ''}`;
-      return `P${days ? `${days}D` : ''}${time ? `T${time}` : ''}`;
-    }).to(string);
+  get iso(): Carry<this, StringType> {
+    return this.derive(
+      'iso',
+      (seconds) => {
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const rest = Math.round((seconds % 60) * 1000) / 1000;
+        const time = `${hours ? `${hours}H` : ''}${minutes ? `${minutes}M` : ''}${rest || (!days && !hours && !minutes) ? `${rest}S` : ''}`;
+        return `P${days ? `${days}D` : ''}${time ? `T${time}` : ''}`;
+      },
+      [],
+      string,
+    );
   }
 }
 

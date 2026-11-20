@@ -1,4 +1,5 @@
 import { initializeParser } from '../parser';
+import type { ParserContext, ParserInheritedHook } from '../parser-types';
 
 declare module '../expandable-types' {
   export interface FunctionalContext {
@@ -478,5 +479,166 @@ describe('hook composition details', () => {
     expect(await withExtra({ any: true })).toEqual({ value: 'x', base: true, sawBase: true });
     expect(order).toEqual(['base', 'extra']);
     expect(await parser({ any: true })).toEqual({ value: 'x', base: true });
+  });
+});
+
+describe('hook order and the inherited hook', () => {
+  const tracked = (order: string[], name: string) => ({
+    before: (context: ParserContext) => {
+      order.push(`${name}-before`);
+      return context;
+    },
+    after: (context: ParserContext) => {
+      order.push(`${name}-after`);
+      return context;
+    },
+  });
+
+  it('runs one chain by default: global, base, extend, withContext, per call', async () => {
+    const order: string[] = [];
+    const { createParser, types } = initializeParser(tracked(order, 'global'));
+    const base = createParser({ a: types.string }, tracked(order, 'base'));
+    const parser = base.extend({ b: 'x' }, tracked(order, 'extend')).withContext(tracked(order, 'withContext'));
+    await parser({ a: '1' }, tracked(order, 'call'));
+    expect(order).toEqual([
+      'global-before',
+      'base-before',
+      'extend-before',
+      'withContext-before',
+      'call-before',
+      'global-after',
+      'base-after',
+      'extend-after',
+      'withContext-after',
+      'call-after',
+    ]);
+  });
+
+  it('lets an extending hook run code before and after the hooks it inherits', async () => {
+    const order: string[] = [];
+    const { createParser, types } = initializeParser(tracked(order, 'global'));
+    const base = createParser({ a: types.string }, tracked(order, 'base'));
+    const parser = base.extend(
+      { b: 'x' },
+      {
+        before: async (context, inherited) => {
+          order.push('extend-first');
+          context = await inherited(context);
+          order.push('extend-last');
+          return context;
+        },
+      },
+    );
+    await parser({ a: '1' });
+    expect(order).toEqual(['extend-first', 'global-before', 'base-before', 'extend-last', 'global-after', 'base-after']);
+  });
+
+  it('gives the extending hook the context changes of the inherited hooks only after calling them', async () => {
+    const { createParser } = initializeParser();
+    const base = createParser(
+      { value: ({ base }) => base },
+      {
+        before: (context) => {
+          context.base = (context.base ?? 0) + 10;
+          return context;
+        },
+      },
+    );
+    const parser = base.extend(
+      {},
+      {
+        before: async (context, inherited) => {
+          context.base = 1;
+          context = await inherited(context);
+          context.base *= 2;
+          return context;
+        },
+      },
+    );
+    expect(await parser({})).toEqual({ value: 22 });
+  });
+
+  it('lets a per-call hook run before the hooks of the parser', async () => {
+    const order: string[] = [];
+    const { createParser, types } = initializeParser();
+    const parser = createParser({ a: types.string }, tracked(order, 'schema'));
+    await parser(
+      { a: '1' },
+      {
+        before: async (context, inherited) => {
+          order.push('call-first');
+          return inherited(context);
+        },
+        after: async (context, inherited) => {
+          order.push('call-after-first');
+          return inherited(context);
+        },
+      },
+    );
+    expect(order).toEqual(['call-first', 'schema-before', 'call-after-first', 'schema-after']);
+  });
+
+  it('skips the earlier hooks when inherited is not called', async () => {
+    const order: string[] = [];
+    const { createParser, types } = initializeParser();
+    const base = createParser({ a: types.string }, tracked(order, 'base'));
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const parser = base.withContext({ before: (context, _inherited) => context });
+    await parser({ a: '1' });
+    expect(order).toEqual(['base-after']);
+  });
+
+  it('threads inherited through several controlling hooks', async () => {
+    const order: string[] = [];
+    const { createParser, types } = initializeParser();
+    const wrap = (name: string) => ({
+      before: async (context: ParserContext, inherited: ParserInheritedHook) => {
+        order.push(`${name}-in`);
+        context = await inherited(context);
+        order.push(`${name}-out`);
+        return context;
+      },
+    });
+    const parser = createParser({ a: types.string }, wrap('base')).extend({}, wrap('extend'));
+    await parser({ a: '1' }, wrap('call'));
+    expect(order).toEqual(['call-in', 'extend-in', 'base-in', 'base-out', 'extend-out', 'call-out']);
+  });
+
+  it('lets an after hook change the result before and after the inherited after hooks', async () => {
+    const { createParser, types } = initializeParser();
+    const base = createParser(
+      { a: types.string },
+      { after: (context) => ({ ...context, data: { ...context.data, steps: [...(context.data['steps'] ?? []), 'base'] } }) },
+    );
+    const parser = base.extend(
+      {},
+      {
+        after: async (context, inherited) => {
+          context = await inherited({ ...context, data: { ...context.data, steps: ['extend-first'] } });
+          return { ...context, data: { ...context.data, steps: [...context.data['steps'], 'extend-last'] } };
+        },
+      },
+    );
+    expect(await parser({ a: '1' })).toEqual({ a: '1', steps: ['extend-first', 'base', 'extend-last'] });
+  });
+
+  it('still ignores an after hook that returns no data, and keeps the chain going', async () => {
+    const { createParser, types } = initializeParser();
+    const base = createParser({ a: types.string }, { after: () => ({}) as ParserContext });
+    const parser = base.extend({}, { after: (context) => ({ ...context, data: { ...context.data, stamped: true } }) });
+    expect(await parser({ a: '1' })).toEqual({ a: '1', stamped: true });
+  });
+
+  it('runs the chain once per nested level', async () => {
+    const order: string[] = [];
+    const { createParser, types } = initializeParser({
+      before: async (context, inherited) => {
+        order.push(`global:${String(context.key ?? 'root')}`);
+        return inherited(context);
+      },
+    });
+    const child = createParser({ b: types.string }, tracked(order, 'child'));
+    await createParser({ child }, tracked(order, 'parent'))({ child: { b: '1' } });
+    expect(order).toEqual(['global:root', 'parent-before', 'global:child', 'child-before', 'child-after', 'parent-after']);
   });
 });

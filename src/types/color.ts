@@ -1,5 +1,5 @@
 import type { ParserContext } from '../parser-types';
-import type { TypeToken } from '../type-token';
+import type { Carry, TypeToken } from '../type-token';
 import { defineType } from '../type-token';
 import { invalid } from './internal';
 import { string, StringType } from './string';
@@ -97,27 +97,37 @@ export class ColorType extends StringType {
     return toHex(parseColor(text));
   }
 
-  get hex(): StringType {
-    return this.derive('hex', (value) => value).to(string);
+  get hex(): Carry<this, StringType> {
+    return this.derive('hex', (value) => value, [], string);
   }
 
-  get rgb(): StringType {
-    return this.derive('rgb', (value) => {
-      const { r, g, b, a } = parseColor(value);
-      return a < 1 ? `rgba(${r}, ${g}, ${b}, ${Math.round(a * 100) / 100})` : `rgb(${r}, ${g}, ${b})`;
-    }).to(string);
+  get rgb(): Carry<this, StringType> {
+    return this.derive(
+      'rgb',
+      (value) => {
+        const { r, g, b, a } = parseColor(value);
+        return a < 1 ? `rgba(${r}, ${g}, ${b}, ${Math.round(a * 100) / 100})` : `rgb(${r}, ${g}, ${b})`;
+      },
+      [],
+      string,
+    );
   }
 
-  get hsl(): StringType {
-    return this.derive('hsl', (value) => {
-      const parsed = parseColor(value);
-      const [h, s, l] = rgbToHsl(parsed);
-      return parsed.a < 1 ? `hsla(${h}, ${s}%, ${l}%, ${Math.round(parsed.a * 100) / 100})` : `hsl(${h}, ${s}%, ${l}%)`;
-    }).to(string);
+  get hsl(): Carry<this, StringType> {
+    return this.derive(
+      'hsl',
+      (value) => {
+        const parsed = parseColor(value);
+        const [h, s, l] = rgbToHsl(parsed);
+        return parsed.a < 1 ? `hsla(${h}, ${s}%, ${l}%, ${Math.round(parsed.a * 100) / 100})` : `hsl(${h}, ${s}%, ${l}%)`;
+      },
+      [],
+      string,
+    );
   }
 
   /** `{ r, g, b }` as 0–255 numbers */
-  get channels(): TypeToken<ColorChannels> {
+  get channels(): Carry<this, TypeToken<ColorChannels>> {
     return this.derive('channels', (value) => {
       const { r, g, b } = parseColor(value);
       return { r, g, b };
@@ -125,7 +135,7 @@ export class ColorType extends StringType {
   }
 
   /** Opacity 0–1 (`1` when opaque) */
-  get alpha(): TypeToken<number> {
+  get alpha(): Carry<this, TypeToken<number>> {
     return this.derive('alpha', (value) => Math.round(parseColor(value).a * 1000) / 1000);
   }
 }

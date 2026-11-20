@@ -1,7 +1,7 @@
 import { initializeParser, ParserReturnValue } from '../parser';
 import { array as arrayType, defineType, number as numberType, string as stringType, StringType, NumberType, DateType, ArrayType, TypeToken } from '../types';
 import { AppObject, DefaultParserTypes, ParserType, ParserTypeWithDefault } from '../parser-types';
-import type { ParserTypeDefaulted } from '../type-token';
+import type { Carry, ParserTypeDefaulted } from '../type-token';
 import { get, value, variable } from '../parser-util';
 import { record } from '../types/data/record';
 import { variables } from '../variables';
@@ -385,5 +385,80 @@ describe('.of() keeps a default or required set before it', () => {
     expect(checks.every(Boolean)).toBe(true);
     expect(await parser({ c: ['x'] })).toEqual({ a: [], b: [], c: ['x'], e: {} });
     await expect(parser({})).rejects.toThrow('Missing required value');
+  });
+});
+
+describe('required and default carry through the chain', () => {
+  it('keeps the field non-optional after accessors and derivations', () => {
+    const parser = createParser({
+      domain: types.email.required.domain,
+      upper: types.email.required.domain.upperCase,
+      plain: types.email.domain,
+      mapped: types.string.required.to((value) => value.length),
+      composed: types.string.default('a').to(types.number),
+    });
+    type Value = ParserReturnValue<typeof parser>;
+    const checks: [
+      Expect<Equal<Value['domain'], string>>,
+      Expect<Equal<Value['upper'], string>>,
+      Expect<Equal<Value['plain'], string | undefined>>,
+      Expect<Equal<Value['mapped'], number>>,
+      Expect<Equal<Value['composed'], number>>,
+    ] = [true, true, true, true, true];
+    expect(checks.every(Boolean)).toBe(true);
+  });
+});
+
+describe('required and default carry through built-in accessors', () => {
+  it('follows every kind of derivation', () => {
+    const parser = createParser({
+      iso: types.date.required.iso,
+      year: types.date.default(new Date(0)).year,
+      length: types.string.default('a').length,
+      lines: types.text.default('a').lines,
+      split: types.string.required.split(','),
+      first: types.array.required.of(types.number).first,
+      joined: types.array.of(types.string).join('-'),
+      optionalIso: types.date.iso,
+      host: types.url.required.hostname.upperCase,
+    });
+    type Value = ParserReturnValue<typeof parser>;
+    const checks: [
+      Expect<Equal<Value['iso'], string>>,
+      Expect<Equal<Value['year'], number>>,
+      Expect<Equal<Value['length'], number>>,
+      Expect<Equal<Value['lines'], string[]>>,
+      Expect<Equal<Value['split'], string[]>>,
+      Expect<Equal<Value['first'], number>>,
+      Expect<Equal<Value['joined'], string | undefined>>,
+      Expect<Equal<Value['optionalIso'], string | undefined>>,
+      Expect<Equal<Value['host'], string>>,
+    ] = [true, true, true, true, true, true, true, true, true];
+    expect(checks.every(Boolean)).toBe(true);
+  });
+});
+
+describe('required and default carry through custom class accessors', () => {
+  class SkuType extends StringType {
+    get slugged(): Carry<this, StringType> {
+      return this.derive('slugged', (value) => value.toLowerCase(), [], types.string);
+    }
+
+    get size(): TypeToken<number> {
+      return this.derive('size', (value) => value.length);
+    }
+  }
+  const sku = defineType(SkuType);
+
+  it('carries with a Carry annotation and stays optional with a plain one', async () => {
+    const parser = createParser({ carried: sku.required.slugged, plain: sku.required.size, optional: sku.slugged });
+    type Value = ParserReturnValue<typeof parser>;
+    const checks: [
+      Expect<Equal<Value['carried'], string>>,
+      Expect<Equal<Value['plain'], number | undefined>>,
+      Expect<Equal<Value['optional'], string | undefined>>,
+    ] = [true, true, true];
+    expect(checks.every(Boolean)).toBe(true);
+    expect(await parser({ carried: 'AB', plain: 'AB' })).toEqual({ carried: 'ab', plain: 2 });
   });
 });

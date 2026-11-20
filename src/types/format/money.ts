@@ -1,5 +1,5 @@
 import type { ParserContext } from '../../parser-types';
-import { CastResult, TypeToken, defineType } from '../../type-token';
+import { Carry, CastResult, TypeToken, defineType } from '../../type-token';
 import { invalid } from '../internal';
 import { string, StringType } from '../string';
 
@@ -32,12 +32,12 @@ export class MoneyType extends TypeToken<Money> {
     throw invalid('money');
   }
 
-  get amount(): TypeToken<number> {
+  get amount(): Carry<this, TypeToken<number>> {
     return this.derive('amount', (value) => value.amount);
   }
 
-  get currency(): StringType {
-    return this.derive('currency', (value) => value.currency).to(string);
+  get currency(): Carry<this, StringType> {
+    return this.derive('currency', (value) => value.currency, [], string);
   }
 }
 

@@ -86,7 +86,10 @@ export interface StorageLike {
   clear?: (context: ParserContext) => Promise<void> | void;
 }
 
-export type ParserContextHook = (context: ParserContext) => ParserContext | Promise<ParserContext>;
+export type ParserInheritedHook = (context: ParserContext) => Promise<ParserContext>;
+
+/** A hook declaring the `inherited` parameter calls the earlier hooks itself; any other hook runs after them */
+export type ParserContextHook = (context: ParserContext, inherited: ParserInheritedHook) => ParserContext | Promise<ParserContext>;
 
 export interface ParserGlobalContext extends CommonContext, GlobalContext {
   storage?: StorageLike;

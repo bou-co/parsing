@@ -187,11 +187,56 @@ describe('chain state across derivations', () => {
     await expect(createParser({ d: types.date.strict.iso })({ d: 'nope' }, { looseCasting: true })).rejects.toThrow(ParserCastError);
   });
 
-  it('drops a default set before an accessor, extend or to', async () => {
+  it('runs a default set before an accessor, extend or to through the later steps', async () => {
     expect(types.string.default('x').upperCase.defaultValue).toBeUndefined();
     expect(types.string.default('x').extend((value) => value).defaultValue).toBeUndefined();
     expect(types.string.default('x').to((value) => value.length).defaultValue).toBeUndefined();
-    expect(await createParser({ a: types.string.default('x').upperCase, b: types.string.upperCase.default('x') })({})).toEqual({ b: 'x' });
+    expect(await createParser({ a: types.string.default('x').upperCase, b: types.string.upperCase.default('x') })({})).toEqual({ a: 'X', b: 'x' });
+  });
+
+  it('flows an early default through transforms, derivations and compositions', async () => {
+    const epoch = new Date(0);
+    const parser = createParser({
+      extended: types.string.default('ab').extend((value) => `${value}!`),
+      mapped: types.string.default('abc').to((value) => value.length),
+      composed: types.string.default('42').to(types.number),
+      domain: types.email.default('Ann@Example.com').domain.lowerCase,
+      iso: types.date.default(epoch).iso,
+      deep: types.string.default(' a b ').trim.upperCase.length,
+    });
+    expect(await parser({})).toEqual({ extended: 'ab!', mapped: 3, composed: 42, domain: 'example.com', iso: epoch.toISOString(), deep: 3 });
+    expect(await parser({ extended: 'x', mapped: 'x', composed: '1', domain: 'a@b.fi', iso: '2020-01-01', deep: 'xy' })).toMatchObject({
+      extended: 'x!',
+      mapped: 1,
+      composed: 1,
+      domain: 'b.fi',
+      deep: 2,
+    });
+  });
+
+  it('uses the last default as written, and it wins over an earlier one', async () => {
+    const parser = createParser({
+      last: types.string.upperCase.default('kept'),
+      both: types.string.default('early').upperCase.default('late'),
+      afterLate: types.string.default('early').upperCase.default('late').length,
+    });
+    expect(await parser({})).toEqual({ last: 'kept', both: 'late', afterLate: 4 });
+  });
+
+  it('fills a failed cast with the flowed default under a non-throwing policy', async () => {
+    const parser = createParser({ n: types.number.default(1.26).round(1) }, { looseCasting: true, onCastError: () => undefined });
+    expect(await parser({ n: 'nope' })).toEqual({ n: 1.3 });
+  });
+
+  it('treats a later step failing on the default as a cast failure', async () => {
+    const broken = types.string.default('not a number').to(types.number);
+    await expect(createParser({ n: broken })({})).rejects.toThrow(ParserCastError);
+    expect(await createParser({ n: broken.loose })({})).toEqual({});
+    expect(await createParser({ n: broken }, { looseCasting: true, onCastError: () => undefined })({})).toEqual({});
+  });
+
+  it('omits the key when a later step yields nothing for the default', async () => {
+    expect(await createParser({ first: types.array.default([]).first })({})).toEqual({});
   });
 
   it('reports <root> as the path of a cast without a parse context', async () => {

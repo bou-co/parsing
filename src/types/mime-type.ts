@@ -1,5 +1,5 @@
 import type { ParserContext } from '../parser-types';
-import { defineType } from '../type-token';
+import { Carry, defineType } from '../type-token';
 import { invalid } from './internal';
 import { string, StringType } from './string';
 
@@ -41,21 +41,21 @@ export class MimeTypeType extends StringType {
     return parts.params ? `${essenceOf(parts)}; ${parts.params}` : essenceOf(parts);
   }
 
-  get type(): StringType {
-    return this.derive('type', (value) => parseMime(value).type).to(string);
+  get type(): Carry<this, StringType> {
+    return this.derive('type', (value) => parseMime(value).type, [], string);
   }
 
-  get subtype(): StringType {
-    return this.derive('subtype', (value) => parseMime(value).subtype).to(string);
+  get subtype(): Carry<this, StringType> {
+    return this.derive('subtype', (value) => parseMime(value).subtype, [], string);
   }
 
   /** The structured-syntax suffix (`json` in `application/ld+json`), or `undefined` */
-  get suffix(): StringType {
-    return this.derive('suffix', (value) => parseMime(value).suffix).to(string);
+  get suffix(): Carry<this, StringType> {
+    return this.derive('suffix', (value) => parseMime(value).suffix, [], string);
   }
 
-  get essence(): StringType {
-    return this.derive('essence', (value) => essenceOf(parseMime(value))).to(string);
+  get essence(): Carry<this, StringType> {
+    return this.derive('essence', (value) => essenceOf(parseMime(value)), [], string);
   }
 }
 
