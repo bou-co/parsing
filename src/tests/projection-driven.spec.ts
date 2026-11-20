@@ -238,3 +238,66 @@ describe('projection-driven resolution', () => {
     });
   });
 });
+
+describe('nested input rules', () => {
+  const { createParser, types } = initializeParser({ variables: { obj: { k: 'fromVar' }, scalar: 'plain' } });
+  const child = createParser({ k: types.string, c: 'const' });
+  const viaFunction = () => child;
+
+  it.each([
+    ['nested parser', { m: child }],
+    ['parser returned from a value function', { m: viaFunction }],
+    ['inline object projection', { m: { k: types.string, c: 'const' } }],
+  ])('feeds a %s from objects, stringified objects and object-valued patterns only', async (_label, projection) => {
+    const parser = createParser(projection as { m: typeof child });
+    expect(await parser({ m: { k: 'obj' } })).toEqual({ m: { k: 'obj', c: 'const' } });
+    expect(await parser({ m: '{"k":"j","n":{"a":1}}' })).toEqual({ m: { k: 'j', c: 'const' } });
+    expect(await parser({ m: '{{obj}}' })).toEqual({ m: { k: 'fromVar', c: 'const' } });
+    expect(await parser({ m: '{{scalar}}' })).toEqual({ m: { c: 'const' } });
+    expect(await parser({ m: 'hello' })).toEqual({ m: { c: 'const' } });
+    expect(await parser({ m: 5 })).toEqual({ m: { c: 'const' } });
+    expect(await parser({ m: null })).toEqual({ m: { c: 'const' } });
+    expect(await parser({})).toEqual({ m: { c: 'const' } });
+  });
+
+  it('applies the same rules to a flat parser', async () => {
+    const parser = createParser({ m: child.flat });
+    expect(await parser({ m: 'hello' })).toEqual({ c: 'const' });
+    expect(await parser({ m: '{{obj}}' })).toEqual({ k: 'fromVar', c: 'const' });
+    expect(await parser({ m: '{"k":"j"}' })).toEqual({ k: 'j', c: 'const' });
+  });
+
+  it('still throws on a string that looks like JSON but is not', async () => {
+    await expect(createParser({ m: child })({ m: '{not json}' })).rejects.toMatchObject({ title: 'Parser stringify error' });
+  });
+
+  it('omits array-shaped projections without usable data', async () => {
+    const parser = createParser({ a: child.asArray, b: { '@array': true, k: types.string, c: 'const' }, c: [{ c: 'const' }] });
+    expect(await parser({ a: 5, b: 'hello', c: true })).toEqual({});
+    expect(await parser({})).toEqual({});
+    expect(await parser({ a: '[{"k":"x"}]' })).toEqual({ a: [{ k: 'x', c: 'const' }] });
+  });
+
+  it('keeps the incoming scalar reachable as context.parent.value', async () => {
+    const parser = createParser({ price: { raw: ({ parent }: ParserContext) => parent?.value, currency: 'EUR' } });
+    expect(await parser({ price: 5 })).toEqual({ price: { raw: 5, currency: 'EUR' } });
+    expect(await parser({ price: 'five' })).toEqual({ price: { raw: 'five', currency: 'EUR' } });
+  });
+
+  it('terminates a cycle that runs through an @if then-parser', async () => {
+    const node: ParserFunction<any> = createParser((): any => ({
+      label: 'node',
+      '@if': [{ when: () => true, then: node }],
+    })) as ParserFunction<any>;
+    const parser = createParser({ tree: node });
+    const data = await parser({});
+    expect(data.tree).toEqual({ label: 'node' });
+  });
+
+  it('exposes asArray as a separate variant that hashes like its parser', () => {
+    expect(child.asArray).not.toBe(child);
+    expect(child.asArray).toBe(child.asArray);
+    expect(String(child.asArray)).toEqual(String(child));
+    expect(String(child.flat)).not.toEqual(String(child));
+  });
+});

@@ -94,4 +94,31 @@ describe('content types', () => {
   it('toPlainText handles entities and block breaks', () => {
     expect(toPlainText('<h1>A</h1><p>b&nbsp;c &lt;d&gt;</p><ul><li>x</li><li>y</li></ul>')).toEqual('A\nb c <d>\nx\ny');
   });
+
+  it('toPlainText decodes an escaped entity once', () => {
+    expect(toPlainText('<p>&amp;lt;b&amp;gt; &amp;amp;</p>')).toEqual('&lt;b&gt; &amp;');
+  });
+
+  it('exposes the adapter and takes per-token sanitiser options', async () => {
+    const adapter = sanitizeHtmlAdapter();
+    expect(html(adapter).adapter).toBe(adapter);
+    expect(await html(adapter, { allowedTags: ['p'] }).cast('<p>a <b>b</b></p>')).toEqual('<p>a b</p>');
+    const md = markdown(markedAdapter(), sanitizeHtmlAdapter(), { sanitiser: { allowedTags: ['p'] } });
+    expect(await md.cast('a **b**')).toEqual('<p>a b</p>\n');
+  });
+
+  it('markdown needs a parser adapter', () => {
+    expect(() => markdown(undefined as never, sanitizeHtmlAdapter())).toThrow('a Markdown adapter is required');
+  });
+
+  it('ultrahtml drops data: and vbscript: URLs and adds to its drop-list', async () => {
+    const light = html(ultrahtmlAdapter());
+    const out = (await light.cast(
+      '<a href="data:text/html,x">a</a><a href=" VBScript:x">b</a><img src="data:image/png;base64,x"><a href="/ok">c</a>',
+    )) as string;
+    expect(out).not.toMatch(/data:|vbscript:/i);
+    expect(out).toContain('href="/ok"');
+    const noQuotes = html(ultrahtmlAdapter({ dropElements: ['blockquote'] }));
+    expect(await noQuotes.cast('<p>a</p><blockquote>b</blockquote><script>c</script>')).toEqual('<p>a</p>');
+  });
 });

@@ -290,9 +290,9 @@ type _MergeFlat<T extends object> = Merge<
 
 type _HandleFlat<T extends object> = _FlatKeys<T> extends never ? _HandleChildren<T> : _MergeFlat<T> & _HandleChildren<Omit<T, _FlatKeys<T>>>;
 
-// 5. Handle children — fields with a default are re-added as required on top of the optional map.
-// Keep the first mapped type homomorphic ([K in keyof T]) — a non-homomorphic split (e.g. over
-// Exclude<keyof T, ...>) forces eager evaluation and collapses doubly-nested parser types to {}
+// 5. Handle children, fields with a default are re-added as required on top of the optional map.
+// Keep the first mapped type homomorphic ([K in keyof T]): mapping over a computed key set forces
+// eager evaluation and collapses doubly-nested parser types to {}
 type _HandleChildren<T extends object> = { -readonly [K in keyof T]?: RealValue<T[K]> } & {
   -readonly [K in keyof T as IsAny<T[K]> extends true ? never : T[K] extends { readonly [PARSER_TYPE_DEFAULTED]: true } ? K : never]-?: RealValue<T[K]>;
 };
@@ -331,15 +331,12 @@ export type ResolvedValue<T> = T extends { readonly [PARSER_TYPE_OUTPUT]: any }
 export type ResolveInput =
   string | number | boolean | null | undefined | ((context: ParserContext) => unknown) | readonly ResolveInput[] | { [key: PropertyKey]: ResolveInput };
 
-// Sentinel detecting whether the caller passed an explicit type argument: TS has no partial
-// type-argument inference, so R keeps this default exactly when the caller omitted it
+// Detects an explicit type argument: R keeps this default only when the caller omitted it
 declare const RESOLVE_TYPE_UNSET: unique symbol;
 export type ResolveTypeUnset = typeof RESOLVE_TYPE_UNSET;
 
-// Overload order is load-bearing: the constrained-T signature must stay first so literal inputs get
-// contextual typing; plain-T catches interface-typed inputs (no implicit index signature) and, via
-// its unknown default, explicit-R calls whose input the first overload rejects. An explicit R always
-// overrides the inferred ResolvedValue mapping (remaining type params fall back to their defaults)
+// Overload order matters: constrained T first for contextual typing of literal inputs, plain T second
+// for interface-typed inputs (no implicit index signature). An explicit R overrides the inferred mapping
 interface ResolveFunctionBase<C> {
   <R = ResolveTypeUnset, T extends ResolveInput = ResolveInput>(input: T, instanceContext: C): Promise<[R] extends [ResolveTypeUnset] ? ResolvedValue<T> : R>;
   <R = ResolveTypeUnset, T = unknown>(input: T, instanceContext: C): Promise<[R] extends [ResolveTypeUnset] ? ResolvedValue<T> : R>;
@@ -348,18 +345,13 @@ interface ResolveFunctionBase<C> {
 // Like a parser call, the instance context becomes required once InstanceContext has required keys
 export interface ParserResolveFunction extends ResolveFunctionBase<InstaceContext> {}
 
-// Context-only variant: the active context already carries the instance values, so per-call
-// overrides stay optional and partial. Adds the zero-argument form that lazily resolves
-// `context.value` (memoized per context). Own signatures are checked before inherited ones, but
-// arity 0 can never capture a call with arguments, so the base overload order stays load-bearing
+// The active context already carries the instance values, so overrides stay optional and partial
 export interface ContextResolveFunction extends ResolveFunctionBase<Partial<ParserInstanceContext> | void> {
   <R = unknown>(): Promise<R>;
 }
 
-// store(key, fn) result: callable like a plain value function (so it needs no ParserProjectionValue
-// member of its own — a second callable in that union would break contextual typing) and awaitable
-// directly; a zero-argument call runs against the store's own context. PromiseLike (not Promise) so
-// RealValue still infers via the call signature
+// Callable like a plain value function and awaitable directly. PromiseLike (not Promise) so RealValue
+// still infers via the call signature
 export interface StoreValue<T> extends PromiseLike<T> {
   (context?: ParserContext, __parserFnContext?: any, __parserFnParent?: any): Promise<T>;
   catch<R = never>(onrejected?: ((reason: any) => R | PromiseLike<R>) | null): Promise<T | R>;
@@ -393,10 +385,7 @@ export type GetOutput<T> = T extends { readonly [PARSER_TYPE_OUTPUT]: infer Out 
     : Awaited<Out> | undefined
   : never;
 
-// Value function returned by `get(path, token)`: it returns the raw looked-up value and carries the
-// token as `_cast`, so the engine casts the result after transformers and patterns, exactly like a
-// token placed at the key. The call signature types the cast output because that is what a
-// projection sees; calling it by hand yields the raw value
+// The call signature types the cast output because that is what a projection sees; calling it by hand yields the raw value
 export interface GetValueFunction<T> {
   (context: ParserContext, __parserFnContext?: any, __parserFnParent?: any): Promise<T>;
   /** @internal */

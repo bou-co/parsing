@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ParserCachingOptions } from './expandable-types';
-import { canResolveDataless, hasArrayDirective, isDatalessInput, toContentHash } from './internal';
+import { canResolveDataless, isDatalessInput, toContentHash } from './internal';
 import {
   ParserFunction,
   ParserContext,
@@ -44,6 +44,8 @@ interface ParserCache {
   pending: Map<string, Promise<any>>;
 }
 
+const parserRef = (parser: object): object => ('projection' in parser && parser.projection instanceof Object ? parser.projection : parser);
+
 export class Parser {
   private cache: ParserCache = { variables: {}, pending: new Map() };
 
@@ -58,12 +60,12 @@ export class Parser {
     this.typesNamespace = typeof globalContext === 'function' ? types : mergeTypes(types, globalContext.types);
   }
 
-  /** The engine's type namespace: built-ins plus everything registered through the global context */
+  /** Built-in types plus everything registered through the global context */
   public get types(): ParserTypesNamespace {
     return this.typesNamespace;
   }
 
-  // TODO(v4): remove migration catches — assigning the removed v2 statics would otherwise silently no-op
+  // TODO(v4): remove migration catches, assigning the removed v2 statics would otherwise silently no-op
   private static readonly parserGlobalContextRemoved =
     '[@bou-co/parsing] Parser.parserGlobalContext was removed in v3 — engines are isolated; pass the global context to initializeParser(...) or new Parser(...)';
   static get parserGlobalContext(): never {
@@ -84,11 +86,14 @@ export class Parser {
     }
     if (typeof this.globalContext === 'function') {
       this.initializingGlobalContext = true;
-      this.globalContext = await this.globalContext();
-      this.typesNamespace = mergeTypes(types, this.globalContext.types);
+      try {
+        this.globalContext = await this.globalContext();
+        this.typesNamespace = mergeTypes(types, this.globalContext.types);
+      } finally {
+        this.initializingGlobalContext = false;
+      }
     }
-    this.initializingGlobalContext = false;
-    return this.globalContext;
+    return this.globalContext as ParserGlobalContext;
   }
 
   public cacheVariable = <T>(path: string, value: T): T => {
@@ -96,9 +101,13 @@ export class Parser {
     return value;
   };
 
-  // Only safe to call once the global context has resolved (patterns are global-only)
+  // Only safe to call once the global context has resolved
   private getPatternRegistry = (): CompiledPatternRegistry => {
     return (this.patternRegistry ??= compilePatternRegistry((this.globalContext as ParserGlobalContext).patterns));
+  };
+
+  private seedPatterns = (context: ParserContext, runCache: Map<string, Promise<unknown>> = new Map()) => {
+    Object.assign(context, { [PATTERN_REGISTRY]: this.getPatternRegistry(), [PATTERN_RUN_CACHE]: runCache, [PATTERN_STORE]: this.storeValue });
   };
 
   private storeValue = async <T>(context: ParserContext, key: string, fn: () => T | Promise<T>, options?: ParserCachingOptions): Promise<T> => {
@@ -137,8 +146,7 @@ export class Parser {
     return String(await Parser.resolveVariables(key, context));
   };
 
-  // Lazy for the standalone store so store(key, fn) can sit in a projection literal without running
-  // at definition time; eager for context.store so consecutive calls in a value function stay parallel
+  // Lazy so the standalone store(key, fn) can sit in a projection literal; eager for context.store so consecutive calls stay parallel
   private createStore = (getContext: () => ParserContext | Promise<ParserContext>, lazy = false): ParserStore => {
     const run = async <T>(context: ParserContext, key: string, fn: (context: ParserContext) => T | Promise<T>, options?: ParserCachingOptions) => {
       const resolvedKey = await Parser.resolveStoreKey(key, context);
@@ -148,7 +156,7 @@ export class Parser {
     const store = <T>(key: string, fn: (context: ParserContext) => T | Promise<T>, options?: ParserCachingOptions): StoreValue<T> => {
       let own: Promise<T> | undefined;
       const runOwn = () => (own ??= Promise.resolve(getContext()).then((context) => run(context, key, fn, options)));
-      // Eager runs may be awaited a tick later; mark them handled so a rejection only reaches whoever awaits it
+      // Eager runs may be awaited a tick later, so mark them handled
       if (!lazy) runOwn().catch(() => undefined);
       const value = ((context?: ParserContext) => (context ? run(context, key, fn, options) : runOwn())) as StoreValue<T>;
       Object.defineProperties(value, {
@@ -157,7 +165,7 @@ export class Parser {
         },
         catch: { value: (onrejected?: ((reason: unknown) => unknown) | null) => runOwn().catch(onrejected) },
         finally: { value: (onfinally?: (() => void) | null) => runOwn().finally(onfinally) },
-        // Content-derived id — toHash stringifies projection functions, so distinct values must differ
+        // toHash stringifies projection functions, so distinct values must differ
         toString: { value: () => `__store:${key}:${toHash(fn)}:${toHash(options)}__` },
       });
       return value;
@@ -207,7 +215,7 @@ export class Parser {
     return Object.assign(store, { match, add: add as ParserStore['add'], remove, clear });
   };
 
-  /** Value caching through the global storage, usable outside a parse — `context.store` is the context-bound variant */
+  /** Value caching through the global storage, usable outside a parse */
   public store: ParserStore = this.createStore(() => this.createRootContext(undefined), true);
 
   // Resolves a nested projection without matching data so data independent values still produce output
@@ -217,14 +225,39 @@ export class Parser {
     instanceContext: ParserInstanceContext,
     context: ParserContext,
   ): Promise<unknown> => {
-    // If the projection was already resolved in this data-less chain, stop to prevent infinite recursion
+    // Stop when the projection was already resolved in this data-less chain
     const path = context.datalessPath ?? [];
     if (path.includes(ref)) return undefined;
-    // Use a fresh empty object as data since before hooks may mutate it
+    // Fresh object as before hooks may mutate it
     const result = await parserFn({}, instanceContext, { ...context, datalessPath: [...path, ref] });
-    // If nothing was resolved, return undefined so the key is omitted
+    // Nothing resolved, so the key is omitted
     if (result && typeof result === 'object' && !Array.isArray(result) && Object.keys(result).length === 0) return undefined;
     return result;
+  };
+
+  // A string feeds a nested projection only as a stringified object/array or a full-string pattern resolving to an object
+  private nestedInput = async (input: unknown, context: ParserContext): Promise<unknown> => {
+    if (typeof input !== 'string' || input === '') return input;
+    const fullPattern = matchFullPattern(input, context);
+    if (fullPattern) {
+      const resolved = await resolvePatternMatch(fullPattern, context);
+      return resolved instanceof Object ? resolved : undefined;
+    }
+    return /^\s*[{[]/.test(input) ? input : undefined;
+  };
+
+  private parseNested = async (
+    parserFn: (data: any, instanceContext?: ParserInstanceContext, parentContext?: ParserContext) => Promise<unknown>,
+    ref: object,
+    value: unknown,
+    instanceContext: ParserInstanceContext,
+    context: ParserContext,
+  ): Promise<unknown> => {
+    const input = await this.nestedInput(value, context);
+    if (!isDatalessInput(input)) return parserFn(input, instanceContext, context);
+    // Array projections always require data
+    if (!canResolveDataless(parserFn, ref)) return undefined;
+    return this.parseDataless(parserFn, ref, instanceContext, context);
   };
 
   public objectify = (value: string) => {
@@ -235,37 +268,23 @@ export class Parser {
     }
   };
 
-  /**
-   * Resolves a variable expression through the active variables pattern.
-   * Accepts the pattern's own syntax (`{{variableName}}` by default), the legacy `{{path}}` form, or a bare path.
-   * Expression grammar (`||` fallbacks, literals, `| pipe:params`) is applied unless the pattern opts out.
-   * @throws Will throw an error if a referenced pipe is not found or is not a function.
-   */
+  /** Resolves a variable expression (`{{variableName}}` or a bare path) through the active variables pattern */
   public static getVariableValue = async <T = unknown>(match: string, context: ParserContext): Promise<T> => {
     return evaluateVariableExpression(match, context) as Promise<T>;
   };
 
-  /**
-   * Resolves patterns (variables by default) in the current value based on the context.
-   * If the current value is an object, it recursively resolves its properties.
-   * If the current value is a string, registered patterns are matched and replaced with their resolved values.
-   * @param current The value to resolve patterns in.
-   * @param context The context containing variable definitions and other information.
-   * @returns A promise that resolves to the value with patterns resolved.
-   */
+  /** Resolves patterns (variables by default) in strings, recursing into objects and arrays */
   public static resolveVariables = async <T>(current: T, context: ParserContext): Promise<T> => {
     return this.resolveValue(current, context) as T | Promise<T>;
   };
 
   // Resolves values without allocating promises for the ones that contain no variables
   private static resolveValue = (current: unknown, context: ParserContext): unknown => {
-    // If the current value does not exist, return it as is
     if (!current) return current;
 
-    // Type tokens are parse concerns — never walked into
     if (isTypeToken(current)) return current;
 
-    // If the current value is an object, resolve each entry and await only the asynchronous ones
+    // Await only the asynchronous entries
     if (typeof current === 'object') {
       const entries = Object.entries(current);
       if (!entries.length) return current;
@@ -284,12 +303,11 @@ export class Parser {
       return result;
     }
 
-    // If the current value is a string, resolve any patterns it contains (returns the string as-is when there are none)
     if (typeof current === 'string') return resolvePatternsInText(current, context);
     return current;
   };
 
-  // Builds the root context shared by the standalone resolve and store entry points
+  // Root context shared by the standalone resolve and store
   private createRootContext = async (input: unknown, instanceContext: ParserInstanceContext = {}): Promise<ParserContext> => {
     const globalContext = await this.getGlobalContext();
 
@@ -316,17 +334,16 @@ export class Parser {
       store: this.createStore(() => context),
     } satisfies Partial<ParserContext<unknown>> as any;
     context.resolve = this.createContextResolve(context);
-    Object.assign(context, { [PATTERN_REGISTRY]: this.getPatternRegistry(), [PATTERN_RUN_CACHE]: new Map(), [PATTERN_STORE]: this.storeValue });
+    this.seedPatterns(context);
     return context;
   };
 
-  // Resolves variables and applies global transformers on raw input without parsing it against a projection
   public resolve = (async (input: unknown, instanceContext: ParserInstanceContext = {}) => {
     const context = await this.createRootContext(input, instanceContext);
     return this.resolveNode(input, context);
   }) as ParserResolveFunction;
 
-  // Backs context.resolve — same resolution as the public resolve but inheriting the calling context
+  // context.resolve: same as the public resolve but inheriting the calling context
   private resolveWithParentContext = (input: unknown, parentContext: ParserContext, instanceContext?: Partial<ParserInstanceContext>): Promise<unknown> => {
     const variables = { ...parentContext.variables, ...instanceContext?.variables, current: input };
     const pipes = { ...parentContext.pipes, ...instanceContext?.pipes };
@@ -345,8 +362,7 @@ export class Parser {
     return this.resolveNode(input, context);
   };
 
-  // Wires context.resolve: zero-arg lazily resolves context.value, memoized per context so
-  // DB-backed variable resolution runs once; resolve(undefined) is distinguished by arity
+  // Zero-arg resolve() resolves context.value once per context; resolve(undefined) is told apart by arity
   private createContextResolve = (context: ParserContext): ContextResolveFunction => {
     let memo: Promise<unknown> | undefined;
     const contextResolve = (...args: [unknown?, Partial<ParserInstanceContext>?]) => {
@@ -359,12 +375,10 @@ export class Parser {
   // Unlike parse, transformers apply at every nesting level since there is no projection to scope them
   private resolveNode = async (value: unknown, context: ParserContext): Promise<unknown> => {
     if (value instanceof Promise) return this.resolveNode(await value, context);
-    // Type tokens and parsers are parse concerns — pass through untouched
     if (isTypeToken(value)) return value;
     if (typeof value === 'function') {
       if ('_parser' in value) return value;
       const result = await this.resolveNode(await (value as (context: ParserContext) => unknown)(context), context);
-      // get(path, token) asks for a cast explicitly — applied after resolution, like at a projection key
       return '_cast' in value ? applyCast(result, (value as { _cast: TypeToken })._cast, context) : result;
     }
     if (context.transformers) {
@@ -394,7 +408,7 @@ export class Parser {
     return async (context) => b(await a(context));
   };
 
-  // Same-level context merge: hooks compose (base first, extension second) instead of overwriting
+  // Hooks compose (base first, extension second) instead of overwriting
   private static mergeParserContexts = (base?: CreateParserContext, extension?: CreateParserContext): CreateParserContext => {
     const merged = mergeObjects<CreateParserContext>(base, extension);
     const before = Parser.chainHooks(base?.before, extension?.before);
@@ -458,9 +472,9 @@ export class Parser {
         store: this.createStore(() => contextBase),
       } satisfies Partial<ParserContext> as any;
       contextBase.resolve = this.createContextResolve(contextBase);
-      // The registry always belongs to this engine; the run cache is shared down from the root parse
+      // The run cache is shared down from the root parse
       const patternRunCache = (contextBase as AppObject)[PATTERN_RUN_CACHE] ?? new Map();
-      Object.assign(contextBase, { [PATTERN_REGISTRY]: this.getPatternRegistry(), [PATTERN_RUN_CACHE]: patternRunCache, [PATTERN_STORE]: this.storeValue });
+      this.seedPatterns(contextBase, patternRunCache);
 
       const projection = typeof project === 'function' ? await project(contextBase) : project;
       Object.assign(contextBase, { projection, path: [...(parentContext.path ?? []), projection] });
@@ -494,9 +508,9 @@ export class Parser {
       for (const context of contextsWithHooks) {
         if (context?.before) contextBase = await context.before(contextBase);
       }
-      // Before hooks may replace contextBase; re-wire so resolve targets the active context
+      // Before hooks may replace contextBase
       contextBase.resolve = this.createContextResolve(contextBase);
-      Object.assign(contextBase, { [PATTERN_REGISTRY]: this.getPatternRegistry(), [PATTERN_RUN_CACHE]: patternRunCache, [PATTERN_STORE]: this.storeValue });
+      this.seedPatterns(contextBase, patternRunCache);
 
       const entries = Object.entries(projection);
       const conditionalEnties = [] as [string, unknown][];
@@ -569,23 +583,14 @@ export class Parser {
             if (value === typed) return [key, data[key]];
             if (value === optional) return [key, data[key]];
             if ('_parser' in value) {
-              const input = data?.[key];
-              const projection = 'projection' in value ? (value as { projection?: unknown }).projection : undefined;
-              const dataless = isDatalessInput(input) && canResolveDataless(value, projection);
-              if ('_flat' in value) {
-                const result = dataless
-                  ? await this.parseDataless(value as any, (projection ?? value) as object, instanceContext, context)
-                  : await value(input, instanceContext, context);
-                if (result === undefined || result === null) return undefined;
-                if (Array.isArray(result)) throw new Error(`[@bou-co/parsing] .flat at "${String(key)}" merges object results only — got an array`);
-                conditionalEnties.push(...Object.entries(result));
-                return undefined;
-              }
-              if (dataless) return [key, await this.parseDataless(value as any, (projection ?? value) as object, instanceContext, context)];
-              return [key, await value(input, instanceContext, context)];
+              const result = await this.parseNested(value as any, parserRef(value), data?.[key], instanceContext, context);
+              if (!('_flat' in value)) return [key, result];
+              if (result === undefined || result === null) return undefined;
+              if (Array.isArray(result)) throw new Error(`[@bou-co/parsing] .flat at "${String(key)}" merges object results only — got an array`);
+              conditionalEnties.push(...Object.entries(result));
+              return undefined;
             }
 
-            // get(path, token): the function reads the raw value and the engine casts it, as if the token sat at this key
             if ('_cast' in value) {
               castToken = (value as { _cast: TypeToken })._cast;
               return [key, await value(context)];
@@ -593,12 +598,7 @@ export class Parser {
             const result = await value(context);
             if (result === '_inherit') return [key, data[key]];
             if (result instanceof Function && '_parser' in result) {
-              const input = data[key];
-              const projection = 'projection' in result ? (result as { projection?: unknown }).projection : undefined;
-              if (isDatalessInput(input) && canResolveDataless(result, projection)) {
-                return [key, await this.parseDataless(result as any, (projection ?? result) as object, instanceContext, context)];
-              }
-              return [key, await result(input, instanceContext, context)];
+              return [key, await this.parseNested(result as any, parserRef(result), data?.[key], instanceContext, context)];
             }
             if (isTypeToken(result)) {
               castToken = result;
@@ -610,30 +610,7 @@ export class Parser {
             if (value instanceof Promise) {
               return [key, await value];
             }
-            const input = data?.[key];
-            const parserFn = this.createProjection(value);
-
-            // Check if value for current key is an object
-            if (input instanceof Object) {
-              return [key, await parserFn(input, instanceContext, context)];
-            }
-            // Check if value is a string that looks like a string object or a variable
-            if (typeof input === 'string' && input !== '') {
-              // Match objects that are stringified
-              const isStringObject = input.match(/^\{[^}]+\}$/);
-              if (isStringObject) return [key, await parserFn(input, instanceContext, context)];
-
-              // Match a full-string pattern (a variable by default) that may resolve to an object
-              const fullPattern = matchFullPattern(input, context);
-              if (fullPattern) {
-                const resolved = await resolvePatternMatch(fullPattern, context);
-                if (resolved instanceof Object) return [key, await parserFn(resolved as AppObject, instanceContext, context)];
-              }
-            }
-            // Array projections always require data
-            if (Array.isArray(value) || hasArrayDirective(value)) return [key, undefined];
-            // Otherwise resolve the projection without data
-            return [key, await this.parseDataless(parserFn, value, instanceContext, context)];
+            return [key, await this.parseNested(this.createProjection(value), value, data?.[key], instanceContext, context)];
           }
           if (value) return [key, value];
           return [key, undefined];
@@ -642,7 +619,7 @@ export class Parser {
         const projectedValue = await getValue();
         if (projectedValue === undefined) return undefined;
         let [_key, _value] = projectedValue;
-        // Null still skips transformers/variables, but must reach applyCast so a type default can apply
+        // Null must still reach applyCast so a type default can apply
         if (_value === null) return [_key, castToken ? await applyCast(undefined, castToken, context) : undefined];
         if (typeof _value === 'object') {
           type AlreadyParsedObject = { _parsed?: boolean };
@@ -656,7 +633,7 @@ export class Parser {
         // Apply global transformers if they exist
         if (globalContext.transformers) {
           for (const transformer of Object.values(globalContext.transformers)) {
-            if (transformer.when({ ...context, data: _value, value: _value })) {
+            if (await transformer.when({ ...context, data: _value, value: _value })) {
               _value = await transformer.then({ ...context, data: _value, value: _value });
             }
           }
@@ -691,11 +668,10 @@ export class Parser {
       return this.createProjection(project, _parserContext);
     };
 
-    // toHash stringifies functions via toString — parsers must hash by their projection, not the shared parse source
+    // toHash stringifies functions, so parsers must hash by their projection instead of the shared parse source
     let projectionHash: string | undefined;
     const parserToString = () => (projectionHash ??= `__parser:${toHash(project)}__`);
 
-    // Creates a marked variant of the parse function, used for the lazy flat and asArray properties
     const createParseVariant = (marker: '_flat' | '_array', toString: () => string) => {
       const variant = (data: AppObject | string, instanceContext?: ParserInstanceContext, parentContext?: Partial<ParserContext>) => {
         return parse(data, instanceContext, parentContext);
@@ -707,7 +683,7 @@ export class Parser {
       return variant;
     };
 
-    // Lazy so the common path pays nothing — createProjection runs per nested parse
+    // Lazy as createProjection runs per nested parse
     let flatParser: unknown;
     let arrayParser: unknown;
 
@@ -791,15 +767,11 @@ export interface InitializedParser<T> {
   store: Parser['store'];
   /** Built-in types plus everything registered via the global context's `types` (object form) */
   types: T;
-  /** Proxy shorthand for variable expressions — `variables.user.name` resolves like `'{{user.name}}'` */
+  /** Proxy shorthand for variable expressions: `variables.user.name` resolves like `'{{user.name}}'` */
   variables: typeof variables;
 }
 
-/**
- * Create an isolated parser engine. Registering `types` in the (object-form) global context
- * extends the returned namespace — `types.productCode` — and makes every registered type
- * available as a pipe in templates.
- */
+/** Create an isolated parser engine; object-form `types` registrations extend the returned `types` namespace */
 export function initializeParser<const T extends ParserTypesConfig>(
   addGlobalContext: ParserGlobalContext & { types: T },
 ): InitializedParser<RegisteredTypes<DefaultParserTypes, T>>;

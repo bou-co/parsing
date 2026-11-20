@@ -69,3 +69,14 @@ describe('flat parsers', () => {
     expect(asToken.projection).toBe(seoParser.projection);
   });
 });
+
+describe('flat parsers returned from value functions', () => {
+  const { createParser, types } = initializeParser();
+
+  it('nests under the key instead of merging', async () => {
+    const seo = createParser({ title: types.string, kind: 'seo' });
+    const parser = createParser({ direct: seo.flat, viaFunction: () => seo.flat });
+    const data = await parser({ direct: { title: 'D' }, viaFunction: { title: 'F' } });
+    expect(data).toEqual({ title: 'D', kind: 'seo', viaFunction: { title: 'F', kind: 'seo' } });
+  });
+});

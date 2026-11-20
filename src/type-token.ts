@@ -1,27 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { isPlainObject } from './internal';
 import { PARSER_TYPE_DEFAULTED, PARSER_TYPE_OUTPUT } from './parser-types';
 import type { ParserContext, ParserTypeFunction } from './parser-types';
 import { toHash } from './to-hash';
-
-/**
- * The casting primitive. A token is an instance of `TypeToken` or one of its subclasses (the
- * "families": `StringType`, `NumberType`, ...) carried by a function object, so a token can be
- * configured either by chaining (`types.string.default('x')`) or by calling it with an options
- * object (`types.string({ default: 'x' })`) — both produce the same token. Every token carries its
- * casting behaviour (`cast`), an output type at the type level (the `PARSER_TYPE_OUTPUT` phantom),
- * a content-derived `id` used for cache keys, and the universal chain: `default`, `required`,
- * `strict`, `loose`, `extend`, `to`.
- *
- * Missing data is normal: `undefined`, `null` and `''` (never `false` or `0`) skip the cast and
- * leave the key out (or take the default). Only a present value that does not fit fails, unless
- * the token is `required`.
- *
- * Accessor rules for families (from the casting spec): accessors are nouns describing the output,
- * predictable without docs, shipped as whole families, and inherited uniformly by every subclass.
- * No-parameter accessors are getters (`types.date.iso`); parameterised ones are methods that are
- * always called (`types.number.round(2)`). A transform keeps the family (`this`), a derivation
- * returns a base `TypeToken` of the new output.
- */
 
 export type CastFunction<In = unknown, Out = unknown> = (value: In, context: ParserContext) => Out | Promise<Out>;
 
@@ -91,7 +72,7 @@ const FAMILY_KEY = 'family';
 
 const ROOT_CONTEXT = {} as ParserContext;
 
-const defineHidden = (target: object, key: string, value: unknown) => {
+export const defineHidden = (target: object, key: string, value: unknown) => {
   Object.defineProperty(target, key, { value, writable: true, configurable: true, enumerable: false });
 };
 
@@ -117,15 +98,8 @@ export const isTypeToken = (value: unknown): value is TypeToken =>
     '_type' in value &&
     typeof (value as { cast?: unknown }).cast === 'function');
 
-const isPlainObject = (value: unknown): value is Record<string, unknown> => {
-  if (typeof value !== 'object' || value === null) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-};
-
-// The function object that carries a token: calling it applies an options object. Its own
-// `name`/`length` are removed so the prototype getters win
-const createCarrier = <T extends TypeToken>(proto: object): T => {
+// Own `name`/`length` are removed so the prototype getters win
+export const createCarrier = <T extends TypeToken>(proto: object): T => {
   const carrier = ((options?: unknown) => configure(carrier, options)) as unknown as T;
   Object.setPrototypeOf(carrier, proto);
   delete (carrier as { name?: unknown }).name;
@@ -153,7 +127,6 @@ const configure = (token: TypeToken, options: unknown): TypeToken => {
   return token['clone'](patch);
 };
 
-// Call signatures live on the merged interface: an options object configures the token in place of the chain
 export interface TypeToken<Out = any> {
   (options: NonOptionalOptions<Out>): this & ParserTypeDefaulted;
   (options?: TypeTokenOptions<Out>): this;
@@ -174,7 +147,7 @@ export class TypeToken<Out = any> {
     const name = init.name ?? (builtIn ? builtIn : ctor.name || type);
     const state: TypeTokenState = { type, name, fn: init.fn };
     if (builtIn) state.base = builtIn;
-    // The instance is a function object so the token is callable — `this` inside subclass constructors is this carrier
+    // The instance is a function object so the token is callable
     const token = createCarrier<this>(ctor.prototype);
     defineHidden(token, '_state', state);
     return token;
@@ -210,17 +183,13 @@ export class TypeToken<Out = any> {
     return this._state.policy;
   }
 
-  /**
-   * Cast a value. Standalone use throws on failure; inside a parse the engine applies the
-   * failure policy around it. Subclasses override this and call `super.cast` for the parent's
-   * coercion.
-   */
+  /** Cast a value. Standalone use throws on failure; inside a parse the engine applies the failure policy around it */
   cast(value: unknown, context?: ParserContext): CastResult<Out> {
     const { fn } = this._state;
     return fn ? fn(value, context ?? ROOT_CONTEXT) : (value as Out);
   }
 
-  /** Value used whenever the cast pipeline yields `undefined` (missing input, or a failed cast under a non-throwing policy). Makes the field non-optional */
+  /** Value used whenever the cast pipeline yields `undefined`. Makes the field non-optional */
   default(value: Out): this & ParserTypeDefaulted {
     return this.clone({ default: value }) as this & ParserTypeDefaulted;
   }
@@ -245,7 +214,7 @@ export class TypeToken<Out = any> {
     return deriveTransform(this, 'extend', fn, []) as this;
   }
 
-  /** Derive a new output — from a function (`to((v) => v.length)`), or by composing another token whose family the result keeps (`json.to(types.array.of(types.number))`) */
+  /** Derive a new output from a function, or compose another token whose family the result keeps (`json.to(types.array.of(types.number))`) */
   to<T extends TypeToken>(next: T): T;
   to<R>(fn: CastFunction<Out, R>): TypeToken<Awaited<R>>;
   to(next: TypeToken | CastFunction<Out, unknown>): TypeToken {
@@ -258,21 +227,20 @@ export class TypeToken<Out = any> {
   }
 
   toString(): string {
-    // toHash stringifies via JSON/toString — tokens hash by their identity, not their source
+    // toHash stringifies tokens, so they must hash by identity instead of source
     return `__parserType:${this.id}__`;
   }
 
-  /** Same-family accessor helper: memoised per member + params, id includes the implementation */
+  /** Same-family accessor helper, memoised per member + params */
   protected transform(key: string, fn: CastFunction<Out, Out>, params: unknown[] = []): this {
     return this.memo(memoKey(key, params), () => deriveTransform(this, key, fn, params)) as this;
   }
 
-  /** New-output accessor helper: memoised per member + params, id includes the implementation */
+  /** New-output accessor helper, memoised per member + params */
   protected derive<R>(key: string, fn: CastFunction<Out, R>, params: unknown[] = []): TypeToken<Awaited<R>> {
     return this.memo(memoKey(key, params), () => deriveValue(this, key, fn, params)) as TypeToken<Awaited<R>>;
   }
 
-  /** Copy of this token (same class, same state) with a state patch */
   protected clone(patch: Partial<TypeTokenState>): this {
     const copy = createCarrier<this>(Object.getPrototypeOf(this));
     defineHidden(copy, '_state', { ...this._state, id: undefined, ...patch });
@@ -293,7 +261,7 @@ export const UNIVERSAL_MEMBERS: ReadonlySet<string> = new Set(Object.getOwnPrope
 
 const memoKey = (key: string, params: unknown[]) => (params.length ? `${key}(${toHash(params)})` : key);
 
-// Prototypes between the token and its nearest built-in family that override cast — part of the identity of user subclasses
+// Cast overrides of user subclasses are part of their identity
 const collectCastOverrides = (token: TypeToken): string[] => {
   const sources: string[] = [];
   let proto = Object.getPrototypeOf(token);
@@ -375,14 +343,14 @@ const composeTokens = (parent: TypeToken, target: TypeToken): TypeToken => {
   defineHidden(token, '_state', {
     ...target._state,
     id: undefined,
-    // Composing onto a bare family root (`.to(string)`) only retypes the value — the parent's name stays the readable one
+    // Composing onto a bare family root (`.to(string)`) only retypes the value, so the parent's name stays
     name: target.id === target._state.base ? parent.name : `${parent.name}.to(${target.name})`,
+    required: parent._state.required ?? target._state.required,
+    policy: parent._state.policy ?? target._state.policy,
     derived: { parent, key: 'to', params: [], source: target.id },
   } satisfies TypeTokenState);
   return token;
 };
-
-// ---- defineType
 
 export type AccessorDefinitions<Out, A> = { [P in keyof A]: (value: Out, context: ParserContext) => A[P] };
 export type MethodDefinitions<Out, M> = { [P in keyof M]: M[P] & ((...params: any[]) => (value: Out, context: ParserContext) => unknown) };
@@ -446,12 +414,7 @@ export const installMembers = (
 
 type OutputOf<T> = T extends { readonly [PARSER_TYPE_OUTPUT]: infer Out } ? Out : never;
 
-/**
- * Create a type: from a class (`defineType(EmailType)` — the factory form of `new EmailType()`),
- * from a casting function, or from a definition object. With `extends`, the new type inherits the
- * parent's cast (run first) and its entire accessor surface — `fn` refines the parent's output.
- * `accessors` and `methods` add members of their own.
- */
+/** Create a type from a class, a casting function, or a definition object (`extends` inherits the parent's cast and accessors) */
 export function defineType<R>(fn: (value: unknown, context: ParserContext) => R): TypeToken<Awaited<R>>;
 export function defineType<T extends TypeToken>(type: new () => T, options: NonOptionalOptions<OutputOf<T>>): T & ParserTypeDefaulted;
 export function defineType<T extends TypeToken>(type: new () => T, options?: TypeTokenOptions<OutputOf<T>>): T;
@@ -468,12 +431,11 @@ export function defineType(
   options?: TypeTokenOptions,
 ): TypeToken {
   if (typeof definition === 'function') {
-    // A class (anything whose prototype chain reaches TypeToken) is instantiated; any other function is a cast
     if (definition.prototype instanceof TypeToken) {
       const token = new (definition as new () => TypeToken)();
       return options ? token(options) : token;
     }
-    return new TypeToken({ type: 'custom', fn: definition as CastFunction });
+    return new TypeToken({ type: 'custom', name: 'custom', fn: definition as CastFunction });
   }
   const { fn, name, accessors, methods, ...tokenOptions } = definition;
   const parent = 'extends' in definition ? definition.extends : undefined;
@@ -505,8 +467,6 @@ export function defineType(
   }
   return token(tokenOptions);
 }
-
-// ---- Errors and the cast runtime
 
 export const buildKeyPath = (context: Partial<ParserContext>): string => {
   const keys: PropertyKey[] = [];
@@ -544,7 +504,7 @@ export interface ApplyCastOptions {
   fallback?: boolean;
 }
 
-// Exactly two flows: throw, or (log and) undefined — which the token default then fills
+// Two flows only: throw, or drop the value so the token default fills it
 const handleFailure = (error: unknown, value: unknown, token: TypeToken, context: ParserContext, options?: ApplyCastOptions) => {
   const castError = new ParserCastError(error, value, token, context);
   context.onCastError?.(castError, context);
@@ -563,17 +523,16 @@ const handleFailure = (error: unknown, value: unknown, token: TypeToken, context
 export const applyCast = async (value: unknown, token: TypeToken, context: ParserContext = ROOT_CONTEXT, options?: ApplyCastOptions): Promise<unknown> => {
   const { default: defaultValue, required } = token._state;
   const missing = (received: unknown) => (required ? handleFailure(new Error('Missing required value'), received, token, context, options) : defaultValue);
-  // Missing values skip casting so fields stay optional — the default fills them, and only a required token complains
+  // Missing values skip casting so fields stay optional
   if (isMissing(value)) return missing(value);
   try {
     const result = await token.cast(value, context);
-    // A cast may yield undefined to mean "missing" — same treatment
     return result === undefined ? missing(value) : result;
   } catch (error) {
     return handleFailure(error, value, token, context, options);
   }
 };
 
-/** Legacy definition shapes accepted by `defineType` */
+// TODO(v4): remove the v2 definition shapes
 export type ParserTypeObject<Out = unknown> = { fn: ParserTypeFunction<Out>; strict?: boolean; name?: string; default?: Out };
 export type ParserTypeDefinition<Out = unknown> = ParserTypeFunction<Out> | ParserTypeObject<Out>;

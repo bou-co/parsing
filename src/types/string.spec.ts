@@ -109,4 +109,11 @@ describe('string type', () => {
       viaPipe: 'fallback',
     });
   });
+
+  it('splits words on Unicode letters, not ASCII only', async () => {
+    expect(await types.string.kebab.cast('Crème brûlée')).toEqual('crème-brûlée');
+    expect(await types.string.camel.cast('Hyvää yötä')).toEqual('hyvääYötä');
+    expect(await types.string.pascal.cast('élan vital')).toEqual('ÉlanVital');
+    expect(await types.string.snake.cast('ÄäniKirja')).toEqual('ääni_kirja');
+  });
 });

@@ -59,7 +59,7 @@ This table is the core of the API. Anything in the left column is a legal projec
 | `(context) => value`                             | Value function; sync or async; receives `ParserContext`                                             |
 | `{ … }`                                          | Nested projection                                                                                   |
 | `{ '@array': true, … }`                          | Nested projection applied per array item                                                            |
-| Another parser                                   | Nested parse of `data[key]`                                                                         |
+| Another parser                                   | Nested parse of `data[key]` (projection-driven when it holds no object)                             |
 | `parser.asArray`                                 | Nested parse per array item                                                                         |
 | `parser.flat`                                    | Parse `data[key]`, **merge fields into parent**, drop the key                                       |
 | `store(keyTemplate, fn)`                         | Runs per parse; result cached in storage under the interpolated key                                 |
@@ -111,8 +111,8 @@ Extract the type with `ParserReturnValue<typeof parser>` when you need to name i
 ## Projection-driven nesting
 
 Nested projections resolve from the schema, not from the input's shape. When the input
-lacks a key (or holds a scalar like `null`, `0`, `''`, `false`, `5` that can't feed an
-object projection), the nested projection **still resolves**: constants, defaults,
+lacks a key (or holds a scalar like `null`, `0`, `''`, `false`, `5`, or a plain string, that
+can't feed an object projection), the nested projection **still resolves**: constants, defaults,
 `@combine`, `@if`, and value functions all produce output.
 
 ```ts

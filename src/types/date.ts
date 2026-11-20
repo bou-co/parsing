@@ -3,30 +3,28 @@ import { CastResult, TypeToken, defineType } from '../type-token';
 import { invalid } from './internal';
 import { string, StringType } from './string';
 
-/** `date` — `Date` instances, parseable date strings and epoch numbers become a valid `Date`. Calendar fields are UTC */
+/** `Date` instances, parseable date strings and epoch numbers become a valid `Date`. Calendar fields are UTC */
 export class DateType extends TypeToken<Date> {
   static readonly family: string = 'date';
 
   override cast(value: unknown, _context?: ParserContext): CastResult<Date> {
     if (value instanceof Date) {
-      if (!isNaN(value.getTime())) return value;
+      if (!Number.isNaN(value.getTime())) return value;
       throw invalid('date');
     }
     if (typeof value === 'string' || typeof value === 'number') {
       const date = new Date(value);
-      if (!isNaN(date.getTime())) return date;
+      if (!Number.isNaN(date.getTime())) return date;
     }
     throw invalid('date');
   }
-
-  // Representations
 
   /** Full ISO 8601 string (`2024-05-15T12:00:00.000Z`) */
   get iso(): StringType {
     return this.derive('iso', (value) => value.toISOString()).to(string);
   }
 
-  /** The `YYYY-MM-DD` portion (UTC) — what date inputs and date-keyed grouping want */
+  /** The `YYYY-MM-DD` portion (UTC) */
   get isoDate(): StringType {
     return this.derive('isoDate', (value) => value.toISOString().slice(0, 10)).to(string);
   }
@@ -35,8 +33,6 @@ export class DateType extends TypeToken<Date> {
   get timestamp(): TypeToken<number> {
     return this.derive('timestamp', (value) => value.getTime());
   }
-
-  // Calendar fields (UTC)
 
   get year(): TypeToken<number> {
     return this.derive('year', (value) => value.getUTCFullYear());

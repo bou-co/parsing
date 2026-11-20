@@ -1,25 +1,26 @@
 import type { ParserContext } from '../parser-types';
 import type { TypeToken } from '../type-token';
 import { defineType } from '../type-token';
+import { invalid } from './internal';
 import { string, StringType } from './string';
 
-/**
- * `url` — `new URL()` semantics, normalised to `href`. Absolute URLs only: `/about` fails like it
- * does on the platform. For relative link fields use `.base('https://site.com')`, which mirrors
- * `new URL(value, base)`. Parts use the platform's names (`pathname`, not `path`).
- */
+/** `new URL()` semantics normalised to `href`. Absolute URLs only unless `.base()` is set */
 export class UrlType extends StringType {
   static override readonly family: string = 'url';
 
   override async cast(value: unknown, context?: ParserContext): Promise<string | undefined> {
     const text = await super.cast(value, context);
     if (text === undefined) return undefined;
-    const base = this._state.options?.['base'] as string | undefined;
+    const { baseUrl } = this;
     try {
-      return new URL(text.trim(), base).href;
+      return new URL(text.trim(), baseUrl).href;
     } catch {
-      throw new Error(base ? `Invalid URL (relative to ${base})` : 'Invalid URL (absolute URLs only — use .base() for relative links)');
+      throw invalid('url', baseUrl ? `relative to ${baseUrl}` : 'absolute URLs only, use .base() for relative links');
     }
+  }
+
+  get baseUrl(): string | undefined {
+    return this._state.options?.['base'] as string | undefined;
   }
 
   /** Resolve relative values against `base`, exactly like `new URL(value, base)` */
@@ -56,7 +57,7 @@ export class UrlType extends StringType {
     return this.derive('search', (value) => new URL(value).search).to(string);
   }
 
-  /** Search parameters as a plain object — a repeated key keeps its last value */
+  /** Search parameters as a plain object, a repeated key keeps its last value */
   get params(): TypeToken<Record<string, string>> {
     return this.derive('params', (value) => Object.fromEntries(new URL(value).searchParams));
   }

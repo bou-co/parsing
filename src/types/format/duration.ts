@@ -1,27 +1,30 @@
 import type { ParserContext } from '../../parser-types';
 import { CastResult, TypeToken, defineType } from '../../type-token';
+import { invalid } from '../internal';
 import { string, StringType } from '../string';
 
-const ISO = /^P(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/i;
+const ISO = /^P(?:(\d+(?:\.\d+)?)D)?(?:T(?=\d)(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/i;
 const CLOCK = /^(?:(\d+):)?(\d{1,2}):(\d{2})$/;
 
-/**
- * `duration` — media lengths: ISO 8601 (`PT1H30M`, `P1DT2H`), `h:mm:ss` / `m:ss`, or a number of
- * seconds (numeric strings included). Output: total seconds as a number; `.iso` renders `PT…`.
- */
+/** Media lengths as total seconds: ISO 8601 (`PT1H30M`), `h:mm:ss` / `m:ss`, or a number of seconds */
 export class DurationType extends TypeToken<number> {
   static readonly family: string = 'duration';
 
   override cast(value: unknown, _context?: ParserContext): CastResult<number> {
     if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value;
-    if (typeof value !== 'string') throw new Error('Invalid duration');
+    if (typeof value !== 'string') throw invalid('duration');
     const text = value.trim();
     if (/^\d+(\.\d+)?$/.test(text)) return Number(text);
     const clock = CLOCK.exec(text);
-    if (clock) return Number(clock[1] ?? 0) * 3600 + Number(clock[2]) * 60 + Number(clock[3]);
+    if (clock) {
+      const [hours, minutes, seconds] = [Number(clock[1] ?? 0), Number(clock[2]), Number(clock[3])];
+      if (seconds > 59 || (clock[1] !== undefined && minutes > 59)) throw invalid('duration');
+      return hours * 3600 + minutes * 60 + seconds;
+    }
     const iso = ISO.exec(text);
-    if (iso && text.length > 1) return Number(iso[1] ?? 0) * 86400 + Number(iso[2] ?? 0) * 3600 + Number(iso[3] ?? 0) * 60 + Number(iso[4] ?? 0);
-    throw new Error('Invalid duration');
+    if (iso && iso.slice(1).some((part) => part !== undefined))
+      return Number(iso[1] ?? 0) * 86400 + Number(iso[2] ?? 0) * 3600 + Number(iso[3] ?? 0) * 60 + Number(iso[4] ?? 0);
+    throw invalid('duration');
   }
 
   /** ISO 8601 (`PT1H30M`) */

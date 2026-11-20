@@ -1,19 +1,11 @@
 import type { ParserContext } from '../parser-types';
-import { StringType } from './string';
+import { TypeToken, defineType } from '../type-token';
 import type { ArrayType } from './array';
 import { array } from './array';
-import { TypeToken, defineType } from '../type-token';
 import { countCharacters, countWords } from './internal';
+import { StringType } from './string';
 
-/**
- * `text` — `string` plus CMS tidying for textarea-style content. Where `string` is the raw input
- * value (only `''` is missing), `text` is trimmed and normalised while **line breaks are kept**:
- * line endings become `\n`, runs of spaces/tabs collapse to one space, each line is trimmed,
- * three or more newlines collapse to one blank line (a paragraph break), and a result with
- * nothing left is missing (so `.default()` fires and the key is otherwise omitted). `.singleLine`
- * folds everything onto one line; the count and split accessors describe the tidied content.
- * Inherits every `string` accessor.
- */
+/** `string` tidied for textarea content: trimmed, spaces collapsed, line breaks kept. Nothing left means missing */
 export class TextType extends StringType {
   static override readonly family: string = 'text';
 
@@ -50,7 +42,6 @@ export class TextType extends StringType {
   }
 
   get lines(): ArrayType<string> {
-    // Bare `array`: an item-cast would report empty lines as missing
     return this.derive('lines', (value) => value.split('\n')).to(array) as ArrayType<string>;
   }
 

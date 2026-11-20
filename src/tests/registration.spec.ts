@@ -85,3 +85,38 @@ describe('type registration', () => {
     expect(await extended({})).toEqual({ v: 7, w: 'P0007' });
   });
 });
+
+describe('registered accessor maps', () => {
+  it('keeps an extended family callable and chainable', async () => {
+    const { createParser, types } = initializeParser({ types: { date: { year: (value: Date) => value.getUTCFullYear() } } });
+    const fallback = new Date(0);
+    const parser = createParser({
+      year: types.date.year,
+      called: types.date({ default: fallback }),
+      chained: types.date.default(fallback),
+      needed: types.date.required,
+    });
+    expect(await parser({ year: '2020-06-01', needed: '2021-01-01' })).toEqual({
+      year: 2020,
+      called: fallback,
+      chained: fallback,
+      needed: new Date('2021-01-01'),
+    });
+    await expect(parser({})).rejects.toThrow('Missing required value');
+  });
+
+  it('extends a family from schema and instance level for templates', async () => {
+    const { createParser } = initializeParser({ variables: { d: '2020-06-01' } });
+    const schemaLevel = createParser({ y: '{{ d | date.year }}' }, { types: { date: { year: (value: Date) => value.getUTCFullYear() } } });
+    expect(await schemaLevel({})).toEqual({ y: 2020 });
+    const instanceLevel = createParser({ m: '{{ d | date.monthIndex }}' });
+    expect(await instanceLevel({}, { types: { date: { monthIndex: (value: Date) => value.getUTCMonth() } } })).toEqual({ m: 5 });
+    await expect(instanceLevel({})).rejects.toThrow('has no accessor "monthIndex"');
+  });
+
+  it('rejects an accessor map for an unknown name at schema level too', async () => {
+    const { createParser } = initializeParser();
+    const parser = createParser({ a: 'x' }, { types: { nope: { x: (value: unknown) => value } } });
+    await expect(parser({})).rejects.toThrow('an accessor map extends an existing type');
+  });
+});

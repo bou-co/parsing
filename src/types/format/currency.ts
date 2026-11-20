@@ -3,7 +3,7 @@ import { number } from '../number';
 import { string, StringType } from '../string';
 import { contextLocale, numberFormatter } from './intl';
 
-/** `currency(code = 'EUR', locale?, options?)` — a number formatted as a currency amount with `Intl.NumberFormat` (`12.5` → `€12.50` / `12,50 €`) */
+/** A number formatted as a currency amount with `Intl.NumberFormat` (`12.5` → `€12.50` / `12,50 €`) */
 export const currency = (code = 'EUR', locale?: string, options?: Intl.NumberFormatOptions): StringType =>
   number['derive'](
     'currency',

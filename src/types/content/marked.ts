@@ -1,7 +1,7 @@
 import type { MarkedOptions } from 'marked';
 import { createLoader, type MarkdownAdapter } from './adapters';
 
-/** `marked` — the smallest, fastest mainstream Markdown parser, pure JavaScript, edge-friendly. Output must still be sanitised; the `markdown` type always does */
+/** Adapter for `marked`. Its output is not sanitised, the `markdown` type always does that */
 export const markedAdapter = (options?: MarkedOptions): MarkdownAdapter<MarkedOptions> => ({
   name: 'marked',
   package: 'marked',

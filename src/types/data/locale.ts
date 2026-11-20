@@ -1,17 +1,18 @@
 import type { ParserContext } from '../../parser-types';
 import { CastResult, TypeToken, defineType } from '../../type-token';
+import { invalid } from '../internal';
 import { string, StringType } from '../string';
 
-/** `locale` — a BCP 47 tag canonicalised through `Intl` (`en_us` → `en-US`); `.language`, `.region` decompose it */
+/** A BCP 47 tag canonicalised through `Intl` (`en_us` → `en-US`) */
 export class LocaleType extends TypeToken<string> {
   static readonly family: string = 'locale';
 
   override cast(value: unknown, _context?: ParserContext): CastResult<string> {
-    if (typeof value !== 'string' || !value.trim()) throw new Error('Invalid locale');
+    if (typeof value !== 'string') throw invalid('locale');
     try {
       return new Intl.Locale(value.trim().replace(/_/g, '-')).toString();
     } catch {
-      throw new Error('Invalid locale');
+      throw invalid('locale');
     }
   }
 
@@ -19,8 +20,9 @@ export class LocaleType extends TypeToken<string> {
     return this.derive('language', (value) => new Intl.Locale(value).language).to(string);
   }
 
-  get region(): TypeToken<string | undefined> {
-    return this.derive('region', (value) => new Intl.Locale(value).region);
+  /** Missing when the tag has no region */
+  get region(): StringType {
+    return this.derive('region', (value) => new Intl.Locale(value).region).to(string);
   }
 }
 

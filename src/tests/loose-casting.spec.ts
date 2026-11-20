@@ -174,3 +174,35 @@ describe('loose casting', () => {
     expect(() => (types.number as unknown as (arg: unknown) => unknown)('nope')).toThrow('expected an options object');
   });
 });
+
+describe('cast error details', () => {
+  it('exposes key, cause and name on ParserCastError', async () => {
+    const { createParser, types } = initializeParser();
+    const error = (await createParser({ nested: { count: types.number } })({ nested: { count: 'abc' } }).catch((caught) => caught)) as ParserCastError;
+    expect(error).toBeInstanceOf(ParserCastError);
+    expect(error.name).toEqual('ParserCastError');
+    expect(error.key).toEqual('count');
+    expect(error.path).toEqual('nested.count');
+    expect(error.cause).toBeInstanceOf(Error);
+    expect((error.cause as Error).message).toEqual('Invalid number');
+    expect(error.message).toEqual('Parser cast error at "nested.count": cannot cast value to "number" — Invalid number');
+  });
+
+  it('passes the failing context to onCastError before a strict token throws', async () => {
+    const seen: unknown[] = [];
+    const { createParser, types } = initializeParser({ onCastError: (error, context) => seen.push([error.path, context.key, context.value]) });
+    await expect(createParser({ n: types.number.strict })({ n: 'abc' })).rejects.toThrow(ParserCastError);
+    expect(seen).toEqual([['n', 'n', 'abc']]);
+  });
+
+  it('rejects a type passed as a call argument and a token used as a variable or pipe', async () => {
+    const { createParser, types } = initializeParser();
+    expect(() => (types.array as unknown as (arg: unknown) => unknown)(types.string)).toThrow(
+      'array(...): types are not parameters — use .of(string) or .to(string)',
+    );
+    const asVariable = createParser({ a: '{{ t }}' }, { variables: { t: types.string as never } });
+    await expect(asVariable({})).rejects.toThrow('Type "string" was called as a value function or pipe');
+    const asPipe = createParser({ a: '{{ v | p }}' }, { variables: { v: 'x' }, pipes: { p: types.string as never } });
+    await expect(asPipe({})).rejects.toThrow('Type "string" was called as a value function or pipe');
+  });
+});

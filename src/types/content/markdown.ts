@@ -2,26 +2,26 @@ import type { ParserContext } from '../../parser-types';
 import { string, StringType } from '../string';
 import { toPlainText, type MarkdownAdapter, type SanitiserAdapter } from './adapters';
 
-/**
- * `markdown(parser, sanitiser, options?)` — Markdown rendered to HTML and **always** sanitised on the
- * way out (Markdown permits raw HTML, so an unsanitised render is an XSS hole). `.plain` strips to
- * text for meta descriptions and previews.
- */
+/** Markdown rendered to HTML and always sanitised on the way out, since Markdown permits raw HTML */
 export class MarkdownType<ParserOptions = unknown, SanitiseOptions = unknown> extends StringType {
   static override readonly family: string = 'markdown';
 
   override async cast(value: unknown, context?: ParserContext): Promise<string | undefined> {
     const text = await super.cast(value, context);
     if (text === undefined) return undefined;
-    const { parser, sanitiser, parserOptions, sanitiseOptions } = this._state.options as {
-      parser: MarkdownAdapter<ParserOptions>;
-      sanitiser: SanitiserAdapter<SanitiseOptions>;
-      parserOptions?: ParserOptions;
-      sanitiseOptions?: SanitiseOptions;
-    };
+    const { parser, sanitiser, parserOptions, sanitiseOptions } = this.adapters;
     const [parserLibrary, sanitiserLibrary] = await Promise.all([parser.load(), sanitiser.load()]);
     const rendered = await parser.render(parserLibrary, text, parserOptions);
     return sanitiser.sanitize(sanitiserLibrary, rendered, sanitiseOptions);
+  }
+
+  get adapters(): {
+    parser: MarkdownAdapter<ParserOptions>;
+    sanitiser: SanitiserAdapter<SanitiseOptions>;
+    parserOptions?: ParserOptions;
+    sanitiseOptions?: SanitiseOptions;
+  } {
+    return this._state.options as never;
   }
 
   get plain(): StringType {

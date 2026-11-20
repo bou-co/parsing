@@ -231,4 +231,127 @@ describe('store', () => {
       expect(await b.store.match('shared-key')).toEqual('from-b');
     });
   });
+
+  describe('store details', () => {
+    it('should run a zero-argument call against the store context and share the memo with await', async () => {
+      const query = vi.fn(async ({ variables }: ParserContext) => `tenant:${variables['tenant']}`);
+      const cached = store('zero-arg-{{tenant}}', query);
+
+      expect(await cached()).toEqual('tenant:acme');
+      expect(await cached).toEqual('tenant:acme');
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(storage.values['zero-arg-acme']).toEqual('tenant:acme');
+    });
+
+    it('should support catch and finally on the returned value', async () => {
+      const done = vi.fn();
+      const failing = store('failing', async () => {
+        throw new Error('fetch failed');
+      });
+
+      expect(await failing.catch((error: Error) => error.message)).toEqual('fetch failed');
+      await expect(failing.finally(done)).rejects.toThrow('fetch failed');
+      expect(await store('fine', async () => 'ok').finally(done)).toEqual('ok');
+      expect(done).toHaveBeenCalledTimes(2);
+      expect('failing' in storage.values).toBe(false);
+    });
+
+    it('should pass options on match, remove and clear to the backend cache context', async () => {
+      const expected = expect.objectContaining({ cache: expect.objectContaining({ ttl: 5, region: 'eu' }) });
+      const options = { ttl: 5, region: 'eu' } as never;
+
+      await store.match('opt', options);
+      await store.remove('opt', options);
+      await store.clear(options);
+
+      expect(storage.match).toHaveBeenCalledWith('opt', expected);
+      expect(storage.remove).toHaveBeenCalledWith('opt', expected);
+      expect(storage.clear).toHaveBeenCalledWith(expected);
+    });
+
+    it('should interpolate variables in remove keys and write undefined for unresolved ones', async () => {
+      await store.add('tenant-{{tenant}}', 'value');
+      await store.remove('tenant-{{tenant}}');
+      expect('tenant-acme' in storage.values).toBe(false);
+
+      expect(await store.add('profile-{{missing}}', 'value')).toEqual('profile-undefined');
+      expect(await store.match('profile-{{alsoMissing}}')).toEqual('value');
+    });
+
+    it('should never consult generateKey', async () => {
+      class KeyedStorage extends TestStorage {
+        generateKey = vi.fn(() => 'generated');
+      }
+      const keyed = new KeyedStorage();
+      const engine = initializeParser({ storage: keyed, cache: { enabled: false } });
+
+      await engine.store('plain-key', async () => 'value');
+      await engine.store.add({ value: 'content' });
+      await engine.createParser({ v: ({ store }: ParserContext) => store('ctx-key', async () => 'ctx') })({});
+
+      expect(keyed.generateKey).not.toHaveBeenCalled();
+      expect(Object.keys(keyed.values).sort()).toEqual(expect.arrayContaining(['ctx-key', 'plain-key']));
+      expect(Object.keys(keyed.values).some((key) => key === 'generated')).toBe(false);
+    });
+
+    it('should derive key-order sensitive automatic keys', async () => {
+      const first = await store.add({ value: { a: 1, b: 2 } });
+      const second = await store.add({ value: { b: 2, a: 1 } });
+
+      expect(first).not.toEqual(second);
+    });
+
+    it('should start context.store eagerly so consecutive calls run in parallel', async () => {
+      const started: string[] = [];
+      const slow = (name: string) => async () => {
+        started.push(name);
+        await new Promise((done) => setTimeout(done, 40));
+        return name;
+      };
+      const parser = createParser({
+        value: async ({ store: contextStore }: ParserContext) => {
+          const a = contextStore('eager-a', slow('a'));
+          const b = contextStore('eager-b', slow('b'));
+          await new Promise((done) => setTimeout(done, 5));
+          const startedBeforeAwait = [...started];
+          return { startedBeforeAwait, values: [await a, await b] };
+        },
+      });
+
+      const data = await parser({});
+      expect(data?.value).toEqual({ startedBeforeAwait: ['a', 'b'], values: ['a', 'b'] });
+
+      const lazy = store('lazy-a', slow('lazy'));
+      await new Promise((done) => setTimeout(done, 5));
+      expect(started).not.toContain('lazy');
+      expect(await lazy).toEqual('lazy');
+    });
+
+    it('should expose context.store inside resolve inputs and context.resolve', async () => {
+      const data = await resolve(
+        {
+          direct: ({ store: contextStore }: ParserContext) => contextStore('resolve-{{uid}}', async () => 'direct'),
+          nested: ({ resolve: contextResolve }: ParserContext) =>
+            contextResolve(
+              { inner: ({ store: contextStore }: ParserContext) => contextStore('nested-{{uid}}-{{extra}}', async () => 'nested') },
+              { variables: { extra: 'x' } },
+            ),
+        },
+        { variables: { uid: '7' } },
+      );
+
+      expect(data).toEqual({ direct: 'direct', nested: { inner: 'nested' } });
+      expect(storage.values['resolve-7']).toEqual('direct');
+      expect(storage.values['nested-7-x']).toEqual('nested');
+    });
+
+    it('should not dedupe or cache without a storage', async () => {
+      const bare = initializeParser();
+      const query = vi.fn(async () => 'value');
+
+      expect(await Promise.all([bare.store('k', query), bare.store('k', query)])).toEqual(['value', 'value']);
+      expect(query).toHaveBeenCalledTimes(2);
+      expect(await bare.store.match('k')).toBeUndefined();
+    });
+  });
 });

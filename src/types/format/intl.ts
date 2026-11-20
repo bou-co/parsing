@@ -9,6 +9,15 @@ export const numberFormatter = (locale: string | undefined, options: Intl.Number
   return cached;
 };
 
+const dateCache = new Map<string, Intl.DateTimeFormat>();
+
+export const dateFormatter = (locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat => {
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let cached = dateCache.get(key);
+  if (!cached) dateCache.set(key, (cached = new Intl.DateTimeFormat(locale, options)));
+  return cached;
+};
+
 /** Locale from the localize template's context fields when present */
 export const contextLocale = (context: ParserContext): string | undefined => {
   const { currentLocale, defaultLocale } = context as { currentLocale?: unknown; defaultLocale?: unknown };

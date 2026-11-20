@@ -1,4 +1,4 @@
-// `@bou-co/parsing/types/all` — every dependency-free tier-2 type. Content types (peer dependencies) stay explicit: `@bou-co/parsing/types/content`
+// Content types need peer dependencies and stay behind `@bou-co/parsing/types/content`
 import { dataTypes } from './data';
 import { formatTypes } from './format';
 

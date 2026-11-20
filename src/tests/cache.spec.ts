@@ -206,3 +206,43 @@ describe('derived token identity', () => {
     expect(toHash({ value: one.part })).toEqual(toHash({ value: remade.part }));
   });
 });
+
+describe('cache keys', () => {
+  it('should hash RegExp values by their source', () => {
+    expect(toHash({ match: /a+/g })).toEqual(toHash({ match: /a+/g }));
+    expect(toHash({ match: /a+/g })).not.toEqual(toHash({ match: /b+/g }));
+    expect(toHash({ match: /a+/g })).not.toEqual(toHash({ match: /a+/i }));
+  });
+
+  it('should fail to hash a literal object cycle but accept the same recursion through a value function', async () => {
+    type Node = { label: string; child?: unknown };
+    const literal: Node = { label: 'node' };
+    literal.child = literal;
+    expect(() => toHash(literal)).toThrow();
+
+    const node: any = createParser({ label: 'node', child: () => node }, { cache: { name: 'recursive-node' } });
+    expect(await node({})).toEqual({ label: 'node', child: { label: 'node' } });
+  });
+
+  it('should give a data-based generateKey the same key for every data-less nested parse', async () => {
+    const keys: string[] = [];
+    class RecordingCache extends TestCache {
+      override add = async (key: string, value: any) => {
+        keys.push(key);
+        this.values[key] = value;
+      };
+    }
+    const engine = initializeParser({ storage: new RecordingCache(), cache: { enabled: true, globalPrefix: 'p', name: 'outer' } });
+    const child = engine.createParser({ at: ({ parent }: ParserContext) => parent?.key }, { cache: { name: 'child' } });
+    const parser = engine.createParser({ first: child, second: child });
+
+    expect(await parser({ id: 1 })).toEqual({ first: { at: 'first' }, second: { at: 'second' } });
+    const childKeys = keys.filter((key) => key.startsWith('child-'));
+    expect(childKeys).toHaveLength(2);
+    expect(new Set(childKeys).size).toEqual(1);
+
+    // Both keys now read the one shared entry
+    const again = await parser({ id: 2 });
+    expect(again.first).toEqual(again.second);
+  });
+});

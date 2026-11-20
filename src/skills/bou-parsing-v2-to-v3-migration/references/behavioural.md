@@ -100,6 +100,12 @@ profile: async ({ data, datalessPath }) => {
 - **A truthy scalar at an object-projection key no longer leaks the projection.** v2 returned
   the raw projection object, live functions included. v3 resolves it, with the scalar reachable
   at `context.parent.value`.
+- **One input rule for every nested form** (inline object, nested parser, `.flat`, a parser
+  returned from a value function): the value at the key is data when it is an object, a
+  stringified object/array, or a full-string pattern resolving to an object. Everything else —
+  missing, `null`, numbers, booleans, plain strings, scalar-valued variables — resolves
+  projection-driven. A nested parser handed a plain string therefore no longer fails in
+  `JSON.parse`; only a string that looks like JSON and isn't still throws.
 - **Custom `generateKey` caveat.** Projection-driven parses always receive `{}` as data, so a
   cache key built only from projection + data collides across different parents. The default key
   (which hashes the full call) is unaffected.
@@ -146,6 +152,12 @@ const looseDate = defineType((value) => {
   return isNaN(d.getTime()) ? undefined : d;
 });
 ```
+
+### `number` only accepts finite numbers
+
+`types.number` rejects `NaN` and `±Infinity` (also as strings, and an invalid `Date`) like any
+other uncastable value. v2's `'number'` passed everything through, so a field that carried
+`NaN` now fails — fix the source, or type it `types.any`.
 
 ### What doesn't throw
 
@@ -214,6 +226,13 @@ previously inherited the parent's name now throws `Caching options must have a n
 This one _does_ announce itself — it's in the Tier 1 error table — but the cause is this
 behavioural change, so fix it by giving the nested parser its own cache config rather than by
 loosening `generateKey`.
+
+**Async transformer conditions are awaited.** v2 called `transformer.when(...)` without
+awaiting it, so an `async when` was always truthy and its `then` ran for every value. v3
+awaits it.
+
+→ **Audit:** a transformer with an `async when` that "worked" in v2 was firing
+unconditionally; in v3 it only fires when the condition resolves truthy.
 
 **Calling conventions changed with it** — see `mechanical.md` §6.
 
@@ -351,6 +370,7 @@ search you can actually run.
 - [ ] Fields typed `'date'` in v2 where input may be falsy or unparseable
 - [ ] Fields where the declared v2 type never actually matched the data
 - [ ] Intentional raw passthroughs — retype as `types.any` rather than loosening globally
+- [ ] Number fields that may carry `NaN`/`Infinity` (now a cast failure)
 
 **Context**
 
@@ -361,6 +381,7 @@ search you can actually run.
 - [ ] Custom context properties named `value`, `parent`, `path`, `store`, `resolve`, `pipes`, `types`, `datalessPath`
 - [ ] Manual nested parser calls passing context as the 2nd argument
 - [ ] Code relying on `asyncMapObject` running its callback sequentially in key order (now parallel)
+- [ ] Transformers with an `async when` (v2 never awaited it, so they always fired)
 
 **Patterns and content**
 

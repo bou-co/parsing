@@ -1,6 +1,7 @@
 import type { ParserContext } from '../parser-types';
-import { StringType } from './string';
 import { defineType } from '../type-token';
+import { invalid } from './internal';
+import { StringType } from './string';
 
 // Latin letters that NFKD cannot decompose into a base letter + combining mark
 const TRANSLITERATIONS: Record<string, string> = {
@@ -32,26 +33,7 @@ const TRANSLITERATIONS: Record<string, string> = {
 
 const TRANSLITERABLE = new RegExp(`[${Object.keys(TRANSLITERATIONS).join('')}]`, 'g');
 
-/**
- * `slug` — normalises any string to an ASCII, URL-safe slug (`[a-z0-9-]`, single `-` between
- * words, none at the ends) in the most script-neutral way possible **without locale data**:
- *
- * 1. trim;
- * 2. transliterate the Latin letters NFKD cannot decompose (`ß` → `ss`, `æ` → `ae`, `ø` → `o`,
- *    `ł` → `l`, `đ` → `d`, `þ` → `th`, ...);
- * 3. NFKD normalisation and removal of every combining mark, so `Hyvää yötä` → `hyvaa yota`,
- *    `Łódź` → `lodz`, `crème brûlée` → `creme brulee`;
- * 4. lower-case;
- * 5. every run of anything outside `a-z0-9` becomes one `-`; leading/trailing `-` removed;
- * 6. nothing left → `Invalid slug`.
- *
- * Deliberate limits: non-Latin scripts (Cyrillic, Greek, CJK, Arabic, ...) have no ASCII form
- * and are dropped — a value made only of them **fails** rather than turning into `-`; and locale
- * conventions (`ä` → `ae` in German, `&` → `and`, a Cyrillic romanisation) are not applied. Those
- * are a pre-step composed in front: `types.string.replace(/ä/g, 'ae').to(types.slug)` or
- * `types.string.extend(transliterate).to(types.slug)` keeps the `slug` family; `types.slug.extend(fn)`
- * post-processes; `types.pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)` only validates.
- */
+/** ASCII URL-safe slug (`[a-z0-9-]`) without locale data. Non-Latin scripts have no ASCII form, so a value made only of them fails */
 export class SlugType extends StringType {
   static override readonly family: string = 'slug';
 
@@ -66,7 +48,7 @@ export class SlugType extends StringType {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
-    if (!slug) throw new Error('Invalid slug (no URL-safe characters left — non-Latin scripts need a transliteration step)');
+    if (!slug) throw invalid('slug', 'no URL-safe characters left, non-Latin scripts need a transliteration step');
     return slug;
   }
 }

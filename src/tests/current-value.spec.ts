@@ -228,3 +228,24 @@ describe('parsing', () => {
     expect(n).toEqual(5);
   });
 });
+
+describe('context wiring around values', () => {
+  it('should re-wire context.resolve after a before hook replaces the context', async () => {
+    const { createParser } = initializeParser();
+    const parser = createParser(
+      { greeting: ({ resolve }: ParserContext) => resolve('Hi {{who}}'), own: async ({ resolve }: ParserContext) => resolve() },
+      { before: (context) => ({ ...context, variables: { ...context.variables, who: 'hooked' } }) },
+    );
+
+    expect(await parser({ own: '{{who}}!' })).toEqual({ greeting: 'Hi hooked', own: 'hooked!' });
+  });
+
+  it('should leave context.value undefined when the incoming value cannot feed a nested level', async () => {
+    const { createParser } = initializeParser();
+    const parser = createParser({
+      nested: { inner: ({ value, parent }: ParserContext) => ({ value: value === undefined, parentValue: parent?.value }) },
+    });
+
+    expect(await parser({ nested: 'scalar' })).toEqual({ nested: { inner: { value: true, parentValue: 'scalar' } } });
+  });
+});

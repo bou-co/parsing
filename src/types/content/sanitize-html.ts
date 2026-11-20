@@ -1,11 +1,7 @@
 import type { IOptions } from 'sanitize-html';
 import { createLoader, type SanitiserAdapter } from './adapters';
 
-/**
- * The hardened server-side option: `sanitize-html` (htmlparser2-based, no DOM, richly
- * configurable — `transformTags`, `exclusiveFilter`, allow-listed inline `style` properties).
- * Its own defaults are safe; `options` pass straight through and merge over them.
- */
+/** Adapter for `sanitize-html`. Its own defaults are safe, `options` merge over them */
 export const sanitizeHtmlAdapter = (options?: IOptions): SanitiserAdapter<IOptions> => ({
   name: 'sanitize-html',
   package: 'sanitize-html',

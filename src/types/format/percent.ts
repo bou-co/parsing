@@ -3,10 +3,7 @@ import { number } from '../number';
 import { string, StringType } from '../string';
 import { contextLocale, digitsOptions, numberFormatter } from './intl';
 
-/**
- * `percent(digits?, locale?)` — a ratio formatted as a percentage (`0.256` → `26%`). `digits`
- * follows Angular's `minInt.minFrac-maxFrac` (`'1.0-2'`) or is a plain maximum fraction count.
- */
+/** A ratio formatted as a percentage (`0.256` → `26%`). `digits` is Angular's `minInt.minFrac-maxFrac` or a maximum fraction count */
 export const percent = (digits?: string | number, locale?: string): StringType =>
   number['derive'](
     'percent',

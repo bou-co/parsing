@@ -37,7 +37,6 @@ export const useParserValue = <R extends ParserFunction<object>>(incomingData: a
   const revalidate = useCallback(
     (updatedData = _data.current) => {
       _data.current = updatedData;
-      hasId.current = undefined;
       const hash = toHash(updatedData);
       hasId.current = hash;
       parse();

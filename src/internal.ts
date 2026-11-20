@@ -1,19 +1,21 @@
-// Check if a projection is marked as an array via the @array directive
 export const hasArrayDirective = (projection: unknown): boolean =>
   typeof projection === 'object' && projection !== null && !Array.isArray(projection) && '@array' in projection;
 
-// Check if an input value is unable to feed an object projection
 export const isDatalessInput = (input: unknown): boolean => {
-  // Objects and arrays stay data-driven
   if (input !== null && typeof input === 'object') return false;
-  // Non-empty strings keep their own handling (stringified objects, variables)
   if (typeof input === 'string' && input !== '') return false;
   return true;
 };
 
-// Check if a parser can resolve without data (array-shaped output always requires data)
+// Array-shaped output always requires data
 export const canResolveDataless = (parser: object, projection: unknown): boolean =>
   !('_array' in parser) && !Array.isArray(projection) && !hasArrayDirective(projection);
+
+export const isPlainObject = (value: unknown): value is Record<PropertyKey, any> => {
+  if (typeof value !== 'object' || value === null) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
 
 export const getFromObject = async (from: object, path: string, context?: unknown) => {
   type VariablesObj = Record<any, any> | undefined;
@@ -73,8 +75,7 @@ export const hashReplacer = (_key: string, value: unknown) => {
   return value;
 };
 
-// Content-addressed store keys: toHash is 32-bit and collapses falsy values, which is fine for cache
-// keys that also carry a projection but too collision-prone when the hash is the whole identity
+// toHash is 32-bit and collapses falsy values, too collision-prone when the hash is the whole key
 export const toContentHash = (value: unknown): string => {
   const asString = JSON.stringify(value, hashReplacer) ?? String(value);
   return toAlphabeticName(toPhash(5381, asString) >>> 0) + toAlphabeticName(toFnv1a(asString));

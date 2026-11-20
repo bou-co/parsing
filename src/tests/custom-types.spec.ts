@@ -56,3 +56,43 @@ describe('custom types', () => {
     expect(array.of(number)).toBe(types.array.of(types.number));
   });
 });
+
+describe('defineType forms', () => {
+  const { createParser } = initializeParser();
+
+  it('names a bare casting function "custom" in errors and ids', async () => {
+    const failing = defineType(() => {
+      throw new Error('no');
+    });
+    expect(failing.name).toEqual('custom');
+    expect(failing.id).toMatch(/^custom:custom:/);
+    await expect(createParser({ a: failing })({ a: 1 })).rejects.toThrow('cannot cast value to "custom" — no');
+  });
+
+  it('accepts required and loose in the object form', async () => {
+    const needed = defineType({ name: 'needed', fn: (value) => String(value), required: true });
+    expect(needed.isRequired).toBe(true);
+    await expect(createParser({ a: needed })({})).rejects.toThrow('Missing required value');
+
+    const quiet = defineType({
+      name: 'quiet',
+      loose: true,
+      fn: () => {
+        throw new Error('no');
+      },
+    });
+    expect(quiet.policy).toEqual('loose');
+    expect(await createParser({ a: quiet })({ a: 1 })).toEqual({});
+  });
+
+  it('throws when the object form has no fn and no parent', () => {
+    expect(() => defineType({ name: 'empty' } as never)).toThrow('a casting function `fn` is required');
+    expect(() => defineType({ extends: {} as never, fn: (value: unknown) => value } as never)).toThrow('`extends` must be a type token');
+  });
+
+  it('treats a custom cast returning undefined as missing', async () => {
+    const blankable = defineType({ name: 'blankable', fn: (value) => (value === 'skip' ? undefined : String(value)) });
+    expect(await createParser({ a: blankable, b: blankable.default('dflt') })({ a: 'skip', b: 'skip' })).toEqual({ b: 'dflt' });
+    await expect(createParser({ a: blankable.required })({ a: 'skip' })).rejects.toThrow('Missing required value');
+  });
+});

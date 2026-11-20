@@ -102,6 +102,12 @@ deeper than 10 levels throw `ParserPatternCycleError` rather than hanging. Opt o
 `patterns: { variables: { rescan: false } }`. If editors can put variable syntax into variable
 _values_, this is either a feature or an injection vector depending on your setup.
 
+### `patterns: { variables: false }` only stops string interpolation
+
+It removes the `{{ }}` pattern from string scanning. `variable('x')`, the `variables` proxy and
+`getVariableValue` still resolve — they fall back to the default variables pattern. Don't rely
+on the switch to make variables unreachable.
+
 ### `$` sequences in resolved values are inserted literally
 
 `$&`, `$1`, `$$` in a resolved value are no longer mangled by the string splice. Correct
@@ -120,6 +126,14 @@ relied on getting an Invalid Date back needs a custom type.
 
 The default is returned as-is; TypeScript enforces that it matches the output type, but no
 runtime casting happens. `types.number({ default: '0' as any })` will hand you a string.
+
+### A `default` set before an accessor is dropped — the type doesn't notice
+
+`types.string.default('x').upperCase` has no default: every accessor, `.extend` and `.to`
+derives a token without it, so missing input yields no key — while the field is still typed
+non-optional, because transforms return the same type. Put `.default()` last
+(`types.string.upperCase.default('X')`). `required` / `strict` / `loose` do carry through
+derivations, and `.of()` on `array` / `record` keeps a default set before it.
 
 ### `default` does not rescue hard failures
 
@@ -246,6 +260,26 @@ functions included). It now resolves the projection, with the scalar reachable a
 `context.parent.value` (or `context.parent.data[key]` — `context.parent.data` itself is the
 parent's whole data object).
 
+### `() => parser.flat` nests instead of merging **[verified]**
+
+`.flat` merges only when it is the projection value itself. Returned from a value function it
+is treated like any returned parser: the result sits under the key, and the type follows suit.
+
+```ts
+createParser({ meta: metaParser.flat }); // → { title: '…' }           merged
+createParser({ meta: () => metaParser.flat }); // → { meta: { title: '…' } } nested
+```
+
+For a conditional merge use `@combine` (`'@combine': ({ data }) => (data.meta ? metaParser(data.meta) : undefined)`).
+
+### A string only feeds a nested projection when it holds an object
+
+Under an inline object, a nested parser, `.flat` or a returned parser, `data[key]` is used as
+data when it is an object, a stringified object/array, or a full-string pattern resolving to
+an object. Any other string — and every other scalar — resolves the projection data-less
+(array-shaped projections are omitted). A string that looks like JSON but isn't
+(`'{not json}'`) still throws the `Parser stringify error`.
+
 ### Parsers in positional array slots silently misbehave **[verified]**
 
 A positional array projection works with plain projections and silently fails with parsers:
@@ -309,6 +343,12 @@ register it under `types`. Use `.cast(value)` for a standalone cast.
 `types.string` is the raw `<input>` value (`'  '` stays); `types.text` is `<textarea>` content:
 whitespace-only is missing, line breaks are **kept** (`.singleLine` folds them).
 
+### `types.number` rejects `NaN` and `Infinity`
+
+A present value that is not a finite number fails like any other bad value — including the
+strings `'NaN'` / `'Infinity'` and an invalid `Date`. Numeric strings are trimmed first. Use
+`types.any` (or a custom type) where non-finite numbers are legitimate.
+
 ### `email` and `tel` keep the value as written
 
 Neither base cast rewrites the value: `email` keeps the case (`.normalized` lower-cases, or the
@@ -338,6 +378,12 @@ transformers and patterns with the projection key as the error path. Inside `con
 failure. Use `value('{{siteName}}', types.string.required)`
 or `variable('siteName', types.string.required)` to cast it like a token at the key.
 
+### A type token returned from `resolve()` input is not applied
+
+`resolve` does no projection-level casting: tokens (and parsers) in the input pass through
+untouched. The explicit helpers do cast there — `value(x, token)`, `variable(expr, token)`,
+`get(path, token)`.
+
 ### `variables.x` is a value function, not a string
 
 `variables.year as number` only sets the type; it never casts (use `variable('year', types.number)`
@@ -346,7 +392,10 @@ extends the path, `then` included, so it also looks like a promise. Use it direc
 value, `resolve` input or `value()` input; never `await` it or return it from your own value
 function, or the parse hangs. Inside a value function, return the string `'{{year}}'` instead,
 which the engine resolves afterwards. `toString`, `valueOf` and `toJSON` are reserved; reach a
-variable with one of those names through `variable('toString')`.
+variable with one of those names through `variable('toString')`. Stringified (in a template
+literal, say) the proxy is always `'{{path}}'` with the **default** delimiters — under a
+re-delimited variables pattern that text no longer matches, so use the proxy directly or
+`variable()`.
 
 ### `.to(fn)` leaves the family; `.extend(fn)` keeps it
 
@@ -360,8 +409,16 @@ so `.plain.truncate(160)` works; a user `.to()` returning a string is not, unles
 
 A name declared by two families is only reachable qualified: `length` (`string`/`array`),
 `normalized` and `href` (`email`/`tel`), `of` (`array`/`json`). `{{ x | length }}` is
-"Pipe not found" — use `string.length` / `array.length`. Built-in collisions are silent by
-design; a registered type colliding with a built-in accessor name logs a warning once.
+"Pipe not found" — use `string.length` / `array.length`. Collisions between shipped families
+are silent by design; a type of your own colliding with another accessor name logs a warning
+once.
+
+### Registering the shipped subsets makes `iso` and `of` ambiguous as root pipes
+
+`formatTypes` brings `duration.iso` next to `date.iso`, so `{{ d | iso }}` stops resolving
+("Pipe not found") once it is registered — write `date.iso` / `duration.iso`. `dataTypes` adds
+`record.of` to the existing `array.of` / `json.of` collision. No warning is logged: both sides
+ship with the library.
 
 ### `record.of` drops missing values, `array.of` keeps the slot
 
@@ -379,7 +436,8 @@ the key the key survives with `null`. Inside text it splices as `"null"`.
 
 `{{ contact | email }}` throws on an invalid email under the default policy, exactly like
 `contact: types.email` would. `{{ contact | email || "n/a" }}` falls back; `|| undefined` or
-`email.loose` for "undefined is fine".
+`email.loose` for "undefined is fine". `.strict` beats a written fallback, and a `.required`
+pipe never fires on an `undefined` candidate (pipes are skipped there) — only on `''`.
 
 ### Pipes must live in `pipes`, not `variables`
 
@@ -431,6 +489,11 @@ Pass data through `value`: `store.add({ value: report })`. `store.add(report)` t
 `report` has no `value` field — and when it does (a CMS key/value pair, say) it is silently
 read as the object form, storing `report.value` under `report.key`.
 
+### `store` only dedupes with a storage configured
+
+In-flight dedupe lives behind the storage check: without a `storage`, every `store(key, fn)`
+call simply runs `fn` — concurrent calls included.
+
 ### The standalone `store(key, fn)` is lazy, `context.store(key, fn)` is eager
 
 Laziness is what lets the standalone one sit in a projection literal without running at
@@ -475,4 +538,5 @@ typecheck covers three tsconfigs and catches things tests don't.
 
 `3.0.0-rc.x` (npm tag `v3-rc`) on the `v3` branch; `2.1.0` is the published `latest`. Six `TODO(v4)` migration
 catches (seven markers) are load-bearing in v3 and will be removed in v4, so code that depends on
-those error messages is depending on something temporary.
+those error messages is depending on something temporary. Two more `TODO(v4)` markers tag deprecated type aliases
+(`ParserTypeToken`, `ParserTypeObject` / `ParserTypeDefinition`), which go in v4 too.

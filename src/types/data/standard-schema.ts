@@ -1,6 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// The Standard Schema v1 contract (https://standardschema.dev) — a type-only interface implemented by Zod 4, Valibot, ArkType and others
-
+// The Standard Schema v1 contract (https://standardschema.dev), type-only
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
   readonly '~standard': StandardSchemaV1.Props<Input, Output>;
 }

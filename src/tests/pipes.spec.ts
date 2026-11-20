@@ -1,5 +1,7 @@
 import { ContextParserValueFunction, initializeParser } from '../parser';
-import { defineType, string, types } from '../types';
+import { defineType, string, StringType, types } from '../types';
+import { dataTypes } from '../types/data';
+import { formatTypes } from '../types/format';
 import { notAPipe } from '../types';
 
 const up: ContextParserValueFunction<string> = ({ data }) => String(data).toUpperCase();
@@ -166,5 +168,125 @@ describe('types as pipes', () => {
     await expect(createParser({ x: '{{ v | contact.domain:1 }}' })({})).rejects.toThrow('takes no parameters');
     await expect(createParser({ x: '{{ v | contact.cast }}' })({})).rejects.toThrow('is not an accessor');
     warn.mockRestore();
+  });
+});
+
+describe('pipe lookups and parameters', () => {
+  it('rejects a non-function pipe and passes undefined params without parameters', async () => {
+    const seen: unknown[] = [];
+    const { createParser } = initializeParser({
+      variables: { name: 'bob', suffix: '!' },
+      pipes: { bad: 5 as never, spy: ({ data, params }) => (seen.push(params), data) },
+    });
+    await expect(createParser({ a: '{{ name | bad }}' })({})).rejects.toThrow('Pipe "bad" at "a" is not a function');
+    await createParser({ a: '{{ name | spy }}', b: '{{ name | spy:suffix:"x":2 }}' })({});
+    expect(seen).toContainEqual(undefined);
+    expect(seen).toContainEqual(['!', 'x', 2]);
+  });
+
+  it('reads pipe parameters from variables only', async () => {
+    const variableResolver = vi.fn(async (name: string) => (name === 'late' ? 'resolved' : undefined));
+    const { createParser } = initializeParser({
+      variables: { name: 'bob', suffix: '!' },
+      variableResolver,
+      pipes: { param: ({ params }) => String(params?.[0]) },
+    });
+    const parser = createParser({
+      v: '{{ name | param:suffix }}',
+      d: '{{ name | param:data.x }}',
+      c: '{{ name | param:ctx.key }}',
+      r: '{{ name | param:late }}',
+    });
+    expect(await parser({ x: 'fromData' })).toEqual({ v: '!', d: 'undefined', c: 'undefined', r: 'undefined' });
+    expect(variableResolver).not.toHaveBeenCalled();
+  });
+
+  it('leaves pipes out of the {{...}} spread', async () => {
+    const { createParser } = initializeParser({ variables: { name: 'bob' }, pipes: { up } });
+    const data = await createParser({ all: '{{...}}' })({});
+    expect((data.all as unknown as Record<string, unknown>)['name']).toEqual('bob');
+    expect('up' in (data.all as unknown as object)).toBe(false);
+  });
+
+  it('stops a fallback chain at defined falsy candidates', async () => {
+    const { createParser } = initializeParser({ variables: { zero: 0, no: false, empty: '' } });
+    const parser = createParser({ zero: '{{ zero || 5 }}', no: '{{ no || true }}', empty: '{{ empty || "x" }}', missing: '{{ nope || "x" }}' });
+    expect(await parser({})).toEqual({ zero: 0, no: false, empty: '', missing: 'x' });
+  });
+});
+
+describe('types as pipes: names, members and collisions', () => {
+  it('walks qualified methods with parameters and universal members', async () => {
+    const { createParser } = initializeParser({ variables: { n: '2.456', path: '/about', mail: 'a@b.co', empty: '' } });
+    const parser = createParser({
+      rounded: '{{ n | number.round:2 }}',
+      root: '{{ n | round:1 }}',
+      based: '{{ path | url.base:"https://x.test" }}',
+      dflt: '{{ empty | email.default:"n/a" }}',
+      kept: '{{ mail | email.required }}',
+    });
+    expect(await parser({})).toEqual({ rounded: 2.46, root: 2.5, based: 'https://x.test/about', dflt: 'n/a', kept: 'a@b.co' });
+    await expect(createParser({ e: '{{ empty | email.required }}' })({})).rejects.toThrow('Missing required value');
+  });
+
+  it('skips a required type pipe on an undefined candidate', async () => {
+    const { createParser } = initializeParser();
+    expect(await createParser({ e: '{{ missing | email.required }}' })({})).toEqual({});
+    await expect(createParser({ e: '{{ missing | email.required }}' })({}, { pipeUndefined: true } as never)).rejects.toThrow('Missing required value');
+  });
+
+  it('uses the built-in oneOf and pattern factories as pipes', async () => {
+    const { createParser } = initializeParser({ variables: { status: 'draft' } });
+    const parser = createParser({
+      ok: '{{ status | oneOf:"draft":"published" }}',
+      fallback: '{{ status | oneOf:"published" || "unknown" }}',
+      matched: '{{ status | pattern:"^dr" }}',
+    });
+    expect(await parser({})).toEqual({ ok: 'draft', fallback: 'unknown', matched: 'draft' });
+    await expect(createParser({ bad: '{{ status | pattern:"^x" }}' })({})).rejects.toThrow('cannot cast value');
+    await expect(createParser({ bad: '{{ status | oneOf.values }}' })({})).rejects.toThrow('Type "oneOf" is parameterised');
+  });
+
+  it('prefers a type over a same-named function left in variables', async () => {
+    const { createParser } = initializeParser({ variables: { mail: 'A@B.co', email: () => 'from-function' } });
+    expect(await createParser({ e: '{{ mail | email }}' })({})).toEqual({ e: 'A@B.co' });
+  });
+
+  it('gives shared built-in accessor names no root form, silently', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    warn.mockClear();
+    const { createParser } = initializeParser({ variables: { s: 'abc' } });
+    await expect(createParser({ l: '{{ s | length }}' })({})).rejects.toThrow('Pipe "length" not found');
+    expect(await createParser({ l: '{{ s | string.length }}' })({})).toEqual({ l: 3 });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('reports a member read from a non-type value', async () => {
+    class Odd extends StringType {
+      get plain(): never {
+        return 5 as never;
+      }
+    }
+    const { createParser } = initializeParser({ types: { odd: defineType(Odd) }, variables: { s: 'abc' } });
+    await expect(createParser({ x: '{{ s | odd.plain.upperCase }}' })({})).rejects.toThrow('cannot be read from a non-type value');
+  });
+});
+
+describe('opt-in subsets as registered types', () => {
+  it('registers format and data subsets without collision warnings', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    warn.mockClear();
+    const { createParser } = initializeParser({ types: { ...formatTypes, ...dataTypes }, variables: { d: '2020-06-01', secs: 90 } });
+    const parser = createParser({ date: '{{ d | date.iso }}', duration: '{{ secs | duration.iso }}' });
+    expect(await parser({})).toEqual({ date: '2020-06-01T00:00:00.000Z', duration: 'PT1M30S' });
+    await expect(createParser({ x: '{{ d | iso }}' })({})).rejects.toThrow('Pipe "iso" not found');
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('keeps the iso root pipe when the subsets are not registered', async () => {
+    const { createParser } = initializeParser({ variables: { d: '2020-06-01' } });
+    expect(await createParser({ x: '{{ d | iso }}' })({})).toEqual({ x: '2020-06-01T00:00:00.000Z' });
   });
 });

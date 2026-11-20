@@ -73,4 +73,18 @@ describe('formatDate', () => {
     await expect(parser({ a: 'nope' })).rejects.toThrow('Invalid date');
     expect(String(types.formatDate('short'))).not.toEqual(String(types.formatDate('medium')));
   });
+
+  it('prints letters that are not tokens as they are', () => {
+    expect(formatDateValue(angularDate, 'yyyy-MM-ddTHH:mm')).toEqual('2015-06-15T09:43');
+  });
+
+  it('accepts offsets written with a colon', () => {
+    expect(formatDateValue(angularDate, 'HH:mm', '+04:30')).toEqual(formatDateValue(angularDate, 'HH:mm', '+0430'));
+  });
+
+  it('prefers currentLocale over defaultLocale', async () => {
+    const localeContext = { defaultLocale: 'en-US', currentLocale: 'fi-FI' };
+    const { createParser, types } = initializeParser({ types: { formatDate }, ...localeContext });
+    expect(await createParser({ a: types.formatDate() })({ a: '2015-06-15T09:43:11.010Z' })).toEqual({ a: '15.6.2015' });
+  });
 });

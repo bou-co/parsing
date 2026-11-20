@@ -53,6 +53,8 @@ Available with no configuration:
   your own augmentations
 - `{{current.*}}` — the root input of the run (legacy; prefer `data`/`ctx`)
 
+A bare `{{data}}` / `{{ctx}}` as a full-string value returns the whole object.
+
 Resolution order for a head: explicit variables (global → schema → instance) → built-in heads
 → `variableResolver`. Explicit variables can shadow built-ins. **Built-in heads are
 terminal** — `{{data.missing}}` never falls through to a `variableResolver`, so a context
@@ -91,18 +93,22 @@ initializeParser({
     displayName: async ({ data }) => (await fetchProfile(String(data))).displayName,
   },
 });
-// '{{user.firstName || "Guest" | upperCase}}' → 'JOHN'   (upperCase is the string type's accessor)
+// '{{user.firstName | upperCase || "Guest"}}' → 'JOHN'   (upperCase is the string type's accessor)
+// '{{user.firstName || "Guest" | upperCase}}' → 'john'   (the pipe belongs to the "Guest" branch only)
 // '{{article.teaser | truncate:120}}'
 ```
 
 Pipes live in the `pipes` config, **not** `variables` — a function left in `variables` and
 used as a pipe throws a targeted error. Pipes are configurable at all three context levels.
 Inside a pipe, `data` (and `value`) is the piped value and `params` holds the parsed
-parameters.
+parameters (`undefined` when the pipe was written without any). A non-function value under a
+pipe's name in `pipes` throws `Pipe "x" at "<key path>" is not a function`.
 
 When a value resolves to `undefined`, its pipes are skipped and the fallback chain moves on.
 Set `pipeUndefined: true` in context to run pipes on `undefined` anyway. When a pipe chain
-_yields_ `undefined`, the fallback chain moves on too.
+_yields_ `undefined`, the fallback chain moves on too. One consequence: `{{ missing | email.required }}`
+does **not** fail — the pipe never runs on an `undefined` candidate (an empty string does reach
+it, and fails).
 
 **One primitive, two call sites.** A type in a projection (`contact: types.email`) and a pipe
 in a template (`{{ contact | email }}`) run the same cast under the same failure policy. The
@@ -112,18 +118,26 @@ capability — types can be async and receive the full context, exactly like pip
 
 **Types are pipes.** Every casting type — built-in or registered via `types` at any level — is
 a pipe under the same name with the same parameters. Qualified names always work
-(`date.iso`, `number.round:2`, `url.base:"https://x"`, `email.domain`, `email.loose`;
-parameters attach to the last member); root names exist for accessors unique across families
+(`date.iso`, `number.round:2`, `url.base:"https://x"`, `email.domain`; parameters attach to
+the last member). Of the universal chain only `strict`, `loose`, `required` and
+`default:"x"` are reachable from a pipe (`email.loose`, `email.loose.default:"n/a"`); root names exist for accessors unique across families
 (`upperCase`, `round:2`, `unique`, `join:", "`) and carry the base cast (`{{ 12 | upperCase }}`
 → `'12'`). A name two families share has no root form — `length` (`string`/`array`),
-`normalized` and `href` (`email`/`tel`), `of` (`array`/`json`) — use the qualified one. Explicit `pipes` shadow type names. Literal-parameter factories work
+`normalized` and `href` (`email`/`tel`), `of` (`array`/`json`) — use the qualified one.
+Registering the shipped subsets adds two more: `iso` (`date`/`duration`, with `formatTypes`)
+and `of` again (`record`, with `dataTypes`). Collisions between shipped families are silent;
+one involving a type of your own warns once. Explicit `pipes` shadow type names. Literal-parameter factories work
 (`oneOf:"a":"b"`, `pattern:"^x$"`); token-parameter ones (`unique(item)`, `schema`) don't.
+Two targeted errors: members after a factory name (`oneOf.x`) → `is parameterised — call it
+before accessing members`; a member read off a non-type → `cannot be read from a non-type value`.
 
 Failure in a type pipe follows the cast-site policy (throw by default, drop under
 `looseCasting: true`, `.strict`/`.loose` pinned) with one addition — **a written `||`
 fallback wins**: `{{ contact | email || "n/a" }}` yields `"n/a"` on an invalid email even
 under the throwing policy. `{{ contact | email }}` alone throws; `{{ contact | email || undefined }}`
 or `{{ contact | email.loose }}` say "undefined is fine". `onCastError` fires either way.
+`.strict` is the exception to the fallback rule: `{{ contact | email.strict || "n/a" }}` still
+throws.
 
 **Escaping:** a backslash directly before a match suppresses it and is consumed —
 `\{{name}}` outputs `{{name}}`. `\\` before a match yields a literal backslash and the match
@@ -205,7 +219,18 @@ interface PatternResolveInput {
 ```
 
 Setting `expressions: true` on a token pattern **throws when the registry compiles on the
-first parse** rather than half-working.
+first parse** rather than half-working. So do a pattern without a `resolve` function or
+without both `match` and `delimiters`, and `delimiters` that are not two non-empty strings.
+
+Details of matching:
+
+- A delimited body is lazy and may span newlines; it ends at the first end delimiter.
+- Your `match` regex is cloned (never mutated) and gets the `g` flag when it lacks one.
+- Without a capture group the whole match is the expression / `path`.
+- `expressions: false` on a delimited pattern hands the raw capture to `resolve` as `path` —
+  no fallbacks, no pipes.
+- `groups` (the raw regex match) is passed to every pattern's `resolve`.
+- Zero-length matches are skipped.
 
 Rules:
 
@@ -214,12 +239,22 @@ Rules:
 - **Precedence:** leftmost match first; at the same start index the longest wins, then
   registration order (`variables` registers first). Overlapping later matches are skipped.
 - **Re-scanning:** resolved string output is scanned again by all patterns. Opt out per
-  pattern with `rescan: false`. Cycles (and chains >10 deep) throw `ParserPatternCycleError`.
+  pattern with `rescan: false`. Cycles (and chains >10 deep) throw `ParserPatternCycleError`,
+  whose `chain` lists the `<pattern>:<match>` steps (also in the message).
 - **Deduping:** the same expression occurring N times in one string resolves once — keyed by
   the raw match text, so `{{a}}` and `{{ a }}` are two units.
 - **Customising the built-in:** keys merge partially, so
   `patterns: { variables: { delimiters: ['${', '}'] } }` re-delimits while keeping lookups,
-  fallbacks, pipes, and the spread. `patterns: { variables: false }` disables interpolation.
+  fallbacks, pipes, and the spread. `patterns: { variables: false }` disables interpolation
+  **in strings** — `variable()`, the `variables` proxy and `getVariableValue` still resolve,
+  through the default variables pattern.
+- **Escaping** works the same for custom patterns, including an escaped whole-string match
+  (`'\$count'` stays the text `$count`).
+- **Resolved values are spliced literally** — `$&`, `$1`, `$$` in a value are not interpreted.
+- **Caching:** `cache` defaults to `'run'` — one lookup per path per root parse, shared into
+  nested levels. `'storage'` uses the configured storage under the literal key
+  `pattern:<name>:<path>` (not interpolated); with no storage configured it resolves every
+  time. See `caching.md`.
 - `patterns` is **global-only** — not settable per parser or per call.
 
 The engine owns scanning, deduplication, splicing, parallel resolution, re-scanning, and
@@ -232,7 +267,9 @@ cycle protection. Your `resolve` only turns a path into a value.
 **Problem:** a value shape appears throughout your data and should always be converted the
 same way — localisation maps, date strings, HTML that needs stripping.
 
-Global `when`/`then` pairs that replace whole values, at any depth.
+Global `when`/`then` pairs that replace whole values, at any depth. Both may be async (`when`
+is awaited in a parse and in `resolve`). Inside them `data` — and `value`, which mirrors it —
+is the value under inspection.
 
 ```ts
 const localize = {
@@ -311,13 +348,13 @@ Applies the rest of the projection to each item and exposes `index`. Requires ar
 
 ## Composition
 
-| Mechanism                     | Effect                                                        |
-| ----------------------------- | ------------------------------------------------------------- |
-| `parser` as a value           | Nested parse of `data[key]`, output nested under the key      |
-| `parser.flat`                 | Parse `data[key]`, **merge fields into parent**, drop the key |
-| `parser.asArray`              | Parse each item of `data[key]`                                |
-| `parser.extend(projection)`   | New parser = old projection + new, original unmutated         |
-| `parser.withContext(context)` | New parser with merged context (variables, hooks, cache)      |
+| Mechanism                     | Effect                                                                                             |
+| ----------------------------- | -------------------------------------------------------------------------------------------------- |
+| `parser` as a value           | Nested parse of `data[key]`, output nested under the key                                           |
+| `parser.flat`                 | Parse `data[key]`, **merge fields into parent**, drop the key — details in `basics.md` (_Nesting_) |
+| `parser.asArray`              | Parse each item of `data[key]`                                                                     |
+| `parser.extend(projection)`   | New parser = old projection + new, original unmutated                                              |
+| `parser.withContext(context)` | New parser with merged context (variables, hooks, cache)                                           |
 
 ```ts
 const seoParser = createParser({ title: types.string, description: types.string });
@@ -332,6 +369,10 @@ const extended = base.extend({ extra: types.string });
 
 const withVars = base.withContext({ variables: { locale: 'fi' } });
 ```
+
+`.extend()` throws on a parser created from a function projection (`Cannot extend a
+projection that is a function`). `parser.as<T>(data)` is the same parse with the output type
+asserted as `T` — type-only.
 
 **Chaining (reparsing):** the output of one parser can be passed straight into another for
 multi-pass work. `const out = await stepTwo(await stepOne(raw));`
@@ -407,7 +448,9 @@ separate parser if you need the hook gone.
 
 `defineType` takes a casting function `(value, context) => output` (sync or async) that
 returns the cast value or throws. The result is a token used directly in projections — no
-registration.
+registration. A cast that returns `undefined` reports the value as missing (the default
+fills, `.required` fails). In errors and cache ids a bare `defineType(fn)` and an object form
+without `name` are both called `custom`.
 
 ```ts
 import { array, number, defineType } from '@bou-co/parsing/types';
@@ -432,8 +475,10 @@ Forms: `defineType(fn)`; `defineType(Class, options?)` — the factory form of `
 `class Sku extends StringType` (built-ins use it too); `defineType({ fn, name?, default?,
 required?, strict?, loose? })`; and `defineType({ extends: types.string, fn?, accessors?,
 methods?, ... })`, which runs the parent's cast first and inherits its whole accessor surface
-(`fn` refines the parent's output). Every token also takes the same options as a call:
-`types.string({ default: 'x' })` is `types.string.default('x')`.
+(`fn` refines the parent's output). The object form without `extends` requires `fn` and throws
+without it. In a class, `this.transform(key, fn, params?)` builds a same-family accessor and
+`this.derive(key, fn, params?)` one with a new output. Every token also takes the same options
+as a call: `types.string({ default: 'x' })` is `types.string.default('x')`.
 
 - `strict: true` → always throws on failure, even under `looseCasting`. Use for values where
   passing bad data through is never acceptable.
@@ -456,14 +501,17 @@ initializeParser({
 
 Exactly two flows. `false` (default) throws `ParserCastError`; `true` logs a warning and
 **drops** the value — the key is omitted, or the token's `default` fills it. There is no flow
-that passes the original value through, so inferred output types are true at runtime in every
-configuration. `'undefined'` is a deprecated alias of `true` (identical flow, removed in v4).
+that passes the original value through, so a present value always has its declared type; only
+presence can differ — a `.required` field without a default is typed non-optional yet dropped
+under this flag (or `.loose`). `'undefined'` is a deprecated alias of `true` (identical flow,
+removed in v4).
 A token pins its own flow with `.strict` (always throw) or `.loose` (always drop, silently);
 a missing value on a `.required` token follows the same two flows.
 
 Both are regular context options, so they can be set per parser or per call. `onCastError`
 fires before the failure policy is applied — it sees every failure, including the ones that
-then throw — and replaces the default warning.
+then throw — and replaces the default warning. It receives `(error, context)`; the error
+carries `path`, `key`, `type`, `received`, `cause` and `name === 'ParserCastError'`.
 
 ---
 
@@ -479,8 +527,15 @@ const order = await resolve({ msg: 'Order {{id}}' }, { variables: { id: '123' } 
 ```
 
 `resolve` walks the input recursively: transformers apply at every level, functions are
-invoked with the context and their results resolved further, patterns interpolate, everything
-else passes through (type tokens and parsers included). No picking, no casting, no hooks.
+invoked with the context and their results resolved further (the input itself may be a
+function), promises are awaited, patterns interpolate, everything else passes through (type
+tokens and parsers included). No picking, no projection-level casting, no hooks — a type token
+in the input is not applied, but the explicit cast helpers `value(…, token)`,
+`variable(…, token)` and `get(path, token)` **do** cast here.
+
+Functions in the input see a context built from the walk: at the root `isRoot` is `true` and
+`data` / `value` are the input; inside an object or array `key` is set, `parent` is the
+enclosing level, `isRoot` is `false`, and `data` / `value` are the **containing** object.
 
 The return type is inferred from the input. When a transformer reshapes values (localize
 collapsing an object to a string), pass an explicit generic:
@@ -540,7 +595,8 @@ const { result, loading, error, revalidate } = useParserValue(rawProps, myParser
 
 `revalidate()` re-parses with the last data; `revalidate(newData)` re-parses with new data
 and bypasses the hook's change detection — useful after a mutation you know changed the
-output.
+output. The `data` prop still wins later: when it changes to something that hashes differently
+from the revalidated data, the hook parses the prop again.
 
 React is an **optional peer dependency**, so the core package stays usable server-only.
 
@@ -548,24 +604,24 @@ React is an **optional peer dependency**, so the core package stays usable serve
 
 ## Utilities
 
-| Export                             | Purpose                                                                                                                                                         |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `defineType(def)`                  | Create a custom casting type                                                                                                                                    |
-| `isTypeToken(v)`                   | Test whether a value is a type token                                                                                                                            |
-| `typed<T>`                         | Force a specific inferred type; passes the raw value through uncast                                                                                             |
-| `optional`                         | Mark a key optional without a type                                                                                                                              |
-| `condition(when, then)`            | Build an `@if` entry structurally                                                                                                                               |
-| `get(path, from?, type?)`          | Dot-path lookup from `context.data` or an object; with a type, the engine casts the value like a token at the key (`phoneLink: get('phone', types.tel.href)`)   |
-| `value(input, type)`               | Resolve patterns in `input` (or call a function input), then cast in the engine like a token at the key — `title: value('{{siteName}}', types.string.required)` |
-| `variable(expression, type?)`      | Evaluate the inside of a `{{ }}` through the active variables pattern; with a type cast like `value` — `variable('user.email \|\| supportEmail', types.email)`  |
-| `variables`                        | Proxy: `variables.user.name` resolves like `'{{user.name}}'` via the active variables pattern; typed `any` — `variables.year as number` types it, no cast       |
-| `toHash(data)`                     | Deterministic hash for cache keys. **Key-order sensitive** — see `gotchas.md`                                                                                   |
-| `asDate(v)`                        | Date coercion helper                                                                                                                                            |
-| `mergeObjects(a, b)`               | Deep merge used for context merging                                                                                                                             |
-| `ParserCastError`                  | Cast failure, with `path`, `key`, `type`, `received`, `cause`                                                                                                   |
-| `ParserPatternCycleError`          | Pattern cycle / excessive rescan depth                                                                                                                          |
-| `variablesPattern`                 | The built-in variables pattern definition                                                                                                                       |
-| `ParserReturnValue<typeof parser>` | Extract a parser's output type                                                                                                                                  |
+| Export                             | Purpose                                                                                                                                                                                                                                                                                              |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `defineType(def)`                  | Create a custom casting type                                                                                                                                                                                                                                                                         |
+| `isTypeToken(v)`                   | Test whether a value is a type token                                                                                                                                                                                                                                                                 |
+| `typed<T>`                         | Force a specific inferred type; passes the raw value through uncast                                                                                                                                                                                                                                  |
+| `optional`                         | Mark a key optional without a type                                                                                                                                                                                                                                                                   |
+| `condition(when, then)`            | Build an `@if` entry structurally                                                                                                                                                                                                                                                                    |
+| `get(path, from?, type?)`          | Dot-path lookup from `context.data` or an object; with a type, the engine casts the value like a token at the key (`phoneLink: get('phone', types.tel.href)`)                                                                                                                                        |
+| `value(input, type)`               | Resolve patterns in `input` (or call a function input), then cast in the engine like a token at the key — `title: value('{{siteName}}', types.string.required)`. Transformers run on the result before the cast; a type token or parser passed as `input` is not called                              |
+| `variable(expression, type?)`      | Evaluate the inside of a `{{ }}` through the active variables pattern; with a type cast like `value` — `variable('user.email \|\| supportEmail', types.email)`                                                                                                                                       |
+| `variables`                        | Proxy: `variables.user.name` resolves like `'{{user.name}}'` via the active variables pattern; typed `any` — `variables.year as number` types it, no cast. Stringified (template literal, `String()`) it is always `'{{user.name}}'` — the default delimiters, even when the pattern is re-delimited |
+| `toHash(data)`                     | Deterministic hash for cache keys. **Key-order sensitive** — see `gotchas.md`. Functions and `RegExp` values hash by their source text                                                                                                                                                               |
+| `asDate(v)`                        | Date coercion helper                                                                                                                                                                                                                                                                                 |
+| `mergeObjects(a, b)`               | Deep merge used for context merging                                                                                                                                                                                                                                                                  |
+| `ParserCastError`                  | Cast failure, with `path`, `key`, `type`, `received`, `cause`                                                                                                                                                                                                                                        |
+| `ParserPatternCycleError`          | Pattern cycle / excessive rescan depth                                                                                                                                                                                                                                                               |
+| `variablesPattern`                 | The built-in variables pattern definition                                                                                                                                                                                                                                                            |
+| `ParserReturnValue<typeof parser>` | Extract a parser's output type                                                                                                                                                                                                                                                                       |
 
 Note that `asyncMapObject`, `filterNill`, `filterUndefinedEntries`, and `mergeObjects` are
 exported via `export *` from internal modules. They are reachable but are engine internals

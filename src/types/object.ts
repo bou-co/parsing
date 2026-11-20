@@ -2,7 +2,7 @@ import type { AppObject, ParserContext } from '../parser-types';
 import { CastResult, TypeToken, defineType } from '../type-token';
 import { invalid } from './internal';
 
-/** `object` — any non-array object passes through */
+/** Any non-array object passes through */
 export class ObjectType extends TypeToken<AppObject> {
   static readonly family: string = 'object';
 

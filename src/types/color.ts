@@ -1,6 +1,7 @@
 import type { ParserContext } from '../parser-types';
 import type { TypeToken } from '../type-token';
 import { defineType } from '../type-token';
+import { invalid } from './internal';
 import { string, StringType } from './string';
 
 export interface ColorChannels {
@@ -14,8 +15,13 @@ interface Parsed extends ColorChannels {
 }
 
 const clamp = (value: number, max: number) => Math.min(max, Math.max(0, value));
-const channel = (raw: string): number => (raw.endsWith('%') ? Math.round((clamp(parseFloat(raw), 100) / 100) * 255) : clamp(Math.round(parseFloat(raw)), 255));
-const alpha = (raw: string | undefined): number => (raw === undefined ? 1 : raw.endsWith('%') ? clamp(parseFloat(raw), 100) / 100 : clamp(parseFloat(raw), 1));
+const numeric = (raw: string): number => {
+  const parsed = parseFloat(raw);
+  if (Number.isNaN(parsed)) throw invalid('color');
+  return parsed;
+};
+const channel = (raw: string): number => (raw.endsWith('%') ? Math.round((clamp(numeric(raw), 100) / 100) * 255) : clamp(Math.round(numeric(raw)), 255));
+const alpha = (raw: string | undefined): number => (raw === undefined ? 1 : raw.endsWith('%') ? clamp(numeric(raw), 100) / 100 : clamp(numeric(raw), 1));
 
 const hslToRgb = (h: number, s: number, l: number): ColorChannels => {
   const hue = (((h % 360) + 360) % 360) / 360;
@@ -68,12 +74,12 @@ const parseColor = (input: string): Parsed => {
     const kind = fn[1].toLowerCase();
     const [main, slashAlpha] = fn[2].split('/').map((part) => part.trim());
     const parts = main.split(/[\s,]+/).filter(Boolean);
-    if (parts.length < 3) throw new Error('Invalid color');
+    if (parts.length < 3) throw invalid('color');
     const a = alpha(slashAlpha ?? parts[3]);
     if (kind.startsWith('rgb')) return { r: channel(parts[0]), g: channel(parts[1]), b: channel(parts[2]), a };
-    return { ...hslToRgb(parseFloat(parts[0]), parseFloat(parts[1]), parseFloat(parts[2])), a };
+    return { ...hslToRgb(numeric(parts[0]), numeric(parts[1]), numeric(parts[2])), a };
   }
-  throw new Error('Invalid color');
+  throw invalid('color');
 };
 
 const toHex = ({ r, g, b, a }: Parsed): string => {
@@ -81,11 +87,7 @@ const toHex = ({ r, g, b, a }: Parsed): string => {
   return `#${hex(r)}${hex(g)}${hex(b)}${a < 1 ? hex(Math.round(a * 255)) : ''}`;
 };
 
-/**
- * `color` — accepts hex (`#abc`, `#aabbcc`, `#aabbccdd`), `rgb()`/`rgba()` and `hsl()`/`hsla()`;
- * normalised to lower-case hex (`#rrggbb`, or `#rrggbbaa` when translucent). Notations: `.hex`,
- * `.rgb`, `.hsl`; components: `.channels`, `.alpha`.
- */
+/** Hex, `rgb()`/`rgba()` and `hsl()`/`hsla()` normalised to lower-case hex (`#rrggbb`, or `#rrggbbaa` when translucent) */
 export class ColorType extends StringType {
   static override readonly family: string = 'color';
 

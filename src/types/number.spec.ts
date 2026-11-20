@@ -42,4 +42,27 @@ describe('number type', () => {
     const parser = createParser({ value: types.number.abs.round(1).clamp(0, 3) });
     expect((await parser({ value: '-2.46' })).value).toEqual(2.5);
   });
+
+  it('accepts finite numbers only', async () => {
+    for (const bad of [NaN, Infinity, -Infinity, 'Infinity', 'NaN']) await expect(async () => types.number.cast(bad)).rejects.toThrow('Invalid number');
+    await expect(async () => types.number.cast(new Date('nope'))).rejects.toThrow('Invalid number');
+  });
+
+  it('trims numeric strings and reads exponent notation', async () => {
+    expect(await types.number.cast('  12.5  ')).toEqual(12.5);
+    expect(await types.number.cast('1e3')).toEqual(1000);
+  });
+
+  it('rounds exponential values and negative decimals', async () => {
+    expect(await types.number.round(2).cast(1e-7)).toEqual(0);
+    expect(await types.number.round(2).cast(1.5e21)).toEqual(1.5e21);
+    expect(await types.number.round(-1).cast(1234)).toEqual(1230);
+    expect(await types.number.round(-2).cast(1250)).toEqual(1300);
+  });
+
+  it('reports required through isRequired', () => {
+    expect(types.number.isRequired).toBe(false);
+    expect(types.number.required.isRequired).toBe(true);
+    expect(types.number.required.round(2).isRequired).toBe(true);
+  });
 });

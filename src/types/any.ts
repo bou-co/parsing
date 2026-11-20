@@ -1,8 +1,8 @@
-import type { ParserContext } from '../parser-types';
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import type { ParserContext } from '../parser-types';
 import { TypeToken, defineType } from '../type-token';
 
-/** `any` — pure pass-through, typed `any` */
+/** Pure pass-through, typed `any` */
 export class AnyType extends TypeToken<any> {
   static readonly family: string = 'any';
 

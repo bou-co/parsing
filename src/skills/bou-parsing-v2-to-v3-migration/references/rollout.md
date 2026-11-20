@@ -94,11 +94,11 @@ Tier 2.
 ### What the compiler covers
 
 Tier 1, mostly. Type tokens are typed values, so a leftover string identifier in a projection
-usually surfaces as a type error. Run the full typecheck, not just the build — in this repo
-that's three tsconfigs:
+usually surfaces as a type error. Run the full typecheck, not just the build — every tsconfig
+the project has (app, tests, tooling), since projections live in all of them:
 
 ```bash
-npm run typecheck   # tsc across lib, root, and templates configs
+npm run typecheck   # or `tsc --noEmit -p <tsconfig>` once per tsconfig
 ```
 
 The repo's own CI runs both `npm run test` and `npm run typecheck`; do the same locally in

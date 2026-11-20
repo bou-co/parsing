@@ -1,13 +1,6 @@
 import type { SanitizeOptions } from 'ultrahtml/transformers/sanitize';
 import { createLoader, type SanitiserAdapter } from './adapters';
 
-/**
- * The light option for edge runtimes, workers and the browser: `ultrahtml` (1.75 kB, zero
- * dependencies). Its sanitizer follows the HTML Sanitizer API's element model, so the adapter adds
- * the attribute policy: event handlers (`on*`) and `javascript:`/`data:` URLs are always dropped,
- * and a conservative element drop-list applies unless you pass your own `allowElements`.
- * Reasonable for semi-trusted CMS content; use `sanitizeHtmlAdapter` for user-generated content.
- */
 export const DEFAULT_DROP_ELEMENTS = [
   'script',
   'style',
@@ -34,6 +27,7 @@ export const DEFAULT_DROP_ELEMENTS = [
 const URL_ATTRIBUTES = new Set(['href', 'src', 'xlink:href', 'action', 'formaction', 'srcdoc', 'srcset', 'poster', 'background', 'ping']);
 const UNSAFE_URL = /^\s*(javascript|vbscript|data):/i;
 
+/** Adapter for `ultrahtml`. Adds what its sanitiser lacks: `on*` handlers and `javascript:`/`vbscript:`/`data:` URLs are always dropped, and a default element drop-list applies unless `allowElements` is given */
 export const ultrahtmlAdapter = (options?: SanitizeOptions): SanitiserAdapter<SanitizeOptions> => ({
   name: 'ultrahtml',
   package: 'ultrahtml',

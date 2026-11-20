@@ -1,7 +1,7 @@
 import type { ParserContext } from '../parser-types';
 import { TypeToken, defineType } from '../type-token';
 
-/** `unknown` — pure pass-through, typed `unknown` */
+/** Pure pass-through, typed `unknown` */
 export class UnknownType extends TypeToken<unknown> {
   static readonly family: string = 'unknown';
 

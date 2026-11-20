@@ -441,3 +441,42 @@ describe('hook composition on extend/withContext', () => {
     expect(counts).toEqual({ global: 1, schema: 1, extension: 1, instance: 1 });
   });
 });
+
+describe('hook composition details', () => {
+  it('runs an identical hook reference once when it is passed again', async () => {
+    const { createParser } = initializeParser();
+    let calls = 0;
+    const before = (context: any) => {
+      calls++;
+      return context;
+    };
+    const parser = createParser({ value: 'x' }, { before });
+    await parser.withContext({ before })({ any: true });
+    expect(calls).toEqual(1);
+    await parser.extend({ extra: 'y' }, { before })({ any: true });
+    expect(calls).toEqual(2);
+  });
+
+  it('composes after hooks added through withContext, base first', async () => {
+    const { createParser } = initializeParser();
+    const order: string[] = [];
+    const parser = createParser(
+      { value: 'x' },
+      {
+        after: (context) => {
+          order.push('base');
+          return { ...context, data: { ...context.data, base: true } };
+        },
+      },
+    );
+    const withExtra = parser.withContext({
+      after: (context) => {
+        order.push('extra');
+        return { ...context, data: { ...context.data, sawBase: context.data['base'] === true } };
+      },
+    });
+    expect(await withExtra({ any: true })).toEqual({ value: 'x', base: true, sawBase: true });
+    expect(order).toEqual(['base', 'extra']);
+    expect(await parser({ any: true })).toEqual({ value: 'x', base: true });
+  });
+});

@@ -2,11 +2,7 @@ import type { ParserContext } from '../parser-types';
 import type { TypeToken } from '../type-token';
 import { StringType } from './string';
 
-/**
- * Regex match — the escape hatch for everything unnamed. The value passes through unchanged on a
- * match. When the expression has named capture groups the output is the group map instead; give
- * the group shape as a type argument: `types.pattern<{ year: string }>(/(?<year>\d{4})/)`.
- */
+/** Regex match: the value passes through unchanged, or the named capture groups are returned when the expression has them */
 export class PatternType extends StringType {
   static override readonly family: string = 'pattern';
 

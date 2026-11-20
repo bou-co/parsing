@@ -123,7 +123,7 @@ describe('get util', () => {
       expect(await parser({})).toEqual({ link: 'tel:+15550100100;ext=7', plain: '+1 (555) 010-0100 x7' });
       expect(await get('contact.phoneNumber', rawData, types.tel.normalized)).toEqual('+15550100100');
       expect(await get('contact.missing', rawData, types.tel.default('none'))).toEqual('none');
-      await expect(async () => get('contact.bad', rawData, types.tel)).rejects.toThrow('Invalid phone number');
+      await expect(async () => get('contact.bad', rawData, types.tel)).rejects.toThrow('Invalid tel');
       const loose = createParser({ link: get('contact.bad', rawData, types.tel.href) }, { looseCasting: true, onCastError: () => undefined });
       expect(await loose({})).toEqual({});
     });

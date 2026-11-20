@@ -1,10 +1,8 @@
 import type { ParserContext } from '../parser-types';
 import { CastResult, TypeToken, defineType } from '../type-token';
+import { invalid } from './internal';
 
-/**
- * `json` — about input encoding: a string is `JSON.parse`d, anything else passes through. Compose
- * an inner type for a real output type: `types.json.of(types.array.of(types.number))`.
- */
+/** A string is `JSON.parse`d, anything else passes through. Compose an inner type with `.of(inner)` for a real output type */
 export class JsonType extends TypeToken<unknown> {
   static readonly family: string = 'json';
 
@@ -13,11 +11,11 @@ export class JsonType extends TypeToken<unknown> {
     try {
       return JSON.parse(value);
     } catch {
-      throw new Error('Invalid JSON');
+      throw invalid('json');
     }
   }
 
-  /** Decode, then cast with `inner` — the result keeps `inner`'s family and accessors */
+  /** Decode, then cast with `inner`. The result keeps `inner`'s family and accessors */
   of<T extends TypeToken>(inner: T): T {
     return this.to(inner);
   }

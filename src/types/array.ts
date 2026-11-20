@@ -4,7 +4,7 @@ import type { ParserTypeDefaulted } from '../type-token';
 import { invalid } from './internal';
 import { string, StringType } from './string';
 
-/** `array` — arrays pass through; `.of(item)` casts every item (each failure follows the usual policy, with the item index in the error path) */
+/** Arrays pass through. `.of(item)` casts every item, with the item index in the error path */
 export class ArrayType<Item = unknown> extends TypeToken<Item[]> {
   static readonly family: string = 'array';
 
@@ -22,8 +22,6 @@ export class ArrayType<Item = unknown> extends TypeToken<Item[]> {
     return this.memo(`of:${item.id}`, () => this.clone({ item, name: `${this.name}<${item.name}>` })) as never;
   }
 
-  // Transforms
-
   /** Deduplicate like a `Set` (SameValueZero), keep order, return a plain array */
   get unique(): this {
     return this.transform('unique', (value) => [...new Set(value)]);
@@ -37,8 +35,6 @@ export class ArrayType<Item = unknown> extends TypeToken<Item[]> {
   get reverse(): this {
     return this.transform('reverse', (value) => [...value].reverse());
   }
-
-  // Derivations
 
   get first(): TypeToken<Item> {
     return this.derive('first', (value) => value[0]) as unknown as TypeToken<Item>;

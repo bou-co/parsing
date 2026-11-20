@@ -2,12 +2,23 @@ import type { ParserContext } from '../parser-types';
 import { CastResult, TypeToken, defineType } from '../type-token';
 import { invalid } from './internal';
 
-/** `number` — numbers pass through; booleans (`1`/`0`), dates (epoch ms) and numeric strings are coerced */
+// Shifts the decimal point through the exponent so rounding stays decimal-safe (`1.005` → `1.01`)
+const shift = (value: number, by: number): number => {
+  const [mantissa, exponent = '0'] = String(value).split('e');
+  return Number(`${mantissa}e${Number(exponent) + by}`);
+};
+
+const roundTo = (value: number, decimals: number): number => {
+  const shifted = shift(value, decimals);
+  return shift(Math.sign(shifted) * Math.round(Math.abs(shifted)), -decimals);
+};
+
+/** Finite numbers pass through. Booleans (`1`/`0`), dates (epoch ms) and numeric strings are coerced */
 export class NumberType extends TypeToken<number> {
   static readonly family: string = 'number';
 
   override cast(value: unknown, _context?: ParserContext): CastResult<number> {
-    if (typeof value === 'number') return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
     if (typeof value === 'boolean') return value ? 1 : 0;
     if (value instanceof Date) {
       const time = value.getTime();
@@ -17,7 +28,7 @@ export class NumberType extends TypeToken<number> {
     if (typeof value === 'string') {
       const trimmed = value.trim();
       const parsed = Number(trimmed);
-      if (trimmed !== '' && !Number.isNaN(parsed)) return parsed;
+      if (trimmed !== '' && Number.isFinite(parsed)) return parsed;
     }
     throw invalid('number');
   }
@@ -39,17 +50,10 @@ export class NumberType extends TypeToken<number> {
     return this.transform('abs', (value) => Math.abs(value));
   }
 
-  /** Bound the value to `[min, max]` — a transform, never a rejection */
+  /** Bound the value to `[min, max]`: a transform, never a rejection */
   clamp(min: number, max: number): this {
     return this.transform('clamp', (value) => Math.min(max, Math.max(min, value)), [min, max]);
   }
 }
-
-const roundTo = (value: number, decimals: number): number => {
-  if (!Number.isFinite(value)) return value;
-  const shifted = Number(`${value}e${decimals}`);
-  const rounded = Math.sign(shifted) * Math.round(Math.abs(shifted));
-  return Number(`${rounded}e-${decimals}`);
-};
 
 export const number = /* @__PURE__ */ defineType(NumberType);

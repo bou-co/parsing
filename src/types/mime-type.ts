@@ -1,6 +1,6 @@
 import type { ParserContext } from '../parser-types';
-import type { TypeToken } from '../type-token';
 import { defineType } from '../type-token';
+import { invalid } from './internal';
 import { string, StringType } from './string';
 
 const TOKEN = '[a-z0-9][a-z0-9!#$&^_.+-]*';
@@ -15,7 +15,7 @@ interface Parts {
 
 const parseMime = (value: string): Parts => {
   const match = MIME.exec(value.trim());
-  if (!match) throw new Error('Invalid MIME type');
+  if (!match) throw invalid('mimeType');
   const params = match[4]
     .split(';')
     .map((part) => part.trim())
@@ -30,11 +30,7 @@ const parseMime = (value: string): Parts => {
 
 const essenceOf = ({ type, subtype, suffix }: Parts) => `${type}/${subtype}${suffix ? `+${suffix}` : ''}`;
 
-/**
- * `mimeType` — parses `type/subtype+suffix; params` (an IANA media type), lower-casing the type
- * parts and normalising parameter spacing. Decomposes via `.type`, `.subtype`, `.suffix`,
- * `.essence` (`type/subtype+suffix` without parameters).
- */
+/** IANA media type `type/subtype+suffix; params`: type parts and parameter keys lower-cased, parameter spacing normalised */
 export class MimeTypeType extends StringType {
   static override readonly family: string = 'mimeType';
 

@@ -325,25 +325,42 @@ in CI rather than in production.
 Only relevant if you adopted a `3.0.0-rc.*` build before the casting upgrade. Everything
 chains, and the universal options are also accepted as a call:
 
-| RC form                                                | Now                                                                                        |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| `types.string({ default: 'x' })`                       | unchanged — or `types.string.default('x')`                                                 |
-| `types.array(types.string)`                            | `types.array.of(types.string)`                                                             |
-| `types.array(types.string)({ default: [] })`           | `types.array({ default: [] }).of(types.string)`                                            |
-| `looseCasting: 'undefined'`                            | `looseCasting: true` (alias still accepted)                                                |
-| `looseCasting: true` passing the raw value through     | removed — failed casts are dropped (or defaulted)                                          |
-| `types.email` lower-casing the address                 | kept as written — `.normalized` or `.lowerCase`                                            |
-| `types.tel` → `+3580401234567`                         | kept as written — `.normalized` (`+358401234567`, `(0)` dropped after `+`) / `.href`       |
-| `types.text` folding newlines to spaces                | line breaks kept — `.singleLine` folds                                                     |
-| `get(path, from)` only                                 | unchanged — plus `get(path, type)` / `(path, from, type)` casting in the engine            |
-| `title: '{{siteName}}'` (resolved, uncast)             | unchanged — `value('{{siteName}}', types.string)` / `variable('siteName', …)` to cast      |
-| A token placed in `variables`/`pipes`                  | `was called as a value function or pipe — register types under types` — move it to `types` |
-| `types.x('nope')`                                      | `expected an options object` — `types.x({ default, required, strict, loose })`             |
-| `resolve(input)` with a required `InstanceContext` key | type error — pass it: `resolve(input, { currentLocale })` (`context.resolve` unchanged)    |
+| RC form                                                | Now                                                                                                                                                     |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.string({ default: 'x' })`                       | unchanged — or `types.string.default('x')`                                                                                                              |
+| `types.array(types.string)`                            | `types.array.of(types.string)`                                                                                                                          |
+| `types.array(types.string)({ default: [] })`           | `types.array({ default: [] }).of(types.string)`                                                                                                         |
+| `looseCasting: 'undefined'`                            | `looseCasting: true` (alias still accepted)                                                                                                             |
+| `looseCasting: true` passing the raw value through     | removed — failed casts are dropped (or defaulted)                                                                                                       |
+| `types.email` lower-casing the address                 | kept as written — `.normalized` or `.lowerCase`                                                                                                         |
+| `types.tel` → `+3580401234567`                         | kept as written — `.normalized` (`+358401234567`, `(0)` dropped after `+`) / `.href`                                                                    |
+| `types.text` folding newlines to spaces                | line breaks kept — `.singleLine` folds                                                                                                                  |
+| `get(path, from)` only                                 | unchanged — plus `get(path, type)` / `(path, from, type)` casting in the engine                                                                         |
+| `title: '{{siteName}}'` (resolved, uncast)             | unchanged — `value('{{siteName}}', types.string)` / `variable('siteName', …)` to cast                                                                   |
+| A token placed in `variables`/`pipes`                  | `was called as a value function or pipe — register types under types` — move it to `types`                                                              |
+| `types.x('nope')`                                      | `expected an options object` — `types.x({ default, required, strict, loose })`                                                                          |
+| `resolve(input)` with a required `InstanceContext` key | type error — pass it: `resolve(input, { currentLocale })` (`context.resolve` unchanged)                                                                 |
 | `cacheResult(key, fn, extraData?, options?)`           | `store(key, fn, options?)` — same projection/standalone use; `extraData` is gone, put the values in the key (template literal, `{{data.*}}`, variables) |
-| `context.store(key, () => …)`                          | unchanged — the key is now variable-interpolated and `fn` receives the context             |
-| `CacheResultValue<T>`                                  | `StoreValue<T>`                                                                            |
-| `ttl?: number` augmented onto `ParserCachingOptions`   | built in — drop the augmentation (one with a non-`number` `ttl` now conflicts)             |
+| `context.store(key, () => …)`                          | unchanged — the key is now variable-interpolated and `fn` receives the context                                                                          |
+| `CacheResultValue<T>`                                  | `StoreValue<T>`                                                                                                                                         |
+| `ttl?: number` augmented onto `ParserCachingOptions`   | built in — drop the augmentation (one with a non-`number` `ttl` now conflicts)                                                                          |
+
+Behaviour that changed between release candidates without a new call form:
+
+| Earlier RC                                                                                                      | Now                                                                                                                |
+| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `types.number` passing `NaN` / `Infinity` through                                                               | cast failure, like any non-number                                                                                  |
+| `types.email.required.domain` silently dropping `required`                                                      | `required` / `strict` / `loose` survive `.to(token)` and every string-valued derivation                            |
+| `types.date({ default })` throwing after `types: { date: { relative } }`                                        | accessor-map-extended families stay callable and chainable                                                         |
+| Bare `defineType(fn)` named after a (minified) class                                                            | named `custom` — its id, and so cache keys of projections using it, change once                                    |
+| A plain string under a nested parser → `Parser stringify error`                                                 | resolves projection-driven, like under an inline object (see `behavioural.md` §1)                                  |
+| `kebab` / `camel` / `snake` / `pascal` splitting at non-ASCII letters                                           | Unicode-aware: `'Crème brûlée'` → `crème-brûlée`                                                                   |
+| `color` accepting non-numeric channels, `coords` / `money` reading `''` as `0`, `duration` taking `1:99` / `PT` | all fail as invalid input                                                                                          |
+| `round(n)` returning `NaN` for exponent-form values or negative `n`                                             | rounds correctly                                                                                                   |
+| Async transformer `when` not awaited in a parse                                                                 | awaited                                                                                                            |
+| A throwing function-form global context hanging every later parse                                               | the parse rejects; the next one retries the function                                                               |
+| Warnings about `iso` / `of` after registering `formatTypes` / `dataTypes`                                       | silent (collisions between shipped families); the root pipe forms are still ambiguous — use `date.iso`, `array.of` |
+| Built-in cast messages worded per type                                                                          | unified to `Invalid <family>[ (hint)]` — don't match on the old texts                                              |
 
 `types.array(token)` fails to type-check and throws a targeted error at runtime ("use
 .of(…)"), so it cannot slip through silently. `get(path, token)` returns a reader the engine

@@ -29,5 +29,5 @@ const createOneOf = (values: readonly Literal[]): OneOfType => {
   return token;
 };
 
-/** `oneOf('draft', 'published')` — the value must be one of the given literals */
+/** `oneOf('draft', 'published')`: the value must be one of the given literals */
 export const oneOf = <const V extends readonly Literal[]>(...values: V): OneOfType<V[number]> => createOneOf(values) as OneOfType<V[number]>;

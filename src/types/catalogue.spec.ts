@@ -102,7 +102,7 @@ describe('tier-1 catalogue', () => {
     it('follows new URL(): absolute only, normalised, with the platform part names', async () => {
       expect(await cast(url, 'HTTPS://Example.com/a/../b?x=1&x=2#top')).toEqual('https://example.com/b?x=1&x=2#top');
       await rejects(url, '/about').toThrow('absolute URLs only');
-      await rejects(url, '//cdn.example.com/x').toThrow('Invalid URL');
+      await rejects(url, '//cdn.example.com/x').toThrow('Invalid url');
       const parts = createParser({
         protocol: types.url.protocol,
         origin: types.url.origin,
@@ -227,8 +227,8 @@ describe('tier-1 catalogue', () => {
       expect(await cast(tel, '555-0100 #42')).toEqual('555-0100 #42');
       await rejects(tel, '12').toThrow('3–15 digits');
       await rejects(tel, '1234567890123456').toThrow('3–15 digits');
-      await rejects(tel, '+1 555 CALL NOW').toThrow('Invalid phone number');
-      await rejects(tel, '+').toThrow('Invalid phone number');
+      await rejects(tel, '+1 555 CALL NOW').toThrow('Invalid tel');
+      await rejects(tel, '+').toThrow('Invalid tel');
     });
 
     it('exposes the normalised number, the tel: link and the extension', async () => {
@@ -247,7 +247,7 @@ describe('tier-1 catalogue', () => {
         phoneLink: 'tel:+358401234567',
         ext: '9',
       });
-      await rejects(tel.href, 'nope').toThrow('Invalid phone number');
+      await rejects(tel.href, 'nope').toThrow('Invalid tel');
     });
   });
 
@@ -258,8 +258,8 @@ describe('tier-1 catalogue', () => {
       expect(await cast(mimeType.suffix, 'image/png')).toBeUndefined();
       expect(await cast(mimeType, 'Application/LD+JSON ; charset=UTF-8')).toEqual('application/ld+json; charset=UTF-8');
       expect(await cast(mimeType, 'image/png')).toEqual('image/png');
-      await rejects(mimeType, 'image').toThrow('Invalid MIME type');
-      await rejects(mimeType, 'image/').toThrow('Invalid MIME type');
+      await rejects(mimeType, 'image').toThrow('Invalid mimeType');
+      await rejects(mimeType, 'image/').toThrow('Invalid mimeType');
       const parser = createParser({
         type: types.mimeType.type,
         subtype: types.mimeType.subtype,
@@ -288,7 +288,7 @@ describe('tier-1 catalogue', () => {
     it('decodes strings, passes objects through, and composes an inner type', async () => {
       expect(await cast(json, '{"a":1}')).toEqual({ a: 1 });
       expect(await cast(json, { a: 1 })).toEqual({ a: 1 });
-      await rejects(json, '{nope').toThrow('Invalid JSON');
+      await rejects(json, '{nope').toThrow('Invalid json');
       const numbers = json.of(types.array.of(types.number));
       expect(numbers).toBeInstanceOf(ArrayType);
       expect(await cast(numbers.unique, '[1, "1", 2]')).toEqual([1, 2]);
@@ -348,6 +348,45 @@ describe('tier-1 catalogue', () => {
     it('names the regex in cast errors', async () => {
       const parser = createParser({ code: types.pattern(/^\d+$/) });
       await expect(parser({ code: 'x' })).rejects.toThrow('cannot cast value to "pattern(/^\\d+$/)" — Does not match /^\\d+$/');
+    });
+  });
+
+  describe('gap coverage', () => {
+    it('color rejects non-numeric channels and reads percentages and wrapped hues', async () => {
+      await rejects(color, 'rgb(a, b, c)').toThrow('Invalid color');
+      await rejects(color, 'rgba(0, 0, 0, x)').toThrow('Invalid color');
+      await rejects(color, 'hsl(a, 50%, 50%)').toThrow('Invalid color');
+      expect(await cast(color, 'rgb(100%, 0%, 50%)')).toEqual('#ff0080');
+      expect(await cast(color, 'hsl(-120, 100%, 50%)')).toEqual(await cast(color, 'hsl(240, 100%, 50%)'));
+      expect(await cast(color, 'hsl(480, 100%, 50%)')).toEqual(await cast(color, 'hsl(120, 100%, 50%)'));
+    });
+
+    it('mimeType lower-cases parameter keys and keeps their values', async () => {
+      expect(await cast(mimeType, 'Text/HTML; Charset=UTF-8')).toEqual('text/html; charset=UTF-8');
+      await rejects(mimeType, 'text/html; charset = utf-8').toThrow('Invalid mimeType');
+    });
+
+    it('oneOf and pattern expose their configuration', () => {
+      expect(oneOf('draft', 'published').values).toEqual(['draft', 'published']);
+      expect(pattern(/^\d+$/).regex).toEqual(/^\d+$/);
+    });
+
+    it('pattern re-flags a RegExp and is not stateful with g or y', async () => {
+      const insensitive = pattern(/^abc$/, 'i');
+      expect(insensitive.regex.flags).toEqual('i');
+      expect(await cast(insensitive, 'ABC')).toEqual('ABC');
+      const global = pattern(/a/g);
+      expect(await cast(global, 'aa')).toEqual('aa');
+      expect(await cast(global, 'aa')).toEqual('aa');
+      expect(await cast(global, 'a')).toEqual('a');
+    });
+
+    it('required survives a string-valued derivation', async () => {
+      const parser = createParser({ domain: types.email.required.domain, iso: types.date.required.iso });
+      await expect(parser({ iso: 0 })).rejects.toThrow('at "domain": cannot cast value to "email.domain" — Missing required value');
+      await expect(parser({ domain: 'a@b.co' })).rejects.toThrow('at "iso": cannot cast value to "date.iso" — Missing required value');
+      expect(types.email.required.domain.isRequired).toBe(true);
+      expect(types.email.domain.isRequired).toBe(false);
     });
   });
 });

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { getFromObject } from './internal';
+import { getFromObject, isPlainObject } from './internal';
 import {
   AppObject,
   GetDefaulted,
@@ -41,19 +41,22 @@ export const filterUndefinedEntries = <T extends [string, any][]>(obj: T) =>
   obj.filter((entry) => entry[1] !== undefined) as Exclude<T[number], [string, undefined]>[];
 export const condition = <T extends ParserProjection | ParserFunction<any>>(when: ParserCondition, then: T) => ({ when, then });
 
+// The reader returns the raw value and carries the token as `_cast`, so the parser casts it like a token at the key
+const withCast = <F extends (context: ParserContext) => unknown>(reader: F, type: TypeToken, hashBase: string, hashSuffix?: () => string) => {
+  let hash: string | undefined;
+  Object.defineProperties(reader, {
+    _cast: { value: type },
+    toString: { value: () => (hash ??= `${hashBase}:${type.id}${hashSuffix?.() ?? ''}__`) },
+  });
+  return reader;
+};
+
 export function get<T = unknown>(path: string): (context: ParserContext) => Promise<T>;
 export function get<T extends TypeToken>(path: string, type: T): GetValueFunction<GetOutput<T>> & GetDefaulted<T>;
 export function get<T = unknown>(path: string, from: AppObject): Promise<T>;
 export function get<T extends TypeToken>(path: string, from: AppObject, type: T): GetValue<GetOutput<T>> & GetDefaulted<T>;
 
-/**
- * Pick a nested value by dot path — from the current `context.data` (curried form) or from an
- * explicit object. With a type token the value is cast **by the engine**, after transformers and
- * pattern resolution and under the active failure policy, exactly as if the token sat at the
- * projection key: `phoneLink: get('phoneNumber', types.tel.href)` projects a second output from
- * the same raw field. Every returned function hashes by its path (and token) so parsers that differ
- * only in a `get` path stay distinct.
- */
+/** Pick a nested value by dot path from `context.data` or an explicit object; with a type token the engine casts it like a token at the key */
 export function get(path: string, fromOrType?: AppObject | TypeToken, maybeType?: TypeToken): any {
   const type = isTypeToken(fromOrType) ? fromOrType : maybeType;
   const from = isTypeToken(fromOrType) ? undefined : fromOrType;
@@ -63,15 +66,14 @@ export function get(path: string, fromOrType?: AppObject | TypeToken, maybeType?
     Object.defineProperty(reader, 'toString', { value: () => `__get:${path}__` });
     return reader;
   }
-  // Engine contract: return the raw value and carry the token as `_cast` — the parser casts it like a token at the key
-  const reader = ((context?: ParserContext) => getFromObject(from ?? context?.data ?? {}, path)) as unknown as GetValue<unknown>;
-  let hash: string | undefined;
-  Object.defineProperties(reader, {
-    _cast: { value: type },
-    toString: { value: () => (hash ??= `__get:${path}:${type.id}${from ? `:${toHash(from)}` : ''}__`) },
-  });
+  const reader = withCast(
+    (context?: ParserContext) => getFromObject(from ?? context?.data ?? {}, path),
+    type,
+    `__get:${path}`,
+    () => (from ? `:${toHash(from)}` : ''),
+  );
   if (from) {
-    // Awaited standalone: cast against a root context, throwing on failure like `.cast()`
+    // Awaited standalone it throws on failure like `.cast()`
     let standalone: Promise<unknown> | undefined;
     const run = () => (standalone ??= getFromObject(from, path).then((raw) => applyCast(raw, type)));
     Object.defineProperty(reader, 'then', {
@@ -81,21 +83,7 @@ export function get(path: string, fromOrType?: AppObject | TypeToken, maybeType?
   return reader;
 }
 
-const withCast = <F extends (context: ParserContext) => unknown>(reader: F, type: TypeToken, hashBase: string) => {
-  let hash: string | undefined;
-  Object.defineProperties(reader, {
-    _cast: { value: type },
-    toString: { value: () => (hash ??= `${hashBase}:${type.id}__`) },
-  });
-  return reader;
-};
-
-/**
- * Cast any projection value through a type token in the engine — after transformers and pattern
- * resolution, under the active failure policy, exactly as if the token sat at the projection key:
- * `title: value('{{myVariable}}', types.string.required)`. A plain function input is called with
- * the `ParserContext` first, so a computed value is cast the same way.
- */
+/** Cast any projection value through a type token in the engine: `title: value('{{myVariable}}', types.string.required)` */
 export function value<T extends TypeToken>(input: unknown, type: T): GetValueFunction<GetOutput<T>> & GetDefaulted<T> {
   const callable = typeof input === 'function' && !isTypeToken(input) && !('_parser' in input);
   const reader = async (context: ParserContext) => (callable ? (input as (context: ParserContext) => unknown)(context) : input);
@@ -105,11 +93,7 @@ export function value<T extends TypeToken>(input: unknown, type: T): GetValueFun
 export function variable<T extends TypeToken>(expression: string, type: T): GetValueFunction<GetOutput<T>> & GetDefaulted<T>;
 export function variable<T = unknown>(expression: string): (context: ParserContext) => Promise<T>;
 
-/**
- * Resolve a variables expression — what goes inside the delimiters (`'user.name || "Anonymous" | upperCase'`)
- * — through the active variables pattern, so re-delimited syntaxes keep working. With a type the
- * result is cast by the engine like `value`.
- */
+/** Resolve what goes inside the variable delimiters (`'user.name || "Anonymous" | upperCase'`), optionally cast like `value` */
 export function variable(expression: string, type?: TypeToken): any {
   const reader = (context: ParserContext) => evaluateVariableExpression(expression, context);
   if (type) return withCast(reader, type, `__variable:${expression}`);
@@ -124,12 +108,6 @@ export function variable(expression: string, type?: TypeToken): any {
  * @param objects - The objects to merge with the base schema.
  * @returns A new object that combines the base object with the provided objects.
  */
-const isPlainObject = (value: unknown): value is AppObject => {
-  if (typeof value !== 'object' || value === null) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-};
-
 export const mergeObjects = <T = AppObject>(...objects: (AppObject | undefined)[]): T => {
   return objects
     .filter((obj) => obj !== undefined)
@@ -141,7 +119,7 @@ export const mergeObjects = <T = AppObject>(...objects: (AppObject | undefined)[
         } else if (isPlainObject(value)) {
           acc[key] = mergeObjects(acc[key] || {}, value);
         } else {
-          // Class instances (type tokens, Date, URL, ...) are atomic — recursing would strip their prototype
+          // Recursing into class instances (type tokens, Date, URL, ...) would strip their prototype
           acc[key] = value;
         }
       });

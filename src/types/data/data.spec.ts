@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { initializeParser } from '../../parser';
 import { ParserReturnValue } from '../../parser-types';
+import { allTypes } from '../all';
 import { coords, dataTypes, locale, record, schema } from '../data';
+import { formatTypes } from '../format';
 import { types as builtIn } from '../namespace';
 
 type Expect<T extends true> = T;
@@ -46,7 +48,7 @@ describe('data types', () => {
     expect(await coords.lat.cast({ lat: 1, lng: 2 })).toEqual(1);
     expect(await coords.lng.cast('1 2')).toEqual(2);
     await expect(async () => coords.cast('91, 0')).rejects.toThrow('out of range');
-    await expect(async () => coords.cast('here')).rejects.toThrow('Invalid coordinates');
+    await expect(async () => coords.cast('here')).rejects.toThrow('Invalid coords');
   });
 
   it('locale canonicalises BCP 47 tags', async () => {
@@ -59,5 +61,23 @@ describe('data types', () => {
     await expect(async () => locale.cast('not a locale!')).rejects.toThrow('Invalid locale');
     const parser = createParser({ a: builtIn.string });
     expect(await parser({ a: '{{ tag | locale.language }}' }, { variables: { tag: 'de_AT' } })).toEqual({ a: 'de' });
+  });
+
+  it('record drops entries that cast to missing', async () => {
+    expect(await record.of(builtIn.number).cast({ a: '1', b: '', c: null })).toEqual({ a: 1 });
+  });
+
+  it('coords reads the longitude aliases and rejects incomplete or ambiguous input', async () => {
+    expect(await coords.cast({ lat: '60.16', lon: 24.93 })).toEqual({ lat: 60.16, lng: 24.93 });
+    expect(await coords.cast({ lat: 60.16, long: '24.93' })).toEqual({ lat: 60.16, lng: 24.93 });
+    expect(await coords.cast('60.16;24.93')).toEqual({ lat: 60.16, lng: 24.93 });
+    for (const bad of [{ lat: '', lng: '' }, { lat: null, lng: 1 }, ['', 1], '60,16, 24,93', '60.16']) {
+      await expect(async () => coords.cast(bad)).rejects.toThrow('Invalid coords');
+    }
+    await expect(async () => coords.cast('0, 181')).rejects.toThrow('Invalid coords (out of range)');
+  });
+
+  it('allTypes is the format and data registrations together', () => {
+    expect(allTypes).toEqual({ ...formatTypes, ...dataTypes });
   });
 });

@@ -1,4 +1,5 @@
-import { initializeParser, ParserContext, ParserPattern } from '../parser';
+import { getVariableValue, initializeParser, ParserContext, ParserPattern } from '../parser';
+import { variable } from '../parser-util';
 import { ParserPatternCycleError } from '../parser-patterns';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -226,5 +227,128 @@ describe('patterns', () => {
     const parser = createParser({ title: types.string });
     await parser({ title: 'value $here' });
     expect(seen.key).toEqual('title');
+  });
+});
+
+describe('pattern configuration', () => {
+  const parseWith = (patterns: Record<string, unknown>, input: string, extra: Record<string, unknown> = {}) => {
+    const { createParser, types } = initializeParser({ ...extra, patterns: patterns as never });
+    return createParser({ title: types.string })({ title: input });
+  };
+
+  it('validates patterns on the first parse', async () => {
+    await expect(parseWith({ bad: { match: /\$x/g } }, 'x')).rejects.toThrow(
+      'Pattern "bad" must define a resolve function and either a match regex or delimiters',
+    );
+    await expect(parseWith({ bad: { resolve: () => 'x' } }, 'x')).rejects.toThrow('Pattern "bad" must define a resolve function');
+    await expect(parseWith({ bad: { delimiters: ['<<', ''], resolve: () => 'x' } }, 'x')).rejects.toThrow(
+      'Pattern "bad" delimiters must be two non-empty strings',
+    );
+    await expect(parseWith({ bad: { match: /\$(\w+)/g, expressions: true, resolve: () => 'x' } }, 'x')).rejects.toThrow(
+      'Pattern "bad" requires delimiters for expressions',
+    );
+  });
+
+  it('hands the raw capture to a delimited pattern with expressions: false', async () => {
+    const resolve = vi.fn(({ path }: { path: string }) => `[${path}]`);
+    const data = await parseWith({ raw: { delimiters: ['<<', '>>'], expressions: false, resolve } }, 'a << x || "y" | up >> b');
+    expect(data.title).toEqual('a [ x || "y" | up ] b');
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets a delimited body span newlines and match lazily', async () => {
+    const data = await parseWith(
+      { db: { delimiters: ['<<', '>>'], resolve: ({ path }: { path: string }) => path.toUpperCase() } },
+      'a <<one\n|| "x">> b <<two>>',
+    );
+    expect(data.title).toEqual('a ONE b TWO');
+  });
+
+  it('never mutates the configured regex and adds the global flag itself', async () => {
+    const match = /\$([a-z]+)/;
+    const data = await parseWith({ db: { match, expressions: false, resolve: ({ path }: { path: string }) => path.length } }, '$ab and $abcd');
+    expect(data.title).toEqual('2 and 4');
+    expect(match.flags).toEqual('');
+    expect(match.lastIndex).toEqual(0);
+  });
+
+  it('uses the whole match as the expression without a capture group', async () => {
+    const resolve = vi.fn(({ path }: { path: string; raw: string }) => path.slice(1).toUpperCase());
+    const data = await parseWith({ at: { match: /@[a-z]+/g, expressions: false, resolve } }, 'hi @bob');
+    expect(data.title).toEqual('hi BOB');
+    expect(resolve.mock.calls[0][0]).toMatchObject({ path: '@bob', raw: '@bob' });
+  });
+
+  it('skips zero-length matches instead of looping', async () => {
+    const resolve = vi.fn(() => 'never');
+    const data = await parseWith({ empty: { match: /x*/g, expressions: false, resolve } }, 'abc');
+    expect(data.title).toEqual('abc');
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('escapes custom patterns and whole-string matches too', async () => {
+    const patterns = { db: { match: /\$([a-z]+)/g, expressions: false, resolve: ({ path }: { path: string }) => path.toUpperCase() } };
+    expect((await parseWith(patterns, 'cost \\$usd and $eur')).title).toEqual('cost $usd and EUR');
+    expect((await parseWith(patterns, '\\$usd')).title).toEqual('$usd');
+    expect((await parseWith({}, '\\{{name}}', { variables: { name: 'Bob' } })).title).toEqual('{{name}}');
+  });
+
+  it('splices $-sequences in resolved values literally', async () => {
+    const data = await parseWith({}, 'Price: {{price}} / {{again}}', { variables: { price: '$& $1 $$', again: "$` $'" } });
+    expect(data.title).toEqual("Price: $& $1 $$ / $` $'");
+  });
+
+  it('dedupes by raw match text, so spacing variants resolve separately', async () => {
+    const resolve = vi.fn(({ path }: { path: string }) => path);
+    await parseWith({ db: { delimiters: ['<<', '>>'], cache: 'none', resolve } }, '<<a>> <<a>> << a >>');
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops rescanning at the depth limit and reports the chain', async () => {
+    const variables: Record<string, string> = {};
+    for (let i = 0; i < 12; i++) variables[`v${i}`] = `{{v${i + 1}}}`;
+    variables['v12'] = 'end';
+    const error = await parseWith({}, 'x {{v0}}', { variables }).catch((caught) => caught);
+    expect(error).toBeInstanceOf(ParserPatternCycleError);
+    expect((error as ParserPatternCycleError).name).toEqual('ParserPatternCycleError');
+    expect((error as ParserPatternCycleError).chain).toHaveLength(11);
+    expect((error as ParserPatternCycleError).chain[0]).toEqual('variables:{{v0}}');
+
+    const shallow: Record<string, string> = {};
+    for (let i = 0; i < 9; i++) shallow[`v${i}`] = `{{v${i + 1}}}`;
+    shallow['v9'] = 'end';
+    expect((await parseWith({}, 'x {{v0}}', { variables: shallow })).title).toEqual('x end');
+  });
+
+  it('names the cycle in the error message', async () => {
+    const error = await parseWith({}, 'x {{a}}', { variables: { a: '{{b}}', b: '{{a}}' } }).catch((caught) => caught);
+    expect((error as ParserPatternCycleError).chain).toEqual(['variables:{{a}}', 'variables:{{b}}', 'variables:{{a}}']);
+    expect((error as Error).message).toContain('Pattern resolution cycle detected: variables:{{a}} -> variables:{{b}} -> variables:{{a}}');
+  });
+
+  it('ignores patterns passed below the global level', async () => {
+    const { createParser, types } = initializeParser();
+    const patterns = { db: { match: /\$([a-z]+)/g, expressions: false, resolve: () => 'resolved' } };
+    const parser = createParser({ title: types.string }, { patterns } as never);
+    expect((await parser({ title: 'a $b' }, { patterns } as never)).title).toEqual('a $b');
+  });
+
+  it('keeps getVariableValue, variable() and the variables proxy working when the variables pattern is disabled', async () => {
+    const { createParser, variables } = initializeParser({ variables: { name: 'Bob' }, patterns: { variables: false } });
+    const parser = createParser({
+      template: 'Hi {{name}}',
+      viaHelper: variable('name'),
+      viaProxy: variables.name,
+      viaExport: (context: ParserContext) => getVariableValue('{{name}}', context),
+    });
+    expect(await parser({})).toEqual({ template: 'Hi {{name}}', viaHelper: 'Bob', viaProxy: 'Bob', viaExport: 'Bob' });
+  });
+
+  it('returns the whole object for bare data and ctx heads', async () => {
+    const { createParser } = initializeParser({
+      pipes: { keys: ({ data }) => Object.keys(data as object).length > 0, hasParser: ({ data }) => 'parser' in (data as object) },
+    });
+    const parser = createParser({ data: '{{data}}', ctx: '{{ ctx | hasParser }}', context: '{{ context | hasParser }}' });
+    expect(await parser({ a: 1 })).toEqual({ data: { a: 1 }, ctx: true, context: true });
   });
 });

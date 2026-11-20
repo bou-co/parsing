@@ -1,18 +1,18 @@
-# Caching — two mechanisms, one storage
+# Caching — three mechanisms, one storage
 
-v3 has two caching mechanisms — whole-parse caching and the value-level `store` — plus
+v3 has three caching mechanisms — whole-parse caching, the value-level `store`, and
 per-pattern cache modes. They all go through the same pluggable `storage`, but they cache
 different things at different granularities. Picking the wrong one is the most common caching
 mistake, so start here.
 
 ## Choose the granularity
 
-| You want to cache                             | Use                                             | Keyed on                                                    |
-| --------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------- |
-| The **entire parse result** for a given input | `cache: { enabled: true }`                      | Hash of the projection + the raw call arguments, by default |
-| **One async value** shared across many parses | `store(key, fn, options?)`                      | Your key, variable-interpolated                             |
+| You want to cache                             | Use                                              | Keyed on                                                    |
+| --------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------- |
+| The **entire parse result** for a given input | `cache: { enabled: true }`                       | Hash of the projection + the raw call arguments, by default |
+| **One async value** shared across many parses | `store(key, fn, options?)`                       | Your key, variable-interpolated                             |
 | A value you **read or write directly**        | `store.match(key)` / `store.add({ key, value })` | Your key, or a content hash when `add` gets none            |
-| A **pattern's** resolved lookups              | `cache: 'storage'` on the pattern               | `pattern:<name>:<path>`                                     |
+| A **pattern's** resolved lookups              | `cache: 'storage'` on the pattern                | `pattern:<name>:<path>`                                     |
 
 The distinction that matters: whole-parse caching keys on the _input_, so two different
 articles never share an entry. Value-level caching keys on _your_ identifier, so a hundred
@@ -56,8 +56,8 @@ preserves document order consistently. Hashing an object your own code assembles
 conditionally is not — sort the keys first, or you get silent permanent cache misses.
 (`generateKey` itself is optional — omit it and the default key applies.)
 
-Without a configured storage, every mechanism degrades gracefully — the functions simply run,
-`store.match` misses and `store.add` still returns the key. That's deliberate: value functions
+Without a configured storage, every mechanism degrades gracefully — the functions simply run
+(no in-flight dedupe either), `store.match` misses and `store.add` still returns the key. That's deliberate: value functions
 stay isomorphic and work unchanged on the client.
 
 ## 1. Whole-parse caching
@@ -119,6 +119,7 @@ Direct reads and writes:
 await store.add({ key: 'profile-1', value, ttl: 3600 }); // → 'profile-1'
 await store.add('profile-1', value, { ttl: 3600 }); // positional
 const key = await store.add({ value: report }); // no key → 'store:<content hash>', returned
+await store.add({ key: 'report', value: fetchReport() }); // a promise value is awaited before storing
 await store.match<Report>(key); // undefined on a miss
 await store.remove('profile-1');
 await store.clear();
@@ -127,6 +128,13 @@ await store.clear();
 A single argument to `store.add` is **always** the `{ key?, value, ...options }` object — never
 pass raw data as the only argument (see `gotchas.md`). `add` rejects `null`/`undefined`
 values, since they read back as a miss. `remove`/`clear` are no-ops when the backend lacks them.
+`options` on `match` / `remove` / `clear` reach the backend as `context.cache`, like on `add`.
+
+The value `store(key, fn)` returns is three things at once: a value function (the engine calls
+it with the live context), an awaitable with `.then` / `.catch` / `.finally`, and a zero-argument
+callable — `store(key, fn)()` runs against the store's own context, same as awaiting it. It
+hashes as `__store:<key>:<fn hash>:<options hash>__`, so two parsers that differ only in a
+store key, function or options get distinct projection hashes.
 
 **The key template is the sharp edge.** A variable that resolves to nothing stringifies to
 `undefined` inside the key — `'profile-undefined'` — which silently collides across every
@@ -139,8 +147,8 @@ These guarantees are the reason to prefer it over hand-rolled memoisation:
 
 - **Storage-gated, not `cache.enabled`-gated.** It caches whenever a storage is configured;
   calling it _is_ the opt-in. `cache: { enabled: false }` does not disable it.
-- **In-flight dedupe per key.** Concurrent `store(key, fn)` calls share one computation, so an
-  array of 100 items parsing in parallel fires one request.
+- **In-flight dedupe per key** (when a `storage` is configured). Concurrent `store(key, fn)`
+  calls share one computation, so an array of 100 items parsing in parallel fires one request.
 - **Errors are never cached.** A failure rejects all waiters and the next call retries.
 - **`null`/`undefined` from `storage.match` count as misses**, so falsy values (`0`, `''`,
   `false`) cache correctly rather than being re-fetched forever.
@@ -164,6 +172,10 @@ Each user-defined pattern picks a mode:
 | `'none'`          | No caching                                            | Context-sensitive lookups (the built-in `variables` pattern uses this) |
 | `'storage'`       | The configured storage, under `pattern:<name>:<path>` | Stable shared lookups, e.g. CMS snippets                               |
 
+`'run'` is one memo per **root** parse, shared into every nested level. `'storage'` writes the
+literal key — unlike `store` keys it is not variable-interpolated — and with no storage
+configured the pattern resolves on every match (no fallback to the run memo).
+
 **Watch the `variableResolver` `cache()` callback specifically.** It keeps an
 **engine-lifetime** store, so values cached there are served for the life of the process —
 across requests and across tenants — and they merge into `variables` last, shadowing even
@@ -176,7 +188,7 @@ instead.
 There is no automatic invalidation beyond your backend's TTL. What does change keys:
 
 - Editing a projection changes its hash (default key only)
-- Editing a custom type's implementation, `strict`, `name`, or `default` changes its `_id`
+- Editing a custom type's implementation, `name`, `default`, `required` or `strict`/`loose` policy changes its `id`
 - Upgrading from v2 changed every projection hash once, because type identifiers became
   tokens — expect a one-time cold cache
 
@@ -185,8 +197,8 @@ the projection themselves.
 
 ## Serialization caution
 
-Cached output travels through `JSON.stringify` in most backends. Parser output carries a
-non-enumerable `_parsed` marker that tells a second parse "already resolved" — and that
-marker does **not** survive serialization. A cached result re-fed into a parser is treated as
+Cached output travels through `JSON.stringify` in most backends. Parser output is a `Proxy`
+whose `get` trap answers `_parsed: true` — not a real property — which tells a second parse
+"already resolved", and that marker does **not** survive serialization. A cached result re-fed into a parser is treated as
 unparsed and gets pattern-resolved again. See `gotchas.md` for what that does to escaped
 `{{...}}` content.

@@ -1,15 +1,11 @@
 import type { ParserContext } from '../parser-types';
-import { string, StringType } from './string';
 import { defineType } from '../type-token';
+import { invalid } from './internal';
+import { string, StringType } from './string';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/**
- * `email` — shape validation (`local@domain.tld`), trimmed, otherwise kept exactly as written:
- * the local part is technically case-sensitive, so the base cast does not touch the case.
- * `.normalized` lower-cases the whole address, `.href` builds the `mailto:` link, and every
- * `string` accessor (`.lowerCase`, ...) is inherited.
- */
+/** Shape check (`local@domain.tld`), trimmed, case kept as written since the local part is case-sensitive */
 export class EmailType extends StringType {
   static override readonly family: string = 'email';
 
@@ -17,11 +13,11 @@ export class EmailType extends StringType {
     const text = await super.cast(value, context);
     if (text === undefined) return undefined;
     const trimmed = text.trim();
-    if (!EMAIL.test(trimmed)) throw new Error('Invalid email');
+    if (!EMAIL.test(trimmed)) throw invalid('email');
     return trimmed;
   }
 
-  /** The whole address lower-cased — still an `email`, so `.normalized.domain` chains */
+  /** The whole address lower-cased, still an `email` so `.normalized.domain` chains */
   get normalized(): this {
     return this.transform('normalized', (value) => value.toLowerCase());
   }

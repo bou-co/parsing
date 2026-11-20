@@ -1,4 +1,3 @@
-// `@bou-co/parsing/types/format` — presentation helpers and locale opinions. Register with `initializeParser({ types: { ...formatTypes } })`
 import { currency } from './format/currency';
 import { duration, DurationType } from './format/duration';
 import { formatDate, formatDateValue } from './format/format-date';

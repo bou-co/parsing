@@ -2,6 +2,7 @@ import { initializeParser } from '../parser';
 import { defineType, StringType, TypeToken, ParserCastError, isTypeToken } from '../types';
 import type { ParserContext } from '../parser-types';
 import { toHash } from '../to-hash';
+import { applyCast } from '../type-token';
 
 const { createParser, types } = initializeParser();
 
@@ -166,5 +167,38 @@ describe('extending types', () => {
       expect(JSON.stringify({ t: types.string })).toEqual('{"t":"__parserType:string__"}');
       expect(String(types.string.upperCase)).toMatch(/^__parserType:string\.upperCase#/);
     });
+  });
+});
+
+describe('chain state across derivations', () => {
+  it('keeps required across string-valued derivations', async () => {
+    const parser = createParser({ domain: types.email.required.domain });
+    expect(types.email.required.domain.isRequired).toBe(true);
+    await expect(parser({})).rejects.toThrow('Missing required value');
+    expect(await parser({ domain: 'a@b.co' })).toEqual({ domain: 'b.co' });
+    await expect(createParser({ y: types.date.required.year })({})).rejects.toThrow('Missing required value');
+    await expect(createParser({ u: types.string.required.upperCase })({})).rejects.toThrow('Missing required value');
+  });
+
+  it('keeps strict and loose across .to(token)', async () => {
+    expect(types.date.strict.iso.policy).toEqual('strict');
+    expect(types.email.loose.domain.policy).toEqual('loose');
+    expect(await createParser({ d: types.email.loose.domain })({ d: 'nope' })).toEqual({});
+    await expect(createParser({ d: types.date.strict.iso })({ d: 'nope' }, { looseCasting: true })).rejects.toThrow(ParserCastError);
+  });
+
+  it('drops a default set before an accessor, extend or to', async () => {
+    expect(types.string.default('x').upperCase.defaultValue).toBeUndefined();
+    expect(types.string.default('x').extend((value) => value).defaultValue).toBeUndefined();
+    expect(types.string.default('x').to((value) => value.length).defaultValue).toBeUndefined();
+    expect(await createParser({ a: types.string.default('x').upperCase, b: types.string.upperCase.default('x') })({})).toEqual({ b: 'x' });
+  });
+
+  it('reports <root> as the path of a cast without a parse context', async () => {
+    const standalone = await applyCast('nope', types.number).catch((caught) => caught);
+    expect(standalone).toBeInstanceOf(ParserCastError);
+    expect((standalone as ParserCastError).path).toEqual('<root>');
+    const atKey = await createParser({ n: types.number })({ n: 'nope' }).catch((caught) => caught);
+    expect((atKey as ParserCastError).path).toEqual('n');
   });
 });

@@ -2,7 +2,7 @@ import type { ParserContext } from '../parser-types';
 import { CastResult, TypeToken, defineType } from '../type-token';
 import { invalid } from './internal';
 
-/** `boolean` — booleans pass through; `1`/`0` and `'true'`/`'false'` (case-insensitive) are coerced */
+/** Booleans pass through. `1`/`0` and `'true'`/`'false'` (case-insensitive) are coerced */
 export class BooleanType extends TypeToken<boolean> {
   static readonly family: string = 'boolean';
 

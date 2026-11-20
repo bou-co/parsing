@@ -247,3 +247,73 @@ describe('parsing', () => {
     expect(data.message).toEqual('Hello John!');
   });
 });
+
+describe('resolve details', () => {
+  it('should run no before or after hooks', async () => {
+    const before = vi.fn((context: ParserContext) => context);
+    const after = vi.fn((context: ParserContext) => context);
+    const { resolve, createParser } = initializeParser({ before, after, variables: { name: 'John' } });
+
+    expect(await resolve({ message: 'Hello {{name}}!' })).toEqual({ message: 'Hello John!' });
+    expect(before).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
+
+    await createParser({ a: 'x' })({});
+    expect(before).toHaveBeenCalledTimes(1);
+    expect(after).toHaveBeenCalledTimes(1);
+  });
+
+  it('should pass parsers through untouched', async () => {
+    const { resolve, createParser, types } = initializeParser();
+    const parser = createParser({ title: types.string });
+
+    const data = await resolve({ parser, flat: parser.flat });
+    expect(data.parser).toBe(parser);
+    expect(data.flat).toBe(parser.flat);
+  });
+
+  it('should accept a function as the root input and raw promises inside the input', async () => {
+    const { resolve } = initializeParser({ variables: { name: 'John' } });
+
+    expect(await resolve(() => ({ message: 'Hello {{name}}!' }))).toEqual({ message: 'Hello John!' });
+    expect(await resolve({ later: Promise.resolve('Hi {{name}}'), list: [Promise.resolve(1)] } as never)).toEqual({ later: 'Hi John', list: [1] });
+  });
+
+  it('should never inherit ambient context in the exported resolve', async () => {
+    const { resolve, createParser } = initializeParser({ variables: { scope: 'global' } });
+    const parser = createParser(
+      {
+        exported: () => resolve('{{scope}}-{{extra}}'),
+        contextual: ({ resolve: contextResolve }: ParserContext) => contextResolve('{{scope}}-{{extra}}'),
+      },
+      { variables: { scope: 'schema' } },
+    );
+
+    expect(await parser({}, { variables: { extra: 'instance' } })).toEqual({ exported: 'global-undefined', contextual: 'schema-instance' });
+  });
+
+  it('should give functions the node context: root flags at the top, key and parent below', async () => {
+    const { resolve } = initializeParser();
+    const input = {
+      top: ({ isRoot, key, parent, data, value }: ParserContext) => ({ isRoot, key, hasParent: !!parent, sameData: data === value }),
+      nested: { deep: ({ isRoot, key, parent, data }: ParserContext) => ({ isRoot, key, parentKey: parent?.key, keys: Object.keys(data) }) },
+    };
+
+    const rootSeen = await resolve(({ isRoot, key, parent }: ParserContext) => ({ isRoot, key, hasParent: !!parent }));
+    expect(rootSeen).toEqual({ isRoot: true, hasParent: false });
+
+    const data = await resolve(input);
+    expect(data.top).toEqual({ isRoot: false, key: 'top', hasParent: true, sameData: true });
+    expect(data.nested.deep).toEqual({ isRoot: false, key: 'deep', parentKey: 'nested', keys: ['deep'] });
+  });
+
+  it('should rebind data, value and current in context.resolve(input)', async () => {
+    const { createParser } = initializeParser();
+    const parser = createParser({
+      v: ({ resolve }: ParserContext) =>
+        resolve({ fromData: '{{data.x}}', fromCurrent: '{{current.x}}', fromValue: ({ value }: ParserContext) => value.x, x: 'inner' }),
+    });
+
+    expect(await parser({ x: 'outer', v: 'raw' })).toEqual({ v: { fromData: 'inner', fromCurrent: 'inner', fromValue: 'inner', x: 'inner' } });
+  });
+});

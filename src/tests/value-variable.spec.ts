@@ -160,3 +160,53 @@ describe('variables proxy', () => {
     expect(initializeParser().variables).toBe(variables);
   });
 });
+
+describe('value / variable details', () => {
+  it('runs transformers on the result before the cast', async () => {
+    const engine = initializeParser({
+      variables: { localized: { en: '42', fi: '43' } },
+      transformers: {
+        pick: { when: ({ data }) => !!data && typeof data === 'object' && 'en' in (data as object), then: ({ data }) => (data as { en: string }).en },
+      },
+    });
+    const parser = engine.createParser({
+      fromValue: value({ en: '7', fi: '8' }, engine.types.number),
+      fromVariable: variable('localized', engine.types.number),
+      fromGet: get('raw', engine.types.number),
+    });
+    expect(await parser({ raw: { en: '9' } })).toEqual({ fromValue: 7, fromVariable: 42, fromGet: 9 });
+  });
+
+  it('does not call a type token or a parser passed as value() input', async () => {
+    const inner = createParser({ a: 'x' });
+    const called = vi.fn(() => 'computed');
+    const anyType = types.any;
+    expect(await createParser({ fn: value(called, types.string) })({})).toEqual({ fn: 'computed' });
+    expect(called).toHaveBeenCalledTimes(1);
+    const data = await createParser({ token: value(types.string, anyType), parser: value(inner, anyType) })({});
+    expect(data.token).toBe(types.string);
+    expect(data.parser).toBe(inner);
+  });
+
+  it('hashes variable() by expression and token', () => {
+    expect(String(variable('user.name'))).toEqual('__variable:user.name__');
+    expect(String(variable('user.name', types.string))).toEqual(`__variable:user.name:${types.string.id}__`);
+    expect(toHash({ a: variable('user.name') })).not.toEqual(toHash({ a: variable('user.email') }));
+    expect(toHash({ a: variable('count', types.number) })).not.toEqual(toHash({ a: variable('count', types.string) }));
+  });
+
+  it('keeps toString, valueOf and toJSON reserved on the proxy but reachable through variable()', async () => {
+    const reserved = { toString: 'a', valueOf: 'b', toJSON: 'c' } as never;
+    expect(typeof variables.toString).toEqual('function');
+    expect(variables.user.valueOf()).toEqual('{{user}}');
+    expect(variables.user.toJSON()).toEqual('{{user}}');
+    const parser = createParser({ a: variable('toString'), b: variable('valueOf'), c: variable('toJSON') });
+    expect(await parser({}, { variables: reserved })).toEqual({ a: 'a', b: 'b', c: 'c' });
+  });
+
+  it('stringifies the proxy to the default {{ }} form even when variables are re-delimited', async () => {
+    const redelimited = initializeParser({ variables: { name: 'World' }, patterns: { variables: { match: /\$\{([^}]+)\}/g } } });
+    const parser = redelimited.createParser({ direct: variables.name, template: `Hello ${variables.name}` });
+    expect(await parser({})).toEqual({ direct: 'World', template: 'Hello {{name}}' });
+  });
+});

@@ -4,20 +4,6 @@ import type { ParserContext } from './parser-types';
 import { applyCast, buildKeyPath } from './type-token';
 import { resolveTypePipe } from './types/namespace';
 
-/**
- * The expression grammar shared by every pattern with `expressions` enabled:
- *
- *   expression  := alternative ("||" alternative)*
- *   alternative := candidate ("|" pipe)*
- *   pipe        := name (":" param)*
- *   candidate | param := literal | path
- *   literal     := "\"…\"" | -?digits(.digits)? | true | false | null | undefined
- *
- * Splitting is quote-aware: a double-quoted literal may contain `|`, `||`, `:` and single quotes
- * (`formatDate:"MMM d 'at' HH:mm"`), and `\"` escapes a quote. Dot paths are never split here —
- * path semantics belong to the pattern's `resolve`.
- */
-
 export interface ParsedPipe {
   name: string;
   params: string[];
@@ -98,7 +84,7 @@ const resolveParam = async (param: string, context: ParserContext): Promise<unkn
   return value;
 };
 
-// A pipe is an explicit `pipes` function first, then a type (`email`, `date.iso`, `upperCase`, `oneOf:"a":"b"`)
+// Explicit `pipes` functions win over types (`email`, `date.iso`, `upperCase`, `oneOf:"a":"b"`)
 const applyPipe = async (pipe: ParsedPipe, value: unknown, context: ParserContext, hasFallback: boolean): Promise<unknown> => {
   const { name } = pipe;
   const params = await Promise.all(pipe.params.map((param) => resolveParam(param, context)));
@@ -109,7 +95,7 @@ const applyPipe = async (pipe: ParsedPipe, value: unknown, context: ParserContex
   }
   const token = resolveTypePipe(name, params, context.types);
   if (token) {
-    // "Fallback wins when written": with a `||` alternative after this pipe, a failed cast yields undefined and the chain continues
+    // With a `||` alternative after this pipe a failed cast yields undefined and the chain continues
     return applyCast(value, token, { ...context, data: value, value } as ParserContext, { fallback: hasFallback });
   }
   // TODO(v4): remove migration catch
@@ -124,11 +110,7 @@ const applyPipe = async (pipe: ParsedPipe, value: unknown, context: ParserContex
 
 export type CandidateResolver = (candidate: string) => Promise<unknown>;
 
-/**
- * Evaluate a parsed expression: each `||` alternative resolves its candidate (a literal or, through
- * `resolveCandidate`, the pattern's own lookup), runs its pipes left to right, and wins when the
- * result is defined. An undefined candidate skips its pipes unless `context.pipeUndefined` is set.
- */
+/** First `||` alternative with a defined result wins; an undefined candidate skips its pipes unless `context.pipeUndefined` is set */
 export const evaluateExpression = async (expression: string, context: ParserContext, resolveCandidate: CandidateResolver): Promise<unknown> => {
   const { alternatives } = parseExpression(expression);
   for (let index = 0; index < alternatives.length; index++) {

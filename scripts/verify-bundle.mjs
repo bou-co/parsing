@@ -1,5 +1,5 @@
 // Verifies the built package tree-shakes: named type imports drop unrelated types, and no subset pulls the content peers
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build } from 'vite';
@@ -33,12 +33,27 @@ const check = (label, code, { includes = [], excludes = [] }) => {
 
 const namedImport = await bundle('named', `import { email } from '${join(dist, 'types/index.js')}'; export { email };`);
 check('named import of email', namedImport, {
-  includes: ['Invalid email'],
-  excludes: ['Invalid slug', 'Invalid color', 'Invalid MIME type', 'Does not match'],
+  includes: ['mailto:'],
+  excludes: ['URL-safe', 'hsla', '"mimeType"', "'mimeType'", 'Does not match'],
 });
 
 const core = await bundle('core', `import { initializeParser } from '${join(dist, 'index.js')}'; export { initializeParser };`);
 check('core entry', core, { excludes: ['sanitize-html', 'ultrahtml', 'marked'] });
+
+// react is an optional peer: only the react entry may import it
+const coreFile = readFileSync(join(dist, 'index.js'), 'utf8');
+if (/from\s*["']react["']|require\(["']react["']\)/.test(coreFile)) failures.push('core entry: must not import react');
+
+const cli = join(dist, 'cli/index.js');
+if (!existsSync(cli)) failures.push('cli: dist/cli/index.js is missing');
+else if (!readFileSync(cli, 'utf8').startsWith('#!')) failures.push('cli: dist/cli/index.js must start with a shebang');
+
+const skills = join(dist, 'skills');
+const bundledSkills = existsSync(skills) ? readdirSync(skills, { withFileTypes: true }).filter((entry) => entry.isDirectory()) : [];
+if (!bundledSkills.length) failures.push('skills: dist/skills has no skill folders');
+for (const skill of bundledSkills) {
+  if (!existsSync(join(skills, skill.name, 'SKILL.md'))) failures.push(`skills: dist/skills/${skill.name}/SKILL.md is missing`);
+}
 
 for (const subset of ['format', 'data', 'all']) {
   const file = join(dist, `types/${subset}.js`);

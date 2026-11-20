@@ -36,3 +36,13 @@ describe('legacy type keys', () => {
     expect(data.value).toEqual('hello world');
   });
 });
+
+describe('legacy type key matching', () => {
+  it('matches exact names case-sensitively and array<...> case-insensitively', async () => {
+    expect(await createParser({ value: 'String' })({})).toEqual({ value: 'String' });
+    expect(await createParser({ value: 'NUMBER' })({})).toEqual({ value: 'NUMBER' });
+    await expect(createParser({ value: 'Array<String>' })({})).rejects.toThrow("Legacy type string 'Array<String>'");
+    await expect(createParser({ value: 'array<string>' })({})).rejects.toThrow('use `types.array.of(types.x)` instead');
+    expect(await createParser({ value: 'array' + '<>' })({})).toEqual({ value: 'array<>' });
+  });
+});

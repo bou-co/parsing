@@ -177,3 +177,17 @@ describe('missing values', () => {
     expect(await parser({ title: 'a', slug: 'b', free: '' })).toEqual({ title: 'a', slug: 'b' });
   });
 });
+
+describe('tokens returned from value functions', () => {
+  it('applies a returned type token as the cast for the key', async () => {
+    const { createParser, types } = initializeParser();
+    const parser = createParser({
+      count: () => types.number,
+      size: ({ data }) => (data['unit'] === 'px' ? types.number.round(0) : types.string),
+      fallback: () => types.string.default('none'),
+    });
+    expect(await parser({ count: '5', size: '12.6', unit: 'px' })).toEqual({ count: 5, size: 13, fallback: 'none' });
+    expect(await parser({ count: '5', size: '12.6' })).toEqual({ count: 5, size: '12.6', fallback: 'none' });
+    await expect(parser({ count: 'abc' })).rejects.toThrow('Parser cast error at "count"');
+  });
+});

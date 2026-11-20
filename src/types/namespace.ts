@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { CastFunction } from '../type-token';
-import { installMembers, isTypeToken, TypeToken, UNIVERSAL_MEMBERS } from '../type-token';
+import { isPlainObject } from '../internal';
+import { createCarrier, defineHidden, installMembers, isTypeToken, TypeToken, UNIVERSAL_MEMBERS } from '../type-token';
 import { any } from './any';
 import { array } from './array';
 import { boolean } from './boolean';
@@ -34,12 +35,10 @@ Object.defineProperty(builtInTypes, 'undefined', {
   },
 });
 
-/** The tier-1 namespace: every built-in token, no registration, no dependencies */
+/** Every built-in token, no registration, no dependencies */
 export const types = Object.freeze(builtInTypes);
 
 export type DefaultParserTypes = typeof types;
-
-// ---- Registration
 
 /** Accessors added onto an existing family: `{ date: { relative: (value: Date) => string } }` */
 export type ParserTypeAccessorMap = Record<string, CastFunction<any, any>>;
@@ -61,12 +60,6 @@ export type RegisteredTypes<Base, T> = Omit<Base, keyof T> & {
       : never;
 };
 
-const isPlainObject = (value: unknown): value is Record<string, unknown> => {
-  if (typeof value !== 'object' || value === null) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-};
-
 // Same family, same identity, extra accessors — used for `{ date: { relative } }` registrations
 const extendedCache = new WeakMap<TypeToken, WeakMap<object, TypeToken>>();
 const withAccessors = (token: TypeToken, accessors: ParserTypeAccessorMap): TypeToken => {
@@ -76,8 +69,8 @@ const withAccessors = (token: TypeToken, accessors: ParserTypeAccessorMap): Type
   if (!extended) {
     const Extended = class extends (token.constructor as typeof TypeToken) {};
     installMembers(Extended.prototype, accessors);
-    extended = Object.create(Extended.prototype) as TypeToken;
-    Object.defineProperty(extended, '_state', { value: { ...token._state }, writable: true, configurable: true, enumerable: false });
+    extended = createCarrier<TypeToken>(Extended.prototype);
+    defineHidden(extended, '_state', { ...token._state });
     perToken.set(accessors, extended);
   }
   return extended;
@@ -126,8 +119,6 @@ export const mergeTypes = (base: ParserTypesNamespace, ...layers: (ParserTypesCo
   return result;
 };
 
-// ---- Pipe resolution
-
 interface RootEntry {
   token: TypeToken;
   proto: object;
@@ -137,7 +128,7 @@ interface RootEntry {
 const WALKABLE_UNIVERSAL = new Set(['strict', 'loose', 'default', 'required']);
 const NON_WALKABLE = new Set([...UNIVERSAL_MEMBERS].filter((member) => !WALKABLE_UNIVERSAL.has(member)));
 
-// Prototypes of the built-in families — collisions purely among these (string/array `length`) are by design and stay silent
+// Prototypes of the built-in families — collisions purely among shipped families (string/array `length`, date/duration `iso`) are by design and stay silent
 const builtInProtos = new Set<object>();
 for (const token of Object.values(types)) {
   let proto = Object.getPrototypeOf(token);
@@ -146,6 +137,9 @@ for (const token of Object.values(types)) {
     proto = Object.getPrototypeOf(proto);
   }
 }
+
+// The opt-in subsets are not imported here, so they are recognised by declaring their own family
+const isShippedFamily = (proto: object): boolean => builtInProtos.has(proto) || Object.hasOwn(proto.constructor, 'family');
 
 const findDescriptor = (target: object, member: string): PropertyDescriptor | undefined => {
   let current: object | null = target;
@@ -188,7 +182,7 @@ const buildRootIndex = (namespace: ParserTypesNamespace): Map<string, RootEntry>
           owners.set(member, key);
         } else if (existing.proto !== proto) {
           const collision = collisions.get(member) ?? { registered: false, keys: [owners.get(member) as string] };
-          collision.registered ||= !builtInProtos.has(proto) || !builtInProtos.has(existing.proto);
+          collision.registered ||= !isShippedFamily(proto) || !isShippedFamily(existing.proto);
           if (!collision.keys.includes(key)) collision.keys.push(key);
           collisions.set(member, collision);
         }
@@ -213,11 +207,7 @@ const getRootIndex = (namespace: ParserTypesNamespace): Map<string, RootEntry> =
   return index;
 };
 
-/**
- * Resolve a pipe name against the type namespace: `email`, `oneOf:"a":"b"` (factory), `date.iso`,
- * `url.base:"https://x"` (qualified, params go to the last member) or the root accessor form
- * `upperCase` (= `string.upperCase`). Returns undefined when the name is not a type.
- */
+/** Resolve a pipe name to a token: `email`, `oneOf:"a":"b"`, `date.iso`, `url.base:"https://x"` or a root accessor (`upperCase`). Undefined when the name is not a type */
 export const resolveTypePipe = (name: string, params: unknown[], namespace: ParserTypesNamespace | undefined): TypeToken | undefined => {
   if (!namespace) return undefined;
   const [head, ...rest] = name.split('.');

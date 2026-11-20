@@ -4,11 +4,7 @@ import type { ArrayType } from './array';
 import { array } from './array';
 import { capitalizeWord, invalid, splitWords } from './internal';
 
-/**
- * `string` — strings pass through; finite numbers, booleans and valid dates (ISO) are coerced.
- * Every string-based type (`text`, `email`, `slug`, ... and anything built on `string`) inherits
- * the whole accessor surface below.
- */
+/** Strings pass through; finite numbers, booleans and valid dates (ISO) are coerced. Every string-based type inherits these accessors */
 export class StringType extends TypeToken<string> {
   static readonly family: string = 'string';
 
@@ -16,11 +12,9 @@ export class StringType extends TypeToken<string> {
     if (typeof value === 'string') return value;
     if (typeof value === 'number' && Number.isFinite(value)) return String(value);
     if (typeof value === 'boolean') return String(value);
-    if (value instanceof Date && !isNaN(value.getTime())) return value.toISOString();
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
     throw invalid('string');
   }
-
-  // Transforms — same type, different form
 
   get upperCase(): this {
     return this.transform('upperCase', (value) => value.toUpperCase());
@@ -88,8 +82,6 @@ export class StringType extends TypeToken<string> {
   replace(search: string | RegExp, replacement: string): this {
     return this.transform('replace', (value) => value.replace(search, replacement), [search, replacement]);
   }
-
-  // Derivations — a different type
 
   override get length(): TypeToken<number> {
     return this.derive('length', (value) => value.length);

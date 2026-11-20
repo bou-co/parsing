@@ -65,4 +65,32 @@ describe('format types', () => {
     const parser = createParser({ a: types.money.amount, b: types.string });
     expect(await parser({ a: '12.50 EUR', b: '{{ price | money.currency || "n/a" }}' })).toEqual({ a: 12.5, b: 'n/a' });
   });
+
+  it('money needs a real amount', async () => {
+    for (const bad of [
+      { amount: '', currency: 'EUR' },
+      { amount: null, currency: 'EUR' },
+      { amount: false, currency: 'EUR' },
+    ]) {
+      await expect(async () => money.cast(bad)).rejects.toThrow('Invalid money');
+    }
+    expect(await money.cast({ amount: 0, currency: 'EUR' })).toEqual({ amount: 0, currency: 'EUR' });
+  });
+
+  it('duration range-checks clock parts and needs an ISO component', async () => {
+    for (const bad of ['1:99', '1:60:00', 'PT', 'P1DT']) await expect(async () => duration.cast(bad)).rejects.toThrow('Invalid duration');
+    expect(await duration.cast('90:00')).toEqual(5400);
+  });
+
+  it('currency passes Intl options through', async () => {
+    expect(await currency('EUR', 'en-US', { maximumFractionDigits: 0 }).cast(12.6)).toEqual('€13');
+  });
+
+  it('prefers currentLocale over defaultLocale', async () => {
+    const localeContext = { defaultLocale: 'en-US', currentLocale: 'fi-FI' };
+    const localized = initializeParser({ types: formatTypes, ...localeContext });
+    const parser = localized.createParser({ price: localized.types.currency(), share: localized.types.percent(1) });
+    const formatted = await parser({ price: 12.5, share: 0.256 });
+    expect({ price: plain(formatted.price), share: plain(formatted.share) }).toEqual({ price: '12,50 €', share: '25,6 %' });
+  });
 });

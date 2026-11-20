@@ -52,11 +52,10 @@ export class ParserPatternCycleError extends Error {
   }
 }
 
-// The built-in {{variable}} pattern — lookup semantics only, the expression grammar lives in the engine
 export const variablesPattern: ParserPattern = {
   delimiters: ['{{', '}}'],
   match: /\{\{([^}]+)\}\}/g,
-  // Variable lookups are context-sensitive (current, per-level instance variables), so a per-run memo would leak values across levels
+  // Variable lookups are context-sensitive, so a per-run memo would leak values across levels
   cache: 'none',
   resolve: async ({ path, context }) => {
     const { variables, variableResolver } = context;
@@ -66,8 +65,7 @@ export const variablesPattern: ParserPattern = {
     const cacheVariable = <T>(value: T): T => (context.parser ? context.parser.cacheVariable(head, value) : value);
     let value: unknown = await getFromObject(variables, head, context);
     if (value === undefined) {
-      // Built-in context heads are terminal (explicit variables still win): they never fall through
-      // to variableResolver, so context lookups can't trigger external fetches
+      // Built-in context heads never reach variableResolver, so context lookups can't trigger external fetches
       if (head === 'ctx' || head === 'context') value = context;
       else if (head === 'data') value = context.data;
       else if (variableResolver) value = await variableResolver(head, context, cacheVariable);
@@ -85,7 +83,6 @@ const buildDelimitedMatch = (name: string, delimiters: [string, string]): RegExp
   if (typeof start !== 'string' || typeof end !== 'string' || !start || !end) {
     throw new Error(`[@bou-co/parsing] Pattern "${name}" delimiters must be two non-empty strings, e.g. ['{{', '}}']`);
   }
-  // Lazy tempered body: anything (newlines included) that does not contain the end delimiter
   return new RegExp(`${escapeRegExp(start)}((?:(?!${escapeRegExp(end)})[\\s\\S])+?)${escapeRegExp(end)}`, 'g');
 };
 
@@ -93,7 +90,7 @@ const compileOne = (name: string, pattern: ParserPattern, order: number): Compil
   if ((!(pattern.match instanceof RegExp) && !pattern.delimiters) || typeof pattern.resolve !== 'function') {
     throw new Error(`[@bou-co/parsing] Pattern "${name}" must define a resolve function and either a match regex or delimiters`);
   }
-  // Expressions need a bounded capture that can hold the grammar (spaces, |, ||) — only delimiters guarantee that
+  // Only delimiters guarantee a capture that can hold the grammar (spaces, |, ||)
   if (pattern.expressions === true && !pattern.delimiters) {
     throw new Error(`[@bou-co/parsing] Pattern "${name}" requires delimiters for expressions — declare delimiters: [start, end] or set expressions: false`);
   }
@@ -122,10 +119,9 @@ export const compilePatternRegistry = (config?: ParserPatternsConfig): CompiledP
         delete merged[name];
         continue;
       }
-      // Same-named keys merge partially so re-delimiting keeps the default resolve
       const base = merged[name];
       const next: ParserPattern = base ? { ...base, ...pattern } : (pattern as ParserPattern);
-      // New delimiters without an explicit match rebuild the regex instead of keeping the stale inherited one
+      // New delimiters without an explicit match must not keep the inherited regex
       if (base && pattern.delimiters && !pattern.match) delete next.match;
       merged[name] = next;
     }
@@ -190,13 +186,13 @@ const spliceText = (text: string, matches: PatternMatch[], values: Map<string, u
   return out + text.slice(cursor);
 };
 
-// Cache layer around pattern.resolve — grammar and pipes are never cached
+// Only pattern.resolve is cached, never grammar or pipes
 const resolvePattern = (pattern: CompiledPattern, path: string, match: PatternMatch, context: ParserContext): Promise<unknown> => {
   const input: PatternResolveInput = { path, raw: match.raw, groups: match.groups, context };
   if (pattern.cache === 'none') return Promise.resolve(pattern.resolve(input));
   const key = `pattern:${pattern.name}:${path}`;
   if (pattern.cache === 'storage') {
-    // The engine's raw store — context.store interpolates keys, which would rescan this one
+    // context.store interpolates keys, which would rescan this one
     const store = (context as InternalPatternContext)[PATTERN_STORE];
     if (!store) return Promise.resolve(pattern.resolve(input));
     return store(context, key, () => pattern.resolve(input));
@@ -231,7 +227,7 @@ const evaluateAndRescan = async (match: PatternMatch, context: ParserContext, gu
   return value;
 };
 
-// Main entry: returns the input string synchronously when it contains no patterns
+// Returns the input string synchronously when it contains no patterns
 export const resolvePatternsInText = (text: string, context: ParserContext, guard?: PatternGuard): unknown => {
   const registry = getRegistry(context);
   const matches = scanText(text, registry);
@@ -244,7 +240,6 @@ export const resolvePatternsInText = (text: string, context: ParserContext, guar
   }
   if (!active.length) return spliceText(text, matches, EMPTY_VALUES);
 
-  // Resolve each unique match once, all in parallel
   const unique = new Map<string, Promise<unknown>>();
   for (const match of active) {
     const key = matchKey(match);
@@ -257,7 +252,6 @@ export const resolvePatternsInText = (text: string, context: ParserContext, guar
   });
 };
 
-// Anchored whole-string test across the registry, used where a pattern may feed a nested projection
 export const matchFullPattern = (text: string, context: ParserContext): PatternMatch | undefined => {
   const registry = getRegistry(context);
   for (const pattern of registry) {
@@ -275,15 +269,13 @@ let defaultVariablesCompiled: CompiledPattern | undefined;
 
 const LEGACY_VARIABLE_FULL = /^\{\{([^}]+)\}\}$/;
 
-// Backs the public getVariableValue export: accepts the active variables syntax, the legacy {{path}} form, or a bare expression
+// Accepts the active variables syntax, the default {{path}} form, or a bare expression
 export const evaluateVariableExpression = (input: string, context: ParserContext): Promise<unknown> => {
   const registry = getRegistry(context);
   const pattern = registry.find((item) => item.name === 'variables') ?? (defaultVariablesCompiled ??= compileOne('variables', variablesPattern, 0));
   let groups = pattern.fullMatch.exec(input) as RegExpExecArray | null;
   if (!groups) groups = LEGACY_VARIABLE_FULL.exec(input);
-  const expression = groups ? (groups[1] ?? groups[0]) : input;
-  const execGroups = (groups ?? Object.assign([input, input], { index: 0, input })) as RegExpExecArray;
-  const match: PatternMatch = { pattern, raw: input, groups: execGroups, start: 0, end: input.length };
-  if (!pattern.expressions) return resolvePattern(pattern, expression, match, context);
-  return evaluateExpression(expression, context, (candidate) => resolvePattern(pattern, candidate, match, context));
+  // A bare expression is its own capture
+  if (!groups) groups = Object.assign([input, input], { index: 0, input }) as RegExpExecArray;
+  return evaluateMatch({ pattern, raw: input, groups, start: 0, end: input.length }, context);
 };

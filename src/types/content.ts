@@ -1,4 +1,3 @@
-// `@bou-co/parsing/types/content` — HTML and Markdown behind sanitiser adapters. The peer packages live behind this path only
 export { html, HtmlType } from './content/html';
 export { markdown, MarkdownType, type MarkdownOptions } from './content/markdown';
 export { sanitizeHtmlAdapter } from './content/sanitize-html';

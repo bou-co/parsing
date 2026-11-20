@@ -1,5 +1,4 @@
-// The `@bou-co/parsing/types` entry: every built-in token and class individually, plus `defineType` — never pulls in the parser engine
-
+// Must never import the parser engine
 export { TypeToken, defineType, isTypeToken, isMissing, ParserCastError } from '../type-token';
 export type {
   CastFunction,

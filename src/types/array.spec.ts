@@ -1,5 +1,5 @@
 import { initializeParser } from '../parser';
-import { ArrayType, TypeToken } from './index';
+import { ArrayType, TypeToken, defineType } from './index';
 
 const { createParser, types } = initializeParser();
 
@@ -60,5 +60,30 @@ describe('array type', () => {
     const parser = createParser({ first: types.array.first, length: types.array.length });
     expect(await parser({ other: true })).toEqual({});
     expect(await parser({ first: [], length: [] })).toEqual({ length: 0 });
+  });
+
+  it('keeps an undefined slot for a missing item', async () => {
+    const parser = createParser({ nums: types.array.of(types.number) });
+    expect(await parser({ nums: ['1', '', null, '3'] })).toEqual({ nums: [1, undefined, undefined, 3] });
+  });
+
+  it('applies item-level default and required', async () => {
+    const parser = createParser({ filled: types.array.of(types.number.default(0)), strict: types.array.of(types.number.required) });
+    expect(await parser({ filled: ['1', ''] })).toEqual({ filled: [1, 0] });
+    await expect(parser({ strict: ['1', ''] })).rejects.toThrow('at "strict.1": cannot cast value to "number" — Missing required value');
+  });
+
+  it('gives item casts their own context', async () => {
+    const seen: unknown[] = [];
+    const spy = defineType((value, context) => {
+      seen.push({ key: context.key, index: context.index, value: context.value, parentKey: context.parent?.key });
+      return value;
+    });
+    const parser = createParser({ items: types.array.of(spy) });
+    await parser({ items: ['a', 'b'] });
+    expect(seen).toEqual([
+      { key: 0, index: 0, value: 'a', parentKey: 'items' },
+      { key: 1, index: 1, value: 'b', parentKey: 'items' },
+    ]);
   });
 });

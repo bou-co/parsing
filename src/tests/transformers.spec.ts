@@ -79,3 +79,34 @@ describe('parsing', () => {
     expect(finnish.message).toEqual('Hei vuodesta ' + year);
   });
 });
+
+describe('transformer conditions', () => {
+  it('awaits an async when in parse and in resolve alike', async () => {
+    const never: ParserContextTransformer = { when: async () => false, then: () => 'TRANSFORMED' };
+    const strings: ParserContextTransformer = { when: async ({ data }) => typeof data === 'string', then: ({ data }) => `${data}!` };
+    const { createParser, resolve, types } = initializeParser({ transformers: { never, strings } });
+    const parser = createParser({ a: types.string, n: types.number });
+    expect(await parser({ a: 'x', n: 1 })).toEqual({ a: 'x!', n: 1 });
+    expect(await resolve({ a: 'x', n: 1 })).toEqual({ a: 'x!', n: 1 });
+  });
+
+  it('mirrors data in value inside parse-mode transformers', async () => {
+    const seen: unknown[] = [];
+    const spy: ParserContextTransformer = {
+      when: ({ data, value }) => {
+        seen.push([data, value]);
+        return false;
+      },
+      then: ({ data }) => data,
+    };
+    const { createParser, types } = initializeParser({ transformers: { spy } });
+    await createParser({ a: types.string })({ a: 'x' });
+    expect(seen).toEqual([['x', 'x']]);
+  });
+
+  it('does not run transformers again on pattern output', async () => {
+    const shout: ParserContextTransformer = { when: ({ data }) => data === 'inner', then: () => 'TRANSFORMED' };
+    const { createParser, types } = initializeParser({ transformers: { shout }, variables: { v: 'inner' } });
+    expect(await createParser({ a: types.string, b: types.string })({ a: 'inner', b: '{{v}}' })).toEqual({ a: 'TRANSFORMED', b: 'inner' });
+  });
+});

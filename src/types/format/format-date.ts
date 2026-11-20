@@ -1,16 +1,8 @@
 import type { ParserContext } from '../../parser-types';
 import { date } from '../date';
+import { pad } from '../internal';
 import { string, StringType } from '../string';
-
-/**
- * `formatDate(format?, timezone?, locale?)` — Angular `DatePipe`-compatible formatting on top of
- * `Intl.DateTimeFormat`: every locale the runtime knows works with no locale data shipped.
- * Presets (`short`, `mediumDate`, `longTime`, ...) map to `dateStyle`/`timeStyle`; tokens follow
- * Angular (`y`, `MMMM`, `LLLL` standalone, `EEEE`, `HH:mm`, `a`, `z`, `Z`, `O`, `w`, `W`, `Y`, `S`),
- * with `'quoted'` literal segments. Timezone accepts IANA names (recommended, DST-correct) and
- * fixed offsets (`+0430`). Default format: `mediumDate`, default locale: the context's
- * `currentLocale`/`defaultLocale`, then `en-US`.
- */
+import { contextLocale, dateFormatter } from './intl';
 
 type Styles = { dateStyle?: Intl.DateTimeFormatOptions['dateStyle']; timeStyle?: Intl.DateTimeFormatOptions['timeStyle'] };
 
@@ -29,16 +21,8 @@ const PRESETS: Record<string, Styles> = {
   fullTime: { timeStyle: 'full' },
 };
 
-const formatterCache = new Map<string, Intl.DateTimeFormat>();
-const formatter = (locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat => {
-  const key = `${locale}|${JSON.stringify(options)}`;
-  let cached = formatterCache.get(key);
-  if (!cached) formatterCache.set(key, (cached = new Intl.DateTimeFormat(locale, options)));
-  return cached;
-};
-
 const part = (locale: string, options: Intl.DateTimeFormatOptions, value: Date, type: Intl.DateTimeFormatPartTypes): string =>
-  formatter(locale, options)
+  dateFormatter(locale, options)
     .formatToParts(value)
     .filter((item) => item.type === type)
     .map((item) => item.value)
@@ -72,9 +56,8 @@ interface Fields {
   offsetMinutes: number;
 }
 
-// Calendar fields of the instant as seen in the zone — one formatter call, numeric parts only
 const zonedFields = (value: Date, zone: Zone): Fields => {
-  const parts = formatter('en-US', {
+  const parts = dateFormatter('en-US', {
     timeZone: zone.timeZone,
     hourCycle: 'h23',
     year: 'numeric',
@@ -100,14 +83,11 @@ const zonedFields = (value: Date, zone: Zone): Fields => {
   };
   if (zone.offset !== undefined) fields.offsetMinutes = zone.offset;
   else {
-    // Offset = zone wall-clock minus UTC wall-clock, in minutes
     const asUtc = Date.UTC(fields.year, fields.month - 1, fields.day, fields.hours, fields.minutes, fields.seconds);
     fields.offsetMinutes = Math.round((asUtc - (value.getTime() - fields.milliseconds)) / 60000);
   }
   return fields;
 };
-
-const pad = (value: number, size: number) => String(Math.abs(value)).padStart(size, '0');
 
 const formatOffset = (minutes: number, style: 'basic' | 'extended' | 'gmt-short' | 'gmt-long'): string => {
   const sign = minutes < 0 ? '-' : '+';
@@ -166,20 +146,18 @@ const formatToken = (token: string, input: FormatInput): string => {
     }
     case 'M': {
       if (length <= 2) return pad(fields.month, length);
-      // Format form: the month as it appears inside a full date (genitive in Finnish and friends); some locales
-      // render short months numerically inside dates, in which case the standalone name is the useful answer
+      // Format form (genitive in Finnish and friends). Some locales render short months numerically inside dates, then the standalone name is used
       const inDate = part(locale, { ...tz, month: widthOf(length), day: 'numeric' }, shifted, 'month');
       return /\d/.test(inDate) ? part(locale, { ...tz, month: widthOf(length) }, shifted, 'month') : inDate;
     }
     case 'L':
       if (length <= 2) return pad(fields.month, length);
-      // Standalone form: the month on its own
       return part(locale, { ...tz, month: widthOf(length) }, shifted, 'month');
     case 'd':
       return pad(fields.day, length);
     case 'E':
     case 'c': {
-      // EEEEEE is Angular's two-letter "short" form, which Intl lacks — cut the abbreviated name
+      // EEEEEE is Angular's two-letter form, which Intl lacks
       const width: Width = length === 6 ? 'short' : widthOf(length);
       const options: Intl.DateTimeFormatOptions = letter === 'E' ? { ...tz, weekday: width, day: 'numeric', month: 'long' } : { ...tz, weekday: width };
       const name = part(locale, options, shifted, 'weekday');
@@ -215,7 +193,7 @@ const formatToken = (token: string, input: FormatInput): string => {
   }
 };
 
-// Pattern → literal and token segments; 'quoted' text passes through, '' is a single quote
+// 'quoted' text is literal, '' is a single quote
 const tokenize = (pattern: string): { literal: boolean; text: string }[] => {
   const segments: { literal: boolean; text: string }[] = [];
   let i = 0;
@@ -227,7 +205,6 @@ const tokenize = (pattern: string): { literal: boolean; text: string }[] => {
         i += 2;
         continue;
       }
-      // Quoted literal: runs to the closing quote, with '' inside standing for one quote
       let text = '';
       let j = i + 1;
       while (j < pattern.length) {
@@ -265,8 +242,8 @@ export const formatDateValue = (value: Date, format = 'mediumDate', timezone?: s
   const shifted = zone.offset !== undefined ? new Date(value.getTime() + zone.offset * 60000) : value;
   const preset = PRESETS[format];
   if (preset) {
-    const text = formatter(locale, { ...preset, timeZone: zone.timeZone }).format(shifted);
-    // Presets with a time in a fixed-offset zone would print "UTC" — substitute the real offset
+    const text = dateFormatter(locale, { ...preset, timeZone: zone.timeZone }).format(shifted);
+    // Presets with a time in a fixed-offset zone would print "UTC"
     return zone.offset !== undefined && preset.timeStyle && (preset.timeStyle === 'long' || preset.timeStyle === 'full')
       ? text.replace(/\bUTC\b|\bGMT\b|Coordinated Universal Time/g, formatOffset(zone.offset, preset.timeStyle === 'full' ? 'gmt-long' : 'gmt-short'))
       : text;
@@ -277,11 +254,7 @@ export const formatDateValue = (value: Date, format = 'mediumDate', timezone?: s
   return segments.map((segment) => (segment.literal ? segment.text : formatToken(segment.text, input))).join('');
 };
 
-const contextLocale = (context: ParserContext): string | undefined => {
-  const { currentLocale, defaultLocale } = context as { currentLocale?: unknown; defaultLocale?: unknown };
-  return typeof currentLocale === 'string' ? currentLocale : typeof defaultLocale === 'string' ? defaultLocale : undefined;
-};
-
+/** Angular `DatePipe`-compatible formatting on top of `Intl.DateTimeFormat`. Defaults: `mediumDate`, UTC, the context locale then `en-US` */
 export const formatDate = (format = 'mediumDate', timezone?: string, locale?: string): StringType =>
   date['derive']('formatDate', (value: Date, context: ParserContext) => formatDateValue(value, format, timezone, locale ?? contextLocale(context) ?? 'en-US'), [
     format,
